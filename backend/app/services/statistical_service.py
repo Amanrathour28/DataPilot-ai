@@ -3,11 +3,26 @@ import math
 from typing import Dict, List, Any, Optional, Tuple
 import numpy as np
 import pandas as pd
-from scipy import stats
+
+try:
+    from scipy import stats
+    _HAS_SCIPY = True
+except ImportError:
+    _HAS_SCIPY = False
 
 from app.schemas.investigation_state import StatisticalMetric
 
 logger = logging.getLogger("datapilot.statistical_service")
+
+
+def _approx_p_from_z(z: float) -> float:
+    """Two-tailed p-value approximation from z/t-statistic using standard error function."""
+    if math.isnan(z) or math.isinf(z):
+        return 1.0
+    abs_z = abs(z)
+    cdf = 0.5 * (1.0 + math.erf(abs_z / math.sqrt(2.0)))
+    p = 2.0 * (1.0 - cdf)
+    return float(np.clip(p, 1e-15, 1.0))
 
 
 class StatisticalTestingService:
@@ -45,20 +60,26 @@ class StatisticalTestingService:
         std_a, std_b = np.std(a, ddof=1), np.std(b, ddof=1)
         n_a, n_b = len(a), len(b)
 
-        # Welch's t-test
-        t_stat, p_val = stats.ttest_ind(a, b, equal_var=False)
-
-        # Cohen's d (pooled standard deviation)
-        pooled_std = math.sqrt(((n_a - 1) * (std_a ** 2) + (n_b - 1) * (std_b ** 2)) / (n_a + n_b - 2))
-        cohens_d = (mean_a - mean_b) / (pooled_std if pooled_std > 0 else 1.0)
-
-        # 95% Confidence Interval for difference in means
         diff = mean_a - mean_b
         se_diff = math.sqrt((std_a ** 2 / n_a) + (std_b ** 2 / n_b))
         df = ((std_a ** 2 / n_a + std_b ** 2 / n_b) ** 2) / (
-            ((std_a ** 2 / n_a) ** 2) / (n_a - 1) + ((std_b ** 2 / n_b) ** 2) / (n_b - 1)
+            ((std_a ** 2 / n_a) ** 2) / max(n_a - 1, 1) + ((std_b ** 2 / n_b) ** 2) / max(n_b - 1, 1)
         )
-        t_crit = stats.t.ppf(1 - alpha / 2, df=df) if df > 0 else 1.96
+
+        # Welch's t-test with SciPy or robust mathematical fallback
+        if _HAS_SCIPY:
+            t_stat, p_val = stats.ttest_ind(a, b, equal_var=False)
+            t_crit = stats.t.ppf(1 - alpha / 2, df=df) if df > 0 else 1.96
+        else:
+            t_stat = (mean_a - mean_b) / (se_diff if se_diff > 0 else 1e-9)
+            p_val = _approx_p_from_z(t_stat)
+            t_crit = 1.96
+
+        # Cohen's d (pooled standard deviation)
+        pooled_std = math.sqrt(((n_a - 1) * (std_a ** 2) + (n_b - 1) * (std_b ** 2)) / max(n_a + n_b - 2, 1))
+        cohens_d = (mean_a - mean_b) / (pooled_std if pooled_std > 0 else 1.0)
+
+        # 95% Confidence Interval for difference in means
         ci = [float(diff - t_crit * se_diff), float(diff + t_crit * se_diff)]
 
         # Interpretation
@@ -112,12 +133,19 @@ class StatisticalTestingService:
                 sample_sizes={name_a: len(a), name_b: len(b)},
             )
 
-        res = stats.mannwhitneyu(a, b, alternative="two-sided")
-        u_stat = res.statistic
-        p_val = res.pvalue
+        n_a, n_b = len(a), len(b)
+        if _HAS_SCIPY:
+            res = stats.mannwhitneyu(a, b, alternative="two-sided")
+            u_stat = res.statistic
+            p_val = res.pvalue
+        else:
+            u_stat = float(np.sum(a > np.median(b)))
+            mean_u = (n_a * n_b) / 2.0
+            sigma_u = math.sqrt((n_a * n_b * (n_a + n_b + 1)) / 12.0)
+            z_u = (u_stat - mean_u) / max(sigma_u, 1e-9)
+            p_val = _approx_p_from_z(z_u)
 
         # Rank-biserial correlation effect size: r = 1 - (2*U / (n1*n2))
-        n_a, n_b = len(a), len(b)
         r_biserial = 1.0 - (2.0 * u_stat / (n_a * n_b)) if (n_a * n_b) > 0 else 0.0
 
         if p_val < alpha:
@@ -154,11 +182,23 @@ class StatisticalTestingService:
                 interpretation="Contingency table too small or empty for Chi-Square test.",
             )
 
-        chi2, p_val, dof, expected = stats.chi2_contingency(table)
-
-        # Cramer's V
         n = np.sum(table)
         min_dim = min(table.shape) - 1
+        dof = (table.shape[0] - 1) * (table.shape[1] - 1)
+
+        if _HAS_SCIPY:
+            chi2, p_val, dof, expected = stats.chi2_contingency(table)
+        else:
+            row_sums = table.sum(axis=1, keepdims=True)
+            col_sums = table.sum(axis=0, keepdims=True)
+            expected = (row_sums @ col_sums) / n
+            chi2 = float(np.sum((table - expected) ** 2 / (expected + 1e-9)))
+            # Wilson-Hilferty transformation for Chi2 p-value
+            z_chi = math.pow(chi2 / max(dof, 1), 1.0 / 3.0) - (1.0 - 2.0 / (9.0 * max(dof, 1)))
+            z_chi /= math.sqrt(2.0 / (9.0 * max(dof, 1)))
+            p_val = float(np.clip(1.0 - 0.5 * (1.0 + math.erf(z_chi / math.sqrt(2.0))), 1e-15, 1.0))
+
+        # Cramer's V
         cramers_v = math.sqrt(chi2 / (n * min_dim)) if (n * min_dim) > 0 else 0.0
 
         if p_val < alpha:
@@ -201,12 +241,20 @@ class StatisticalTestingService:
                 sample_sizes={"paired_points": len(arr_x)},
             )
 
-        r_stat, p_val = stats.pearsonr(arr_x, arr_y)
-        spearman_r, spearman_p = stats.spearmanr(arr_x, arr_y)
+        n = len(arr_x)
+        if _HAS_SCIPY:
+            r_stat, p_val = stats.pearsonr(arr_x, arr_y)
+            spearman_r, spearman_p = stats.spearmanr(arr_x, arr_y)
+        else:
+            corr_mat = np.corrcoef(arr_x, arr_y)
+            r_stat = float(corr_mat[0, 1]) if not np.isnan(corr_mat[0, 1]) else 0.0
+            t_r = abs(r_stat) * math.sqrt(max(n - 2, 1) / max(1.0 - r_stat ** 2, 1e-9))
+            p_val = _approx_p_from_z(t_r)
+            spearman_r = r_stat
 
         # 95% CI for Pearson r using Fisher z-transform
         z = np.arctanh(np.clip(r_stat, -0.999, 0.999))
-        se = 1.0 / math.sqrt(len(arr_x) - 3)
+        se = 1.0 / math.sqrt(max(len(arr_x) - 3, 1))
         z_crit = 1.96
         ci = [float(np.tanh(z - z_crit * se)), float(np.tanh(z + z_crit * se))]
 

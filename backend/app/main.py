@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.core.logging import setup_logging
-from app.db.base import engine, Base
+from app.db.base import engine, Base, _is_sqlite
 
 # Import models so SQLAlchemy registers them on the metadata
 import app.db.models  # noqa: F401
@@ -28,12 +28,20 @@ async def lifespan(app: FastAPI):
     Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
     logger.info(f"DataPilot AI starting — env={settings.app_env}")
 
-    # In development, auto-create tables if they don't exist.
-    # In production, always use Alembic migrations instead.
-    if settings.app_env == "development":
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database tables verified/created")
+    # In Postgres, enable pgvector extension if not already present
+    if not _is_sqlite:
+        try:
+            from sqlalchemy import text
+            async with engine.begin() as conn:
+                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+            logger.info("pgvector extension verified/enabled")
+        except Exception as e:
+            logger.warning(f"Could not enable pgvector extension: {e}")
+
+    # Auto-create tables if they don't exist
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    logger.info("Database tables verified/created")
 
     yield
 
@@ -55,6 +63,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins_list,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

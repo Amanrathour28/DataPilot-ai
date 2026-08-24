@@ -4,7 +4,7 @@ from sqlalchemy.orm import DeclarativeBase
 from app.core.config import settings
 
 # SQLite doesn't support pool parameters
-_is_sqlite = settings.database_url.startswith("sqlite")
+_is_sqlite = settings.async_database_url.startswith("sqlite")
 
 _engine_kwargs = {
     "echo": settings.debug,
@@ -14,11 +14,12 @@ if _is_sqlite:
 else:
     _engine_kwargs.update({
         "pool_pre_ping": True,
-        "pool_size": 10,
-        "max_overflow": 20,
+        "pool_recycle": 300,
+        "pool_size": 5,
+        "max_overflow": 10,
     })
 
-engine = create_async_engine(settings.database_url, **_engine_kwargs)
+engine = create_async_engine(settings.async_database_url, **_engine_kwargs)
 
 AsyncSessionLocal = async_sessionmaker(
     engine,

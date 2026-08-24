@@ -180,7 +180,39 @@ if __name__ == '__main__':
             }
 
     async def call_llm(self, system_prompt: str, user_prompt: str, format_json: bool = False) -> str:
-        """Call Ollama chat API. Automatically switches to mock fallback on HTTP errors."""
+        """Call Cloud LLM (OpenAI/Groq), local Ollama, or fallback reasoning engine."""
+        # 1. Try Cloud LLM (OpenAI / Groq) if API key is provided
+        if settings.openai_api_key or settings.groq_api_key:
+            api_key = settings.openai_api_key or settings.groq_api_key
+            base_url = "https://api.groq.com/openai/v1" if (settings.groq_api_key and not settings.openai_api_key) else settings.openai_base_url
+            model = "llama-3.3-70b-versatile" if (settings.groq_api_key and not settings.openai_api_key) else settings.openai_model
+            
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }
+            body = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "temperature": 0.2
+            }
+            if format_json and ("gpt-4" in model or "gpt-3.5" in model or "llama" in model):
+                body["response_format"] = {"type": "json_object"}
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    resp = await client.post(f"{base_url}/chat/completions", headers=headers, json=body)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        return data["choices"][0]["message"]["content"]
+                    else:
+                        logger.warning(f"Cloud LLM call returned {resp.status_code}: {resp.text}")
+            except Exception as e:
+                logger.warning(f"Cloud LLM request exception: {e}")
+
+        # 2. Try Ollama if configured
         url = f"{settings.ollama_base_url}/api/chat"
         payload = {
             "model": settings.ollama_default_model,
