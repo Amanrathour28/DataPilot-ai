@@ -33,6 +33,10 @@ class Settings(BaseSettings):
         # Replace sslmode with asyncpg compatible ssl
         if "sslmode=require" in url:
             url = url.replace("sslmode=require", "ssl=require")
+        if "&channel_binding=require" in url:
+            url = url.replace("&channel_binding=require", "")
+        if "?channel_binding=require" in url:
+            url = url.replace("?channel_binding=require", "")
         return url
 
     # Redis (Optional in serverless)

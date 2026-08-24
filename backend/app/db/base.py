@@ -17,6 +17,10 @@ else:
         "pool_recycle": 300,
         "pool_size": 5,
         "max_overflow": 10,
+        "connect_args": {
+            "statement_cache_size": 0,
+            "prepared_statement_cache_size": 0,
+        },
     })
 
 engine = create_async_engine(settings.async_database_url, **_engine_kwargs)
