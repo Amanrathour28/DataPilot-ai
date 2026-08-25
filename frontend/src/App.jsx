@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ToastProvider } from './components/ui/Toast'
+import ErrorBoundary from './components/ui/ErrorBoundary'
 
 // Layout
 import AppLayout from './components/layout/AppLayout'
@@ -35,35 +36,37 @@ const queryClient = new QueryClient({
 
 export default function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <ToastProvider>
-        <BrowserRouter>
-          <Routes>
-            {/* Public routes */}
-            <Route path="/"         element={<Landing />} />
-            <Route path="/login"    element={<Login />} />
-            <Route path="/register" element={<Register />} />
+    <ErrorBoundary title="Application Error">
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <BrowserRouter>
+            <Routes>
+              {/* Public routes */}
+              <Route path="/"         element={<ErrorBoundary><Landing /></ErrorBoundary>} />
+              <Route path="/login"    element={<ErrorBoundary><Login /></ErrorBoundary>} />
+              <Route path="/register" element={<ErrorBoundary><Register /></ErrorBoundary>} />
 
-            {/* Protected app routes */}
-            <Route element={<AppLayout />}>
-              <Route path="/dashboard"          element={<Dashboard />} />
-              <Route path="/investigations"     element={<Investigations />} />
-              <Route path="/investigations/new" element={<NewInvestigation />} />
-              <Route path="/investigations/:id" element={<InvestigationDetail />} />
-              <Route path="/datasets"           element={<Datasets />} />
-              <Route path="/datasets/:id"       element={<DatasetDetail />} />
-              <Route path="/knowledge"          element={<Knowledge />} />
-              <Route path="/agents"             element={<Agents />} />
-              <Route path="/analytics"          element={<Analytics />} />
-              <Route path="/memory"             element={<Memory />} />
-              <Route path="/settings"           element={<SettingsPage />} />
-            </Route>
+              {/* Protected app routes */}
+              <Route element={<AppLayout />}>
+                <Route path="/dashboard"          element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
+                <Route path="/investigations"     element={<ErrorBoundary><Investigations /></ErrorBoundary>} />
+                <Route path="/investigations/new" element={<ErrorBoundary><NewInvestigation /></ErrorBoundary>} />
+                <Route path="/investigations/:id" element={<ErrorBoundary><InvestigationDetail /></ErrorBoundary>} />
+                <Route path="/datasets"           element={<ErrorBoundary title="Datasets Error"><Datasets /></ErrorBoundary>} />
+                <Route path="/datasets/:id"       element={<ErrorBoundary title="Dataset Explorer Error"><DatasetDetail /></ErrorBoundary>} />
+                <Route path="/knowledge"          element={<ErrorBoundary><Knowledge /></ErrorBoundary>} />
+                <Route path="/agents"             element={<ErrorBoundary><Agents /></ErrorBoundary>} />
+                <Route path="/analytics"          element={<ErrorBoundary><Analytics /></ErrorBoundary>} />
+                <Route path="/memory"             element={<ErrorBoundary><Memory /></ErrorBoundary>} />
+                <Route path="/settings"           element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
+              </Route>
 
-            {/* Catch-all */}
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
-          </Routes>
-        </BrowserRouter>
-      </ToastProvider>
-    </QueryClientProvider>
+              {/* Catch-all */}
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            </Routes>
+          </BrowserRouter>
+        </ToastProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   )
 }

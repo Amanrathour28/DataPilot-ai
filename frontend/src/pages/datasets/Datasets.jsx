@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, Search, Database, RefreshCw, Grid, List } from 'lucide-react'
+import { Plus, Search, Database, RefreshCw, Grid, List, AlertCircle } from 'lucide-react'
 import { Button, IconButton } from '../../components/ui/Button'
 import { CardSkeleton } from '../../components/ui/Skeleton'
 import DatasetCard from '../../components/datasets/DatasetCard'
@@ -37,27 +37,31 @@ export default function Datasets() {
   const toast        = useToast()
   const queryClient  = useQueryClient()
 
-  const { data: datasets = [], isLoading, refetch } = useQuery({
+  const { data: datasetsRaw = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['datasets', activeWorkspace?.id],
     queryFn: () => datasetsApi.list(activeWorkspace.id),
     enabled: !!activeWorkspace?.id,
     refetchInterval: (data) => {
-      // Poll every 3s while any dataset is profiling
-      const hasPending = data?.some(d => ['UPLOADING', 'PROFILING'].includes(d.status))
+      const hasPending = Array.isArray(data) && data.some(d => d && ['UPLOADING', 'PROFILING'].includes(d.status))
       return hasPending ? 3000 : false
     },
   })
 
-  const filtered = datasets.filter(d =>
-    d.name.toLowerCase().includes(search.toLowerCase()) ||
-    d.original_filename.toLowerCase().includes(search.toLowerCase())
-  )
+  const datasets = Array.isArray(datasetsRaw) ? datasetsRaw : []
+
+  const filtered = datasets.filter(d => {
+    if (!d) return false
+    const nameStr = (d.name || '').toLowerCase()
+    const fileStr = (d.original_filename || '').toLowerCase()
+    const q = (search || '').toLowerCase()
+    return nameStr.includes(q) || fileStr.includes(q)
+  })
 
   const handleUpload = async (file, onProgress) => {
     if (!activeWorkspace) throw new Error('No workspace selected')
     const result = await datasetsApi.upload(activeWorkspace.id, file, onProgress)
     await queryClient.invalidateQueries(['datasets', activeWorkspace.id])
-    toast?.show(`${result.name} uploaded. Profiling started…`, 'success')
+    toast?.show(`${result.name || 'Dataset'} uploaded. Profiling started…`, 'success')
     return result
   }
 
@@ -83,7 +87,9 @@ export default function Datasets() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold text-slate-100">Datasets</h1>
-          <p className="text-sm text-slate-500 mt-0.5">{datasets.length} dataset{datasets.length !== 1 ? 's' : ''} in this workspace</p>
+          <p className="text-sm text-slate-500 mt-0.5">
+            {datasets.length} dataset{datasets.length !== 1 ? 's' : ''} in workspace &ldquo;{activeWorkspace.name}&rdquo;
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <IconButton icon={RefreshCw} label="Refresh" onClick={() => refetch()} size={15} />
@@ -99,6 +105,24 @@ export default function Datasets() {
         <div className="card p-6 mb-6 animate-slide-up">
           <h2 className="text-sm font-semibold text-slate-200 mb-4">Upload Datasets</h2>
           <UploadDropzone onUpload={handleUpload} workspaceId={activeWorkspace.id} />
+        </div>
+      )}
+
+      {/* Error state alert */}
+      {isError && (
+        <div className="card p-5 border border-red-500/30 bg-red-500/10 mb-6 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <AlertCircle size={20} className="text-red-400 flex-shrink-0" />
+            <div>
+              <h3 className="text-sm font-semibold text-red-300">Failed to load datasets</h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {error?.response?.data?.detail || error?.message || 'Could not connect to backend server.'}
+              </p>
+            </div>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => refetch()}>
+            <RefreshCw size={14} /> Retry
+          </Button>
         </div>
       )}
 
@@ -176,9 +200,9 @@ export default function Datasets() {
                   </td>
                   <td>{ds.row_count?.toLocaleString() ?? '—'}</td>
                   <td>{ds.column_count ?? '—'}</td>
-                  <td>{(ds.file_size_bytes / 1024 / 1024).toFixed(2)} MB</td>
+                  <td>{((ds.file_size_bytes || 0) / 1024 / 1024).toFixed(2)} MB</td>
                   <td><StatusBadge status={ds.status} /></td>
-                  <td>{new Date(ds.created_at).toLocaleDateString()}</td>
+                  <td>{ds.created_at ? new Date(ds.created_at).toLocaleDateString() : '—'}</td>
                 </tr>
               ))}
             </tbody>
@@ -195,4 +219,3 @@ export default function Datasets() {
     </div>
   )
 }
-

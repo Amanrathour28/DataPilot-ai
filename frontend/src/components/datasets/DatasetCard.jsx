@@ -1,22 +1,32 @@
 import { useNavigate } from 'react-router-dom'
-import { Database, ArrowRight, BarChart2, Columns, Rows } from 'lucide-react'
+import { Database, ArrowRight, Columns, Rows } from 'lucide-react'
 import { StatusBadge } from '../ui/Badge'
-import { clsx } from 'clsx'
 
 function formatBytes(bytes) {
+  if (!bytes || isNaN(bytes)) return '0 B'
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
 function formatDate(iso) {
-  return new Date(iso).toLocaleDateString('en-US', {
-    month: 'short', day: 'numeric', year: 'numeric'
-  })
+  if (!iso) return 'Recent'
+  try {
+    const d = new Date(iso)
+    if (isNaN(d.getTime())) return 'Recent'
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  } catch {
+    return 'Recent'
+  }
 }
 
 export default function DatasetCard({ dataset }) {
   const navigate = useNavigate()
+
+  if (!dataset) return null
+
+  const name = dataset.name || dataset.original_filename || 'Untitled Dataset'
+  const originalFile = dataset.original_filename || name
 
   return (
     <div
@@ -32,12 +42,12 @@ export default function DatasetCard({ dataset }) {
         {/* Content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2 mb-1">
-            <h3 className="text-sm font-semibold text-slate-200 truncate">{dataset.name}</h3>
+            <h3 className="text-sm font-semibold text-slate-200 truncate">{name}</h3>
             <StatusBadge status={dataset.status} />
           </div>
 
-          <p className="text-xs text-slate-500 mb-3">
-            {dataset.original_filename} · {formatBytes(dataset.file_size_bytes)} · {formatDate(dataset.created_at)}
+          <p className="text-xs text-slate-500 mb-3 truncate">
+            {originalFile} · {formatBytes(dataset.file_size_bytes)} · {formatDate(dataset.created_at)}
           </p>
 
           {/* Stats row */}
@@ -45,7 +55,7 @@ export default function DatasetCard({ dataset }) {
             {dataset.row_count != null && (
               <span className="flex items-center gap-1">
                 <Rows size={11} />
-                {dataset.row_count.toLocaleString()} rows
+                {Number(dataset.row_count).toLocaleString()} rows
               </span>
             )}
             {dataset.column_count != null && (
