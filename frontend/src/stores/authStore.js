@@ -56,6 +56,7 @@ const useAuthStore = create(
 
       logout: () => {
         localStorage.removeItem('datapilot_token')
+        localStorage.removeItem('datapilot_auth')
         set({ user: null, token: null, error: null })
       },
 

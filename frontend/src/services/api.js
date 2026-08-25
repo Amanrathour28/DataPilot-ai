@@ -6,8 +6,8 @@ const getBaseUrl = () => {
     return envUrl.trim()
   }
   if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-    // Backend is deployed separately — use the backend's production domain
-    return 'https://datapilot-backend-6ycp8n9xw-amanrathour8972-gmailcoms-projects.vercel.app'
+    // Production backend deployment on Vercel
+    return 'https://datapilot-backend-five.vercel.app'
   }
   return 'http://localhost:8000'
 }
@@ -19,21 +19,33 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
-// Attach JWT token to every request
+// Attach JWT token to every request reliably
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('datapilot_token')
+  let token = localStorage.getItem('datapilot_token')
+  if (!token) {
+    try {
+      const authStorage = localStorage.getItem('datapilot_auth')
+      if (authStorage) {
+        const parsed = JSON.parse(authStorage)
+        token = parsed?.state?.token
+      }
+    } catch {
+      // Ignore JSON parse errors
+    }
+  }
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
   return config
 })
 
-// Handle 401 globally — clear token safely without triggering full browser reloads
+// Handle 401 globally — clear tokens cleanly
 api.interceptors.response.use(
   (res) => res,
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('datapilot_token')
+      localStorage.removeItem('datapilot_auth')
     }
     return Promise.reject(error)
   }
