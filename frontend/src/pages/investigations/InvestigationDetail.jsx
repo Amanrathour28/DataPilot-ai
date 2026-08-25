@@ -409,7 +409,20 @@ export default function InvestigationDetail() {
             </div>
 
             <div className="prose prose-invert max-w-none text-xs text-slate-300 leading-relaxed font-normal whitespace-pre-wrap">
-              {streamSummary || (
+              {streamSummary ? (
+                typeof streamSummary === 'string' && streamSummary.trim().startsWith('{') ? (
+                  (() => {
+                    try {
+                      const p = JSON.parse(streamSummary)
+                      return p.executive_summary || p.summary || streamSummary
+                    } catch {
+                      return streamSummary
+                    }
+                  })()
+                ) : (
+                  typeof streamSummary === 'object' ? (streamSummary.executive_summary || streamSummary.summary || '') : streamSummary
+                )
+              ) : (
                 isRunning
                   ? "Investigation is currently in progress. Generating empirical analysis..."
                   : "No summary report available."

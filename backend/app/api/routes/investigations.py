@@ -279,6 +279,75 @@ async def get_investigation(
         .where(Hypothesis.investigation_id == investigation_id)
         .order_by(Hypothesis.created_at.asc())
     )
+    evidence_res = await db.execute(
+        select(EvidenceItem)
+        .where(EvidenceItem.investigation_id == investigation_id)
+        .order_by(EvidenceItem.created_at.asc())
+    )
+    evidence_items = evidence_res.scalars().all()
+
+    critic_res = await db.execute(
+        select(CriticReview)
+        .where(CriticReview.investigation_id == investigation_id)
+        .order_by(CriticReview.created_at.asc())
+    )
+    critic_list = critic_res.scalars().all()
+
+    events_res = await db.execute(
+        select(InvestigationEvent)
+        .where(InvestigationEvent.investigation_id == investigation_id)
+        .order_by(InvestigationEvent.seq.asc())
+    )
+    events = events_res.scalars().all()
+
+    # Reconstruct durable evidence ledger if missing on Investigation model
+    evidence_ledger = investigation.evidence_ledger or []
+    if not evidence_ledger and evidence_items:
+        evidence_ledger = [
+            {
+                "evidence_id": item.id,
+                "claim": item.claim,
+                "source_type": item.source_type,
+                "source_name": item.source_name,
+                "result_summary": item.result_summary,
+                "statistical_metrics": item.statistical_metrics,
+                "document_citation": item.document_citation,
+                "causal_classification": item.causal_classification,
+                "confidence": item.confidence,
+                "supports_claim": item.supports_claim,
+                "created_by_agent": item.created_by_agent,
+            }
+            for item in evidence_items
+        ]
+
+    # Reconstruct critic reviews if missing on Investigation model
+    critic_reviews = investigation.critic_reviews or []
+    if not critic_reviews and critic_list:
+        critic_reviews = [
+            {
+                "id": c.id,
+                "round_number": c.round_number,
+                "verdict": c.verdict,
+                "overall_confidence_justified": c.overall_confidence_justified,
+                "issues": c.issues,
+                "critique_notes": c.critique_notes,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            }
+            for c in critic_list
+        ]
+
+    # Reconstruct historical agent activity feed from durable events
+    agent_activity = [
+        {
+            "id": evt.id,
+            "agent": evt.agent,
+            "action": evt.message,
+            "finding": evt.details.get("finding") if evt.details else None,
+            "status": "completed" if evt.event_type in ["COMPLETED", "PROGRESS"] else ("failed" if evt.event_type == "FAILED" else "running"),
+            "timestamp": evt.created_at.isoformat() if evt.created_at else None,
+        }
+        for evt in events
+    ]
 
     return InvestigationDetailResponse(
         id=investigation.id,
@@ -290,11 +359,12 @@ async def get_investigation(
         confidence_score=investigation.confidence_score,
         summary=investigation.summary,
         plan=investigation.plan,
-        evidence_ledger=investigation.evidence_ledger,
+        evidence_ledger=evidence_ledger,
         root_causes=investigation.root_causes,
         confidence_breakdown=investigation.confidence_breakdown,
         applied_memories=investigation.applied_memories,
-        critic_reviews=investigation.critic_reviews,
+        critic_reviews=critic_reviews,
+        agent_activity=agent_activity,
         reinvestigation_count=investigation.reinvestigation_count,
         created_at=investigation.created_at,
         updated_at=investigation.updated_at,
