@@ -91,6 +91,7 @@ async def lifespan(app: FastAPI):
                     "ALTER TABLE investigation_tasks ADD COLUMN IF NOT EXISTS retry_count INTEGER DEFAULT 0;",
                     "ALTER TABLE investigation_tasks ADD COLUMN IF NOT EXISTS max_retries INTEGER DEFAULT 2;",
                     "ALTER TABLE investigation_tasks ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMP WITH TIME ZONE;",
+                    "SELECT setval(pg_get_serial_sequence('investigation_events', 'seq'), COALESCE((SELECT MAX(seq) FROM investigation_events), 1) + 100, true);",
                 ]
                 for stmt in migrations:
                     try:
@@ -265,9 +266,10 @@ async def sync_schema_endpoint():
         "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS root_causes JSON;",
         "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;",
         "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS description TEXT;",
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE;",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(512);",
+        "SELECT setval(pg_get_serial_sequence('investigation_events', 'seq'), COALESCE((SELECT MAX(seq) FROM investigation_events), 1) + 100, true);",
+        "ALTER TABLE investigation_events ALTER COLUMN seq RESTART WITH 1000;",
     ]
     try:
         async with engine.begin() as conn:

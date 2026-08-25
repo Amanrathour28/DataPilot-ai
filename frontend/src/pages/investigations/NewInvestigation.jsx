@@ -44,6 +44,7 @@ export default function NewInvestigation() {
 
   const handleLaunch = async (e) => {
     e.preventDefault()
+    if (loading) return
     if (!objective.trim()) return
     if (profiledDatasets.length === 0) {
       toast?.show('Please upload and profile a dataset first.', 'error')
