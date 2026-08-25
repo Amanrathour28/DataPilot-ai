@@ -26,9 +26,13 @@ backend/*.db-wal
 # Upload files
 backend/uploads/
 
-# Environment
+# Environment & Local Test Scripts
 .env
 *.env.local
+backend/execute_exact_schema.py
+backend/fix_neon_schema.py
+backend/test_live_endpoint.py
+backend/verify_auth.py
 
 # Node
 frontend/node_modules/

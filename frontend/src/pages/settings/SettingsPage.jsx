@@ -23,7 +23,9 @@ export default function SettingsPage() {
   const [savingWs, setSavingWs] = useState(false)
 
   // LLM Config state (stored in localStorage or workspace metadata)
-  const [llmProvider, setLlmProvider] = useState(() => localStorage.getItem('datapilot_llm_provider') || 'ollama')
+  const [llmProvider, setLlmProvider] = useState(() => localStorage.getItem('datapilot_llm_provider') || 'groq')
+  const [groqKey, setGroqKey] = useState(() => localStorage.getItem('datapilot_groq_key') || '')
+  const [groqModel, setGroqModel] = useState(() => localStorage.getItem('datapilot_groq_model') || 'llama-3.3-70b-versatile')
   const [ollamaUrl, setOllamaUrl] = useState(() => localStorage.getItem('datapilot_ollama_url') || 'http://localhost:11434')
   const [modelName, setModelName] = useState(() => localStorage.getItem('datapilot_model_name') || 'llama3.2')
   const [openaiKey, setOpenaiKey] = useState(() => localStorage.getItem('datapilot_openai_key') || '')
@@ -64,11 +66,13 @@ export default function SettingsPage() {
   const handleSaveLLM = (e) => {
     e.preventDefault()
     localStorage.setItem('datapilot_llm_provider', llmProvider)
+    localStorage.setItem('datapilot_groq_key', groqKey)
+    localStorage.setItem('datapilot_groq_model', groqModel)
     localStorage.setItem('datapilot_ollama_url', ollamaUrl)
     localStorage.setItem('datapilot_model_name', modelName)
     localStorage.setItem('datapilot_openai_key', openaiKey)
     localStorage.setItem('datapilot_temperature', temperature)
-    toast?.show('LLM Configuration saved', 'success')
+    toast?.show('LLM Configuration saved successfully', 'success')
   }
 
   return (
@@ -164,13 +168,14 @@ export default function SettingsPage() {
           <form onSubmit={handleSaveLLM} className="space-y-4">
             <div>
               <label className="block text-xs font-semibold text-slate-400 mb-2">
-                LLM Provider
+                LLM Reasoning Provider
               </label>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {[
-                  { id: 'ollama', label: 'Ollama (Local / Free)', badge: 'Default' },
-                  { id: 'openai', label: 'OpenAI API', badge: 'Cloud' },
-                  { id: 'anthropic', label: 'Anthropic Claude', badge: 'Cloud' },
+                  { id: 'groq', label: 'Groq Cloud', badge: 'Ultra-Fast', desc: 'Llama 3.3 70B' },
+                  { id: 'ollama', label: 'Ollama', badge: 'Local / Free', desc: 'Llama 3.2' },
+                  { id: 'openai', label: 'OpenAI', badge: 'Cloud API', desc: 'GPT-4o Mini' },
+                  { id: 'anthropic', label: 'Claude', badge: 'Cloud API', desc: 'Claude 3.5' },
                 ].map((p) => (
                   <button
                     key={p.id}
@@ -179,19 +184,68 @@ export default function SettingsPage() {
                     className={clsx(
                       'p-3 rounded-xl border text-left flex flex-col justify-between transition-all',
                       llmProvider === p.id
-                        ? 'border-brand-500 bg-brand-500/10 text-slate-200'
+                        ? 'border-brand-500 bg-brand-500/15 text-slate-200 shadow-sm ring-1 ring-brand-500/50'
                         : 'border-slate-800 bg-[#121222] text-slate-400 hover:border-slate-700'
                     )}
                   >
-                    <span className="text-xs font-semibold">{p.label}</span>
-                    <span className="text-[10px] text-slate-500 mt-1">{p.badge}</span>
+                    <div>
+                      <span className="text-xs font-bold block">{p.label}</span>
+                      <span className="text-[10px] text-slate-400 mt-0.5 block">{p.desc}</span>
+                    </div>
+                    <span className="text-[9px] uppercase font-semibold text-brand-400 mt-2">{p.badge}</span>
                   </button>
                 ))}
               </div>
             </div>
 
-            {llmProvider === 'ollama' ? (
-              <>
+            {llmProvider === 'groq' && (
+              <div className="space-y-3 p-4 rounded-xl bg-brand-500/5 border border-brand-500/20">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-semibold text-brand-300">
+                    Groq API Key
+                  </label>
+                  <a
+                    href="https://console.groq.com/keys"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[11px] text-brand-400 hover:text-brand-300 underline"
+                  >
+                    Get free Groq API Key →
+                  </a>
+                </div>
+                <div className="relative">
+                  <Key size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                  <input
+                    type="password"
+                    value={groqKey}
+                    onChange={(e) => setGroqKey(e.target.value)}
+                    placeholder="gsk_..."
+                    className="w-full bg-[#111122] border border-slate-700 rounded-xl pl-9 pr-4 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-brand-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-400 mb-1">
+                    Groq Model
+                  </label>
+                  <select
+                    value={groqModel}
+                    onChange={(e) => setGroqModel(e.target.value)}
+                    className="w-full bg-[#111122] border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-brand-500"
+                  >
+                    <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile (Recommended)</option>
+                    <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (Fastest)</option>
+                    <option value="mixtral-8x7b-32768">mixtral-8x7b-32768</option>
+                  </select>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Tip: You can also set <code className="text-brand-300">GROQ_API_KEY</code> in your environment variables or <code className="text-brand-300">.env</code> file.
+                </p>
+              </div>
+            )}
+
+            {llmProvider === 'ollama' && (
+              <div className="space-y-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-400 mb-1">
                     Ollama Server Endpoint
@@ -217,11 +271,13 @@ export default function SettingsPage() {
                     className="w-full bg-[#111122] border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-brand-500"
                   />
                 </div>
-              </>
-            ) : (
+              </div>
+            )}
+
+            {(llmProvider === 'openai' || llmProvider === 'anthropic') && (
               <div>
                 <label className="block text-xs font-semibold text-slate-400 mb-1">
-                  API Key
+                  {llmProvider === 'openai' ? 'OpenAI' : 'Anthropic'} API Key
                 </label>
                 <div className="relative">
                   <Key size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
@@ -229,7 +285,7 @@ export default function SettingsPage() {
                     type="password"
                     value={openaiKey}
                     onChange={(e) => setOpenaiKey(e.target.value)}
-                    placeholder="sk-..."
+                    placeholder={llmProvider === 'openai' ? 'sk-...' : 'sk-ant-...'}
                     className="w-full bg-[#111122] border border-slate-700 rounded-xl pl-9 pr-4 py-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-brand-500"
                   />
                 </div>

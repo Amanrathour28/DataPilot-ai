@@ -1,6 +1,6 @@
 import logging
 from typing import List, Optional
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.memory import Memory, MemoryCategory
@@ -34,8 +34,8 @@ async def list_memories(
 ) -> List[Memory]:
     """List all memories for a workspace with optional category filter."""
     stmt = select(Memory).where(Memory.workspace_id == workspace_id)
-    if category:
-        stmt = stmt.where(Memory.category == category)
+    if category and category.lower() != "all":
+        stmt = stmt.where(func.upper(Memory.category) == category.upper())
     stmt = stmt.order_by(Memory.created_at.desc())
     result = await db.execute(stmt)
     return result.scalars().all()

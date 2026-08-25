@@ -10,9 +10,7 @@ from typing import Any, Dict, List, Optional
 import aiofiles
 from fastapi import UploadFile, HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-
-from app.core.config import settings
+from app.db.base import AsyncSessionLocal
 from app.db.models.document import Document, DocumentChunk
 
 logger = logging.getLogger("datapilot.document_service")
@@ -169,10 +167,7 @@ async def save_document_file(
 
 async def process_document_background(document_id: str):
     """Background worker to extract text, create chunks, and generate search embeddings."""
-    engine = create_async_engine(settings.database_url, echo=False)
-    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-    async with session_factory() as db:
+    async with AsyncSessionLocal() as db:
         try:
             result = await db.execute(select(Document).where(Document.id == document_id))
             document = result.scalar_one_or_none()
@@ -218,8 +213,6 @@ async def process_document_background(document_id: str):
                     await db.commit()
             except Exception:
                 pass
-        finally:
-            await engine.dispose()
 
 
 async def search_workspace_documents(

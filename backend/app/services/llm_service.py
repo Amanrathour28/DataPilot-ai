@@ -180,12 +180,51 @@ if __name__ == '__main__':
             }
 
     async def call_llm(self, system_prompt: str, user_prompt: str, format_json: bool = False) -> str:
-        """Call Cloud LLM (OpenAI/Groq), local Ollama, or fallback reasoning engine."""
-        # 1. Try Cloud LLM (OpenAI / Groq) if API key is provided
-        if settings.openai_api_key or settings.groq_api_key:
-            api_key = settings.openai_api_key or settings.groq_api_key
-            base_url = "https://api.groq.com/openai/v1" if (settings.groq_api_key and not settings.openai_api_key) else settings.openai_base_url
-            model = "llama-3.3-70b-versatile" if (settings.groq_api_key and not settings.openai_api_key) else settings.openai_model
+        """Call Cloud LLM (Groq / OpenAI), local Ollama, or fallback reasoning engine."""
+        # 1. Try Groq Cloud LLM if GROQ_API_KEY is provided
+        if settings.groq_api_key:
+            api_key = settings.groq_api_key
+            base_url = settings.groq_base_url.rstrip("/")
+            model = settings.groq_model
+            
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }
+            # Ensure system prompt mentions JSON if response_format is json_object (Groq requirement)
+            sys_msg = system_prompt
+            if format_json and "json" not in sys_msg.lower():
+                sys_msg += "\nRespond strictly in valid JSON format."
+
+            body: Dict[str, Any] = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": sys_msg},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "temperature": 0.2
+            }
+            if format_json:
+                body["response_format"] = {"type": "json_object"}
+
+            try:
+                async with httpx.AsyncClient(timeout=45.0) as client:
+                    resp = await client.post(f"{base_url}/chat/completions", headers=headers, json=body)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        content = data["choices"][0]["message"]["content"]
+                        logger.info(f"Groq LLM ({model}) completed successfully ({len(content)} chars)")
+                        return content
+                    else:
+                        logger.warning(f"Groq LLM call returned HTTP {resp.status_code}: {resp.text}")
+            except Exception as e:
+                logger.warning(f"Groq LLM request exception: {e}")
+
+        # 2. Try OpenAI if OPENAI_API_KEY is provided
+        if settings.openai_api_key:
+            api_key = settings.openai_api_key
+            base_url = settings.openai_base_url.rstrip("/")
+            model = settings.openai_model
             
             headers = {
                 "Authorization": f"Bearer {api_key}",
@@ -199,7 +238,7 @@ if __name__ == '__main__':
                 ],
                 "temperature": 0.2
             }
-            if format_json and ("gpt-4" in model or "gpt-3.5" in model or "llama" in model):
+            if format_json and ("gpt-4" in model or "gpt-3.5" in model):
                 body["response_format"] = {"type": "json_object"}
             try:
                 async with httpx.AsyncClient(timeout=30.0) as client:
@@ -208,11 +247,11 @@ if __name__ == '__main__':
                         data = resp.json()
                         return data["choices"][0]["message"]["content"]
                     else:
-                        logger.warning(f"Cloud LLM call returned {resp.status_code}: {resp.text}")
+                        logger.warning(f"OpenAI LLM call returned {resp.status_code}: {resp.text}")
             except Exception as e:
-                logger.warning(f"Cloud LLM request exception: {e}")
+                logger.warning(f"OpenAI LLM request exception: {e}")
 
-        # 2. Try Ollama if configured
+        # 3. Try Ollama if configured
         url = f"{settings.ollama_base_url}/api/chat"
         payload = {
             "model": settings.ollama_default_model,
@@ -262,7 +301,7 @@ if __name__ == '__main__':
         system_prompt = (
             "You are a Senior Planning Agent for an autonomous data investigation platform. "
             "Deconstruct the user's business question into an ordered, step-by-step investigation agenda.\n"
-            "Respond ONLY with a JSON object:\n"
+            "Respond ONLY with a valid JSON object matching this schema:\n"
             "{\n"
             "  \"objective\": \"string\",\n"
             "  \"tasks\": [\n"
@@ -279,7 +318,10 @@ if __name__ == '__main__':
         
         response_text = await self.call_llm(system_prompt, user_prompt, format_json=True)
         try:
-            return json.loads(response_text)
+            parsed = json.loads(response_text)
+            if isinstance(parsed, dict) and "tasks" in parsed and len(parsed["tasks"]) > 0:
+                return parsed
+            return self._generate_fallback_response(objective)["planner_plan"]
         except Exception:
             return self._generate_fallback_response(objective)["planner_plan"]
 
@@ -307,14 +349,19 @@ if __name__ == '__main__':
         """Ask LLM to generate competing causal hypotheses."""
         system_prompt = (
             "You are a Senior Hypothesis Generation Agent. Review data findings and generate 2-3 testable competing hypotheses.\n"
-            "Respond ONLY with a JSON array of objects:\n"
-            "[{\"title\": \"Hypothesis Title\", \"statement\": \"Testable statement linking variables\", "
-            "\"variables\": [\"var1\", \"var2\"], \"confidence\": 0.85, \"causal_classification\": \"LIKELY_CONTRIBUTING_FACTOR|STRONG_ASSOCIATION|CORRELATION\", \"rationale\": \"Reasoning\"}]"
+            "Respond ONLY with a JSON object containing a 'hypotheses' array:\n"
+            "{\"hypotheses\": [{\"title\": \"Hypothesis Title\", \"statement\": \"Testable statement linking variables\", "
+            "\"variables\": [\"var1\", \"var2\"], \"confidence\": 0.85, \"causal_classification\": \"LIKELY_CONTRIBUTING_FACTOR|STRONG_ASSOCIATION|CORRELATION\", \"rationale\": \"Reasoning\"}]}"
         )
         user_prompt = f"Objective: {objective}\nData Findings:\n{findings_context}"
         response_text = await self.call_llm(system_prompt, user_prompt, format_json=True)
         try:
-            return json.loads(response_text)
+            parsed = json.loads(response_text)
+            if isinstance(parsed, dict) and "hypotheses" in parsed:
+                return parsed["hypotheses"]
+            elif isinstance(parsed, list):
+                return parsed
+            return self._generate_fallback_response(objective)["hypotheses"]
         except Exception:
             return self._generate_fallback_response(objective)["hypotheses"]
 

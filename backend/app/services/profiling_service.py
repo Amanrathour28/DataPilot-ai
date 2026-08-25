@@ -15,9 +15,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-
-from app.core.config import settings
+from app.db.base import AsyncSessionLocal
 from app.db.models.dataset import Dataset, DatasetProfile, DatasetStatus
 
 logger = logging.getLogger("datapilot.profiling")
@@ -222,13 +220,10 @@ def profile_dataframe(df: pd.DataFrame, dataset_name: str) -> dict[str, Any]:
 async def run_profiling(dataset_id: str) -> None:
     """Background task entry point.
 
-    Creates its own DB session (cannot share the request session in background tasks).
+    Uses AsyncSessionLocal for DB operations.
     Updates the Dataset status and writes a DatasetProfile record.
     """
-    engine = create_async_engine(settings.database_url, echo=False)
-    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-    async with session_factory() as db:
+    async with AsyncSessionLocal() as db:
         try:
             # Fetch dataset
             result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
@@ -290,5 +285,3 @@ async def run_profiling(dataset_id: str) -> None:
                     await db.commit()
             except Exception:
                 pass
-        finally:
-            await engine.dispose()

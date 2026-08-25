@@ -4,9 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Dict, List, Any, Optional
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-
-from app.core.config import settings
+from app.db.base import AsyncSessionLocal
 from app.db.models.dataset import Dataset, DatasetProfile
 from app.db.models.document import Document, DocumentChunk
 from app.db.models.memory import Memory
@@ -91,14 +89,11 @@ def cancel_investigation_run(investigation_id: str):
 
 async def start_investigation_workflow(investigation_id: str):
     """Executes the stateful Multi-Agent Investigation Graph."""
-    engine = create_async_engine(settings.database_url, echo=False)
-    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
     llm = LLMService()
     executor = PythonExecutor()
     _execution_controls[investigation_id] = {"paused": False, "cancelled": False}
 
-    async with session_factory() as db:
+    async with AsyncSessionLocal() as db:
         try:
             # 1. Fetch Investigation
             result = await db.execute(select(Investigation).where(Investigation.id == investigation_id))
@@ -828,4 +823,3 @@ async def start_investigation_workflow(investigation_id: str):
                 del _subscribers[investigation_id]
             if investigation_id in _execution_controls:
                 del _execution_controls[investigation_id]
-            await engine.dispose()

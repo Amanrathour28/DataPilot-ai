@@ -51,11 +51,13 @@ class Settings(BaseSettings):
     upload_dir: str = "/tmp/uploads" if (os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME")) else "uploads"
     max_upload_size_mb: int = 100
 
-    # Optional Cloud LLM (OpenAI / Groq / OpenRouter)
+    # Optional Cloud LLM (Groq / OpenAI / OpenRouter)
+    groq_api_key: Optional[str] = None
+    groq_base_url: str = "https://api.groq.com/openai/v1"
+    groq_model: str = "llama-3.3-70b-versatile"
     openai_api_key: Optional[str] = None
     openai_base_url: str = "https://api.openai.com/v1"
     openai_model: str = "gpt-4o-mini"
-    groq_api_key: Optional[str] = None
 
     # Local Ollama
     ollama_base_url: str = "http://localhost:11434"
