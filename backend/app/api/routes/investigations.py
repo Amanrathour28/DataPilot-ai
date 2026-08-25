@@ -26,6 +26,7 @@ from app.schemas.investigation import (
     InvestigationResponse,
     InvestigationDetailResponse,
 )
+from app.core.config import settings
 from app.api.dependencies import get_current_user
 from app.worker import InvestigationWorker, utcnow
 from sqlalchemy import select, or_
@@ -34,12 +35,22 @@ logger = logging.getLogger("datapilot.investigations_route")
 router = APIRouter(prefix="/investigations", tags=["investigations"])
 
 
+import os
+
+
 @router.api_route("/cron-worker", methods=["GET", "POST"])
-async def cron_worker_trigger():
+async def cron_worker_trigger(request: Request):
     """Vercel Cron / Serverless background worker trigger endpoint.
     Scans for PENDING or stale RUNNING investigations and executes them.
-    Strictly protected by atomic DB lease locking.
+    Strictly protected by atomic DB lease locking and optional CRON_SECRET verification.
     """
+    cron_secret = getattr(settings, "cron_secret", None) or os.environ.get("CRON_SECRET")
+    if cron_secret:
+        auth_header = request.headers.get("Authorization", "")
+        expected = f"Bearer {cron_secret}"
+        if auth_header != expected and request.headers.get("x-vercel-cron") != "1" and request.query_params.get("secret") != cron_secret:
+            raise HTTPException(status_code=401, detail="Unauthorized cron invocation")
+
     logger.info("Cron worker endpoint triggered.")
     worker = InvestigationWorker(worker_id="vercel_cron_worker")
     async with AsyncSessionLocal() as db:
@@ -379,16 +390,24 @@ async def debug_investigation(
     )
     events = events_res.scalars().all()
 
+    now = utcnow()
+    lease_active = False
+    if inv.lock_expires_at and inv.lock_expires_at > now:
+        lease_active = True
+
     return {
         "investigation_id": inv.id,
         "execution_id": inv.execution_id,
         "status": inv.status,
+        "current_stage": inv.last_completed_stage or inv.status,
         "locked_by": inv.locked_by,
+        "lease_status": "ACTIVE" if lease_active else ("EXPIRED" if inv.lock_expires_at else "NONE"),
         "lock_expires_at": inv.lock_expires_at.isoformat() if inv.lock_expires_at else None,
         "heartbeat_at": inv.heartbeat_at.isoformat() if inv.heartbeat_at else None,
         "last_completed_stage": inv.last_completed_stage,
         "attempt_number": inv.attempt_number,
         "failure_reason": inv.failure_reason,
+        "latest_event_sequence": max([e.seq for e in events], default=0),
         "tasks": [
             {
                 "task_id": t.id,
@@ -413,5 +432,5 @@ async def debug_investigation(
                 "timestamp": e.created_at.isoformat(),
             }
             for e in events
-        ]
+        ],
     }
