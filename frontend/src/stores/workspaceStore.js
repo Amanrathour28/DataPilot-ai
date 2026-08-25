@@ -15,9 +15,23 @@ const useWorkspaceStore = create(
         try {
           const workspaces = await workspacesApi.list()
           set({ workspaces, isLoading: false })
-          // Auto-select first workspace if none selected
-          if (!get().activeWorkspace && workspaces.length > 0) {
+          
+          // Auto-select valid workspace or fallback to first
+          const current = get().activeWorkspace
+          const stillValid = workspaces.find(w => w.id === current?.id)
+          
+          if ((!stillValid || !current) && workspaces.length > 0) {
             set({ activeWorkspace: workspaces[0] })
+          } else if (workspaces.length === 0) {
+            try {
+              const newWs = await workspacesApi.create({
+                name: 'Personal Workspace',
+                slug: `personal-ws-${Date.now()}`
+              })
+              set({ workspaces: [newWs], activeWorkspace: newWs })
+            } catch (createErr) {
+              console.error('Error auto-creating default workspace:', createErr)
+            }
           }
           return workspaces
         } catch (err) {
