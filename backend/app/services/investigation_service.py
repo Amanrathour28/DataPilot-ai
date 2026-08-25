@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Dict, List, Any, Optional
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.base import AsyncSessionLocal
 from app.db.models.dataset import Dataset, DatasetProfile
 from app.db.models.document import Document, DocumentChunk
