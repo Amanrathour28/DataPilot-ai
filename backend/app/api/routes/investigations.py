@@ -59,10 +59,30 @@ async def _assert_workspace_access(
     return workspace
 
 
+_active_worker_tasks: Dict[str, asyncio.Task] = {}
+
+
 async def _run_worker_async(investigation_id: str):
     """Helper to run durable worker task in background."""
-    worker = InvestigationWorker()
-    await worker.run_investigation(investigation_id)
+    try:
+        worker = InvestigationWorker()
+        await worker.run_investigation(investigation_id)
+    except Exception as e:
+        logger.exception(f"Error in background worker execution for {investigation_id}: {e}")
+    finally:
+        _active_worker_tasks.pop(investigation_id, None)
+
+
+def ensure_worker_running(investigation_id: str) -> asyncio.Task:
+    """Ensures a worker task is active for an uncompleted investigation."""
+    if investigation_id in _active_worker_tasks:
+        t = _active_worker_tasks[investigation_id]
+        if not t.done():
+            return t
+
+    t = asyncio.create_task(_run_worker_async(investigation_id))
+    _active_worker_tasks[investigation_id] = t
+    return t
 
 
 @router.post("", response_model=InvestigationResponse, status_code=status.HTTP_201_CREATED)
@@ -88,6 +108,7 @@ async def create_investigation(
     await db.refresh(investigation)
 
     logger.info(f"Investigation created: {investigation.id}")
+    ensure_worker_running(investigation.id)
     background_tasks.add_task(_run_worker_async, investigation.id)
     return investigation
 
@@ -125,6 +146,7 @@ async def start_investigation(
             "message": "Workflow is already running under an active execution lease."
         }
 
+    ensure_worker_running(investigation_id)
     background_tasks.add_task(_run_worker_async, investigation_id)
     return {
         "status": "TRIGGERED",
@@ -246,6 +268,12 @@ async def stream_investigation_events(
         nonlocal cursor
         while True:
             async with AsyncSessionLocal() as s_db:
+                inv_res = await s_db.execute(select(Investigation.status).where(Investigation.id == investigation_id))
+                curr_status = inv_res.scalar_one_or_none()
+
+                if curr_status in ["PENDING", "PLANNING", "RUNNING", "ANALYZING", "TESTING", "RETRIEVING", "VERIFYING", "REPORTING"]:
+                    ensure_worker_running(investigation_id)
+
                 events_res = await s_db.execute(
                     select(InvestigationEvent)
                     .where(
