@@ -84,6 +84,7 @@ class InvestigationResponse(BaseModel):
     confidence_breakdown: Optional[Dict[str, Any]] = None
     applied_memories: Optional[List[Dict[str, Any]]] = None
     critic_reviews: Optional[List[Dict[str, Any]]] = None
+    agent_activity: Optional[List[Dict[str, Any]]] = None
     reinvestigation_count: int = 0
     created_at: datetime
     updated_at: datetime

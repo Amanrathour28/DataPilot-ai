@@ -39,6 +39,7 @@ class Investigation(Base):
     confidence_breakdown: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     applied_memories: Mapped[list | None] = mapped_column(JSON, nullable=True)
     critic_reviews: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    agent_activity: Mapped[list | None] = mapped_column(JSON, nullable=True)
     reinvestigation_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     is_deleted: Mapped[bool] = mapped_column(default=False, nullable=False)

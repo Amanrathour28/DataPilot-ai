@@ -87,6 +87,43 @@ def cancel_investigation_run(investigation_id: str):
     _execution_controls[investigation_id]["cancelled"] = True
 
 
+async def record_agent_activity(
+    db: AsyncSession,
+    investigation_id: str,
+    agent_name: str,
+    action: str,
+    status: str = "running",
+    finding: Optional[str] = None
+) -> dict:
+    """Records a user-safe agent reasoning/activity event, persists it to DB, and broadcasts via SSE."""
+    activity_item = {
+        "id": f"act_{uuid.uuid4().hex[:10]}",
+        "agent": agent_name,
+        "action": action,
+        "status": status,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "finding": finding
+    }
+    
+    try:
+        inv_res = await db.execute(select(Investigation).where(Investigation.id == investigation_id))
+        inv = inv_res.scalar_one_or_none()
+        if inv:
+            current_activities = list(inv.agent_activity or [])
+            current_activities.append(activity_item)
+            inv.agent_activity = current_activities
+            await db.commit()
+    except Exception as e:
+        logger.warning(f"Could not persist agent activity to DB: {e}")
+
+    broadcast_event(investigation_id, {
+        "type": "agent_activity",
+        "activity": activity_item
+    })
+    
+    return activity_item
+
+
 _active_tasks: Dict[str, asyncio.Task] = {}
 
 
@@ -121,6 +158,10 @@ async def start_investigation_workflow(investigation_id: str):
             logger.info(f"[DEBUG_WORKFLOW] WORKFLOW FUNCTION ENTERED for {investigation_id}")
             investigation.status = "PLANNING"
             await db.commit()
+
+            # Record workflow initialization activity
+            await record_agent_activity(db, investigation_id, "Supervisor Agent", "Investigation initialized", "completed")
+            await record_agent_activity(db, investigation_id, "Planning Agent", "Identifying relevant datasets and schema mappings", "running")
 
             # Create initial task event immediately so live timeline always shows initial task event
             plan_task = InvestigationTask(
@@ -168,6 +209,9 @@ async def start_investigation_workflow(investigation_id: str):
                 investigation.status = "FAILED"
                 investigation.summary = "Investigation failed: No profiled datasets available. Please upload a dataset first."
                 await db.commit()
+
+                await record_agent_activity(db, investigation_id, "Supervisor Agent", "No profiled datasets available in workspace", "failed")
+
                 broadcast_event(investigation_id, {
                     "type": "status",
                     "status": "FAILED",
@@ -188,6 +232,8 @@ async def start_investigation_workflow(investigation_id: str):
                     dtypes = profile.schema_info.get("dtypes", {})
                     cols_str = ", ".join([f"{c} ({dtypes.get(c, 'unknown')})" for c in cols])
                     schema_context_list.append(f"Dataset: {ds.original_filename} ({ds.name})\nColumns: {cols_str}\nRows: {ds.row_count}")
+
+                await record_agent_activity(db, investigation_id, "Data Analyst", f"Profiling dataset {ds.original_filename} ({ds.row_count} rows)", "completed")
 
             schema_context = "\n\n".join(schema_context_list)
 
@@ -244,6 +290,8 @@ async def start_investigation_workflow(investigation_id: str):
             plan_task.status = "COMPLETED"
             plan_task.result = plan_data
             await db.commit()
+
+            await record_agent_activity(db, investigation_id, "Planning Agent", f"Formulated {len(tasks_list)} analytical steps", "completed")
 
             # Save investigation plan snapshot & transition to ANALYZING stage
             investigation.plan = tasks_list
@@ -368,6 +416,8 @@ async def start_investigation_workflow(investigation_id: str):
 
                     evidence_context = "\n".join([f"- [{e.get('source_type')}] {e.get('claim')}: {e.get('result_summary')}" for e in evidence_ledger])
 
+                    await record_agent_activity(db, investigation_id, "Critic Agent", f"Auditing evidence ledger & statistical validity (Round {reinvestigation_count})", "running")
+
                     try:
                         critic_res = await asyncio.wait_for(
                             llm.critic_evaluate(
@@ -402,6 +452,8 @@ async def start_investigation_workflow(investigation_id: str):
                     )
                     db.add(c_rev)
                     await db.commit()
+
+                    await record_agent_activity(db, investigation_id, "Critic Agent", f"Completed audit verdict: {c_rev.verdict}", "completed", finding=c_rev.critique_notes)
 
                     broadcast_event(investigation_id, {
                         "type": "critic_review",
@@ -462,6 +514,7 @@ async def start_investigation_workflow(investigation_id: str):
 
                 # ── Agent 1: Data Analyst ──────────────────────────────────────
                 if task.agent == "data_analyst":
+                    await record_agent_activity(db, investigation_id, "Data Analyst", f"Executing analytical query: {task.objective}", "running")
                     try:
                         code = await asyncio.wait_for(
                             llm.generate_code(task.objective, schema_context, memories_context),
@@ -538,6 +591,8 @@ async def start_investigation_workflow(investigation_id: str):
                     task.result = out
                     await db.commit()
 
+                    await record_agent_activity(db, investigation_id, "Data Analyst", "Completed metric variance calculation", "completed", finding=statement)
+
                     broadcast_event(investigation_id, {
                         "type": "finding",
                         "id": finding.id,
@@ -554,6 +609,7 @@ async def start_investigation_workflow(investigation_id: str):
 
                 # ── Agent 2: Hypothesis Generator ──────────────────────────────
                 elif task.agent == "hypothesis_agent":
+                    await record_agent_activity(db, investigation_id, "Hypothesis Agent", "Formulating testable causal hypotheses for performance deviations", "running")
                     findings_res = await db.execute(select(Finding).where(Finding.investigation_id == investigation_id))
                     findings = findings_res.scalars().all()
                     findings_ctx = "\n".join([f.statement for f in findings])
@@ -585,6 +641,8 @@ async def start_investigation_workflow(investigation_id: str):
                     task.status = "COMPLETED"
                     await db.commit()
 
+                    await record_agent_activity(db, investigation_id, "Hypothesis Agent", f"Generated {len(hyp_models)} causal candidate hypotheses", "completed")
+
                     for hm in hyp_models:
                         broadcast_event(investigation_id, {
                             "type": "hypothesis",
@@ -613,6 +671,7 @@ async def start_investigation_workflow(investigation_id: str):
                 # ── Agent 3: Hypothesis Testing Engine ─────────────────────────
                 elif task.agent == "hypothesis_tester":
                     hyp_title = task.objective.replace("Statistically Test Hypothesis: ", "").strip()
+                    await record_agent_activity(db, investigation_id, "Hypothesis Tester", f"Testing relationship: {hyp_title}", "running")
                     h_res = await db.execute(
                         select(Hypothesis).where(
                             Hypothesis.investigation_id == investigation_id,
@@ -683,6 +742,8 @@ async def start_investigation_workflow(investigation_id: str):
                             created_by_agent=stat_ev.created_by_agent
                         ))
 
+                        await record_agent_activity(db, investigation_id, "Hypothesis Tester", f"Evaluated hypothesis: {hyp_title}", "completed", finding=f"Status: {hypothesis.status} | Conf: {int((hypothesis.confidence or 0.8)*100)}% | Classification: {hypothesis.causal_classification}")
+
                         broadcast_event(investigation_id, {
                             "type": "hypothesis",
                             "id": hypothesis.id,
@@ -703,6 +764,7 @@ async def start_investigation_workflow(investigation_id: str):
 
                 # ── Agent 4: Knowledge / RAG Agent ─────────────────────────────
                 elif task.agent == "rag_agent":
+                    await record_agent_activity(db, investigation_id, "RAG Search Agent", "Searching workspace policy documents and strategic memos", "running")
                     search_results = await document_service.search_workspace_documents(
                         workspace_id=investigation.workspace_id,
                         query=task.objective or investigation.objective,
@@ -779,6 +841,8 @@ async def start_investigation_workflow(investigation_id: str):
                     task.status = "COMPLETED"
                     await db.commit()
 
+                    await record_agent_activity(db, investigation_id, "RAG Search Agent", "Contextualized internal policy documents with statistical evidence", "completed")
+
                     for df in doc_findings:
                         broadcast_event(investigation_id, {
                             "type": "finding",
@@ -803,6 +867,8 @@ async def start_investigation_workflow(investigation_id: str):
             # ── 3. ROOT CAUSE RANKING & FINAL REPORT SYNTHESIS ───────────────────────
             investigation.status = "REPORTING"
             await db.commit()
+
+            await record_agent_activity(db, investigation_id, "Report Agent", "Synthesizing evidence ledger into calibrated root cause analysis report", "running")
 
             broadcast_event(investigation_id, {
                 "type": "status",
@@ -871,6 +937,9 @@ async def start_investigation_workflow(investigation_id: str):
             investigation.reinvestigation_count = reinvestigation_count
             await db.commit()
 
+            await record_agent_activity(db, investigation_id, "Report Agent", "Executive root cause report generated and calibrated", "completed", finding=f"{int((calibrated_score or 0.5)*100)}% Calibrated Confidence Rating")
+            await record_agent_activity(db, investigation_id, "Supervisor Agent", "Investigation workflow concluded successfully", "completed")
+
             broadcast_event(investigation_id, {
                 "type": "status",
                 "status": "COMPLETED",
@@ -891,6 +960,7 @@ async def start_investigation_workflow(investigation_id: str):
                     inv.status = "FAILED"
                     inv.summary = f"Investigation halted with error: {e}"
                     await db.commit()
+                await record_agent_activity(db, investigation_id, "System", f"Investigation halted: {str(e)}", "failed")
             except Exception:
                 pass
             broadcast_event(investigation_id, {

@@ -15,6 +15,7 @@ import { useToast } from '../../components/ui/Toast'
 import EvidenceLedger from '../../components/investigations/EvidenceLedger'
 import HypothesisScorecard from '../../components/investigations/HypothesisScorecard'
 import RootCausePanel from '../../components/investigations/RootCausePanel'
+import AgentReasoningPanel from '../../components/investigations/AgentReasoningPanel'
 import { clsx } from 'clsx'
 
 const STAGES = [
@@ -48,6 +49,8 @@ export default function InvestigationDetail() {
   const [streamCriticReviews, setStreamCriticReviews] = useState([])
   const [streamConfBreakdown, setStreamConfBreakdown] = useState(null)
   const [streamAppliedMemories, setStreamAppliedMemories] = useState([])
+  const [streamActivities, setStreamActivities] = useState([])
+  const [connectionStatus, setConnectionStatus] = useState('connected')
   const [isPaused, setIsPaused] = useState(false)
 
   // Fetch full details with active polling when running
@@ -78,6 +81,7 @@ export default function InvestigationDetail() {
       setStreamCriticReviews(detail.critic_reviews || [])
       setStreamConfBreakdown(detail.confidence_breakdown)
       setStreamAppliedMemories(detail.applied_memories || [])
+      setStreamActivities(detail.agent_activity || [])
       if (['RUNNING', 'PLANNING', 'ANALYZING', 'TESTING', 'RETRIEVING', 'VERIFYING', 'REPORTING'].includes(detail.status)) {
         setActiveTab('timeline')
       }
@@ -92,6 +96,10 @@ export default function InvestigationDetail() {
 
     const streamUrl = investigationsApi.getStreamUrl(id)
     const eventSource = new EventSource(streamUrl)
+
+    eventSource.onopen = () => {
+      setConnectionStatus('connected')
+    }
 
     eventSource.onmessage = (event) => {
       try {
@@ -113,6 +121,11 @@ export default function InvestigationDetail() {
             queryClient.invalidateQueries(['investigation-detail', id])
             setActiveTab('report')
           }
+        } else if (data.type === 'agent_activity' && data.activity) {
+          setStreamActivities(prev => {
+            if (prev.some(a => a.id === data.activity.id)) return prev
+            return [...prev, data.activity]
+          })
         } else if (data.type === 'plan_created') {
           setStreamPlan(data.plan || [])
           if (data.applied_memories) setStreamAppliedMemories(data.applied_memories)
@@ -155,7 +168,7 @@ export default function InvestigationDetail() {
     }
 
     eventSource.onerror = () => {
-      eventSource.close()
+      setConnectionStatus('reconnecting')
     }
 
     return () => {
@@ -306,6 +319,14 @@ export default function InvestigationDetail() {
           </span>
         </div>
       )}
+
+      {/* Real-time Agent Reasoning & Activity Stream Panel */}
+      <AgentReasoningPanel
+        activities={streamActivities}
+        status={currentStatus}
+        stage={streamStage}
+        connectionStatus={connectionStatus}
+      />
 
       {/* Main Investigation Navigation Tabs */}
       <div className="flex items-center gap-2 border-b border-slate-800 pb-3 overflow-x-auto">

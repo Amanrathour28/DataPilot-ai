@@ -76,6 +76,7 @@ async def lifespan(app: FastAPI):
                     "ALTER TABLE hypotheses ADD COLUMN IF NOT EXISTS causal_classification VARCHAR(64);",
                     "ALTER TABLE hypotheses ADD COLUMN IF NOT EXISTS statistical_results JSON;",
                     "ALTER TABLE hypotheses ADD COLUMN IF NOT EXISTS details JSON;",
+                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS agent_activity JSON;",
                 ]
                 for stmt in migrations:
                     try:
@@ -96,6 +97,7 @@ async def lifespan(app: FastAPI):
                     "ALTER TABLE investigations ADD COLUMN plan JSON;",
                     "ALTER TABLE investigations ADD COLUMN evidence_ledger JSON;",
                     "ALTER TABLE investigations ADD COLUMN root_causes JSON;",
+                    "ALTER TABLE investigations ADD COLUMN agent_activity JSON;",
                     "ALTER TABLE workspaces ADD COLUMN is_deleted BOOLEAN DEFAULT 0;",
                     "ALTER TABLE workspaces ADD COLUMN description TEXT;",
                     "ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT 1;",
