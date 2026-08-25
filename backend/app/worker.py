@@ -65,9 +65,14 @@ class InvestigationWorker:
         message: str,
         details: Optional[Dict[str, Any]] = None,
     ) -> InvestigationEvent:
-        """Persists a durable event into investigation_events table."""
+        # Calculate max_seq + 1 explicitly to guarantee no PostgreSQL sequence generator conflicts
+        seq_res = await db.execute(select(InvestigationEvent.seq).order_by(InvestigationEvent.seq.desc()).limit(1))
+        max_seq = seq_res.scalar_one_or_none() or 0
+        next_seq = max_seq + 1
+
         evt = InvestigationEvent(
             id=generate_event_id(),
+            seq=next_seq,
             investigation_id=investigation_id,
             agent=agent,
             event_type=event_type,
@@ -80,12 +85,22 @@ class InvestigationWorker:
             await db.commit()
         except Exception as ex:
             await db.rollback()
-            logger.warning(f"Event insert collision ({ex}), setting explicit sequence buffer...")
-            seq_res = await db.execute(select(InvestigationEvent.seq).order_by(InvestigationEvent.seq.desc()).limit(1))
-            max_seq = seq_res.scalar_one_or_none() or 1000
-            evt.seq = max_seq + 10
-            db.add(evt)
+            logger.warning(f"Event insert race ({ex}), attempting fallback sequence calculation...")
+            seq_res2 = await db.execute(select(InvestigationEvent.seq).order_by(InvestigationEvent.seq.desc()).limit(1))
+            max_seq2 = seq_res2.scalar_one_or_none() or 100
+            evt_retry = InvestigationEvent(
+                id=generate_event_id(),
+                seq=max_seq2 + 10,
+                investigation_id=investigation_id,
+                agent=agent,
+                event_type=event_type,
+                message=message,
+                details=details or {},
+                created_at=utcnow(),
+            )
+            db.add(evt_retry)
             await db.commit()
+            evt = evt_retry
 
         # Update legacy agent_activity snapshot on Investigation for backwards compatibility
         try:
