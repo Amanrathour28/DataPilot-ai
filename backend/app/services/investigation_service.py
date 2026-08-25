@@ -118,8 +118,22 @@ async def start_investigation_workflow(investigation_id: str):
                 logger.error(f"Investigation {investigation_id} not found")
                 return
 
+            logger.info(f"[DEBUG_WORKFLOW] WORKFLOW FUNCTION ENTERED for {investigation_id}")
             investigation.status = "PLANNING"
             await db.commit()
+
+            # Create initial task event immediately so live timeline always shows initial task event
+            plan_task = InvestigationTask(
+                investigation_id=investigation_id,
+                agent="planner",
+                objective="Formulate ordered analytical investigation plan",
+                step_number=1,
+                status="RUNNING"
+            )
+            db.add(plan_task)
+            await db.commit()
+
+            logger.info(f"[DEBUG_WORKFLOW] FIRST TASK EVENT CREATED for {investigation_id}")
 
             broadcast_event(investigation_id, {
                 "type": "status",
@@ -127,9 +141,17 @@ async def start_investigation_workflow(investigation_id: str):
                 "stage": "PLANNING",
                 "message": "Initializing multi-agent investigation graph..."
             })
-            await asyncio.sleep(0.5)
+            broadcast_event(investigation_id, {
+                "type": "task_start",
+                "task_id": plan_task.id,
+                "agent": "Planner Agent",
+                "objective": "Formulating structured investigation plan...",
+                "stage": "PLANNING"
+            })
+            await asyncio.sleep(0.3)
 
             # 2. Gather Datasets & Semantic Context
+            logger.info(f"[DEBUG_WORKFLOW] GATHERING DATASETS for {investigation_id}")
             datasets_res = await db.execute(
                 select(Dataset).where(
                     Dataset.workspace_id == investigation.workspace_id,
@@ -140,13 +162,17 @@ async def start_investigation_workflow(investigation_id: str):
             datasets = datasets_res.scalars().all()
 
             if not datasets:
+                logger.warning(f"[DEBUG_WORKFLOW] NO PROFILED DATASETS FOUND for {investigation_id}")
+                plan_task.status = "FAILED"
+                plan_task.result = {"error": "No profiled datasets available in workspace. Upload a CSV dataset first."}
                 investigation.status = "FAILED"
                 investigation.summary = "Investigation failed: No profiled datasets available. Please upload a dataset first."
                 await db.commit()
                 broadcast_event(investigation_id, {
                     "type": "status",
                     "status": "FAILED",
-                    "message": "No profiled datasets found in workspace."
+                    "stage": "FAILED",
+                    "message": "No profiled datasets found in workspace. Please upload a CSV dataset first."
                 })
                 return
 
@@ -190,25 +216,9 @@ async def start_investigation_workflow(investigation_id: str):
                 for m in active_memories
             ]
 
-            # ── 1. PLANNING PHASE ──────────────────────────────────────────────────
-            plan_task = InvestigationTask(
-                investigation_id=investigation_id,
-                agent="planner",
-                objective="Formulate ordered analytical investigation plan",
-                step_number=1,
-                status="RUNNING"
-            )
-            db.add(plan_task)
-            await db.commit()
-
-            broadcast_event(investigation_id, {
-                "type": "task_start",
-                "task_id": plan_task.id,
-                "agent": "Planner Agent",
-                "objective": "Formulating structured investigation plan...",
-                "stage": "PLANNING"
-            })
-            await asyncio.sleep(0.8)
+            # ── 1. PLANNING PHASE (Groq Call) ──────────────────────────────────────
+            logger.info(f"[DEBUG_WORKFLOW] PLANNING AGENT STARTED for {investigation_id}")
+            logger.info(f"[DEBUG_WORKFLOW] GROQ REQUEST STARTED for {investigation_id}")
 
             logger.info(f"Generating investigation plan for '{investigation.objective}'")
             try:
@@ -220,9 +230,15 @@ async def start_investigation_workflow(investigation_id: str):
                     ),
                     timeout=60.0
                 )
+                logger.info(f"[DEBUG_WORKFLOW] GROQ RESPONSE RECEIVED for {investigation_id}")
             except asyncio.TimeoutError:
-                logger.warning("Planning LLM call timed out. Utilizing fallback planning generator.")
+                logger.warning(f"[DEBUG_WORKFLOW] GROQ REQUEST TIMED OUT for {investigation_id}, using fallback reasoning")
                 plan_data = llm._generate_fallback_response(investigation.objective)["planner_plan"]
+            except Exception as llm_err:
+                logger.error(f"[DEBUG_WORKFLOW] GROQ REQUEST ERROR: {llm_err}, using fallback reasoning")
+                plan_data = llm._generate_fallback_response(investigation.objective)["planner_plan"]
+
+            logger.info(f"[DEBUG_WORKFLOW] PLANNING AGENT COMPLETED for {investigation_id}")
 
             tasks_list = plan_data.get("tasks", [])
             plan_task.status = "COMPLETED"
@@ -234,6 +250,8 @@ async def start_investigation_workflow(investigation_id: str):
             investigation.applied_memories = applied_memories_list
             investigation.status = "ANALYZING"
             await db.commit()
+
+            logger.info(f"[DEBUG_WORKFLOW] STATUS UPDATED TO ANALYZING for {investigation_id}")
 
             broadcast_event(investigation_id, {
                 "type": "plan_created",

@@ -1,7 +1,10 @@
 import asyncio
 import json
+import logging
 from typing import AsyncGenerator, List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
+
+logger = logging.getLogger("datapilot")
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -72,6 +75,7 @@ async def create_investigation(
     db: AsyncSession = Depends(get_db),
 ):
     """Start an autonomous investigation on a workspace."""
+    logger.info(f"[DEBUG_WORKFLOW] INVESTIGATION REQUEST RECEIVED for workspace {workspace_id}")
     await _assert_workspace_access(workspace_id, current_user, db)
 
     investigation = Investigation(
@@ -84,8 +88,12 @@ async def create_investigation(
     await db.commit()
     await db.refresh(investigation)
 
+    logger.info(f"[DEBUG_WORKFLOW] INVESTIGATION CREATED: {investigation.id}")
+    logger.info(f"[DEBUG_WORKFLOW] WORKFLOW START REQUESTED for {investigation.id}")
+
     background_tasks.add_task(start_investigation_workflow, investigation.id)
     ensure_investigation_workflow_running(investigation.id)
+    logger.info(f"[DEBUG_WORKFLOW] BACKGROUND TASK CREATED for {investigation.id}")
     return investigation
 
 
