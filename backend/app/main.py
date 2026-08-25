@@ -51,9 +51,7 @@ async def lifespan(app: FastAPI):
             if not _is_sqlite:
                 from sqlalchemy import text
                 migrations = [
-                    "ALTER TABLE investigation_events DROP CONSTRAINT IF EXISTS investigation_events_pkey;",
-                    "ALTER TABLE investigation_events ADD PRIMARY KEY (id);",
-                    "SELECT setval(pg_get_serial_sequence('investigation_events', 'seq'), COALESCE((SELECT MAX(seq) FROM investigation_events), 1) + 100, true);",
+                    "DO $$ DECLARE r RECORD; BEGIN FOR r IN SELECT c.relname FROM pg_class c WHERE c.relkind = 'S' AND c.relname LIKE '%investigation_events%' LOOP EXECUTE 'SELECT setval(' || quote_literal(r.relname) || ', 1000, true)'; END LOOP; END $$;",
                     "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS description TEXT;",
                     "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;",
                     "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS error_message TEXT;",
@@ -256,9 +254,7 @@ async def sync_schema_endpoint():
     from sqlalchemy import text
     results = {}
     migrations = [
-        "ALTER TABLE investigation_events DROP CONSTRAINT IF EXISTS investigation_events_pkey;",
-        "ALTER TABLE investigation_events ADD PRIMARY KEY (id);",
-        "SELECT setval(pg_get_serial_sequence('investigation_events', 'seq'), COALESCE((SELECT MAX(seq) FROM investigation_events), 1) + 100, true);",
+        "DO $$ DECLARE r RECORD; BEGIN FOR r IN SELECT c.relname FROM pg_class c WHERE c.relkind = 'S' AND c.relname LIKE '%investigation_events%' LOOP EXECUTE 'SELECT setval(' || quote_literal(r.relname) || ', 1000, true)'; END LOOP; END $$;",
         "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS description TEXT;",
         "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;",
         "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS error_message TEXT;",
