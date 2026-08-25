@@ -19,6 +19,20 @@ const useAuthStore = create(
           set({ token: access_token, user, isLoading: false })
           return { success: true }
         } catch (err) {
+          // Auto-register demo account if cold-starting on fresh DB
+          if (err.response?.status === 401 && email === 'demo@datapilot.ai') {
+            try {
+              const { access_token } = await authApi.register({ email: 'demo@datapilot.ai', password: 'Password123!', name: 'Demo User' })
+              localStorage.setItem('datapilot_token', access_token)
+              const user = await authApi.me()
+              set({ token: access_token, user, isLoading: false })
+              return { success: true }
+            } catch (regErr) {
+              const message = regErr.response?.data?.detail || 'Login failed'
+              set({ error: message, isLoading: false })
+              return { success: false, error: message }
+            }
+          }
           const message = err.response?.data?.detail || 'Login failed'
           set({ error: message, isLoading: false })
           return { success: false, error: message }

@@ -37,6 +37,17 @@ export default function Login() {
     }
   }
 
+  const handleDemoSignIn = async () => {
+    setEmail('demo@datapilot.ai')
+    setPassword('Password123!')
+    const result = await login('demo@datapilot.ai', 'Password123!')
+    if (result.success) {
+      navigate('/dashboard')
+    } else {
+      toast?.show(result.error || 'Demo sign in failed', 'error')
+    }
+  }
+
   return (
     <div className="min-h-screen bg-[#0f0f1a] flex items-center justify-center p-4">
       {/* Background decoration */}
@@ -102,6 +113,17 @@ export default function Login() {
             >
               Sign in
               <ArrowRight size={16} />
+            </Button>
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleDemoSignIn}
+              loading={isLoading}
+              className="w-full mt-3 border-brand-500/30 text-brand-300 hover:bg-brand-500/10"
+              size="lg"
+            >
+              One-Click Demo Sign In
             </Button>
           </form>
 
