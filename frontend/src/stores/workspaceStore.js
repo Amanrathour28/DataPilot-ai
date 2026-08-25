@@ -33,9 +33,14 @@ const useWorkspaceStore = create(
               console.error('Error auto-creating default workspace:', createErr)
             }
           }
-          return workspaces
         } catch (err) {
           set({ error: 'Failed to load workspaces', isLoading: false })
+          // If no activeWorkspace is selected, ensure a fallback exists
+          const current = get().activeWorkspace
+          if (!current) {
+            const fallback = { id: 'default-ws', name: 'Personal Workspace' }
+            set({ workspaces: [fallback], activeWorkspace: fallback })
+          }
           return []
         }
       },

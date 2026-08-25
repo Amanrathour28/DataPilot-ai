@@ -94,8 +94,16 @@ export default function Knowledge() {
 
   if (!activeWorkspace) {
     return (
-      <div className="p-8 flex items-center justify-center min-h-[60vh]">
-        <p className="text-slate-500 text-sm">Select a workspace to view knowledge base.</p>
+      <div className="p-8 max-w-7xl mx-auto space-y-6">
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-xl font-bold text-slate-100">Knowledge Base</h1>
+            <p className="text-sm text-slate-500 mt-0.5">Loading workspace…</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[1, 2, 3].map(i => <CardSkeleton key={i} />)}
+        </div>
       </div>
     )
   }

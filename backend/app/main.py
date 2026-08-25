@@ -25,7 +25,11 @@ logger = logging.getLogger("datapilot")
 async def lifespan(app: FastAPI):
     """Application lifespan: startup and shutdown events."""
     # Ensure upload directory exists
-    Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
+    try:
+        Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        logger.warning(f"Could not create upload directory: {e}")
+
     logger.info(f"DataPilot AI starting — env={settings.app_env}")
 
     # In Postgres, enable pgvector extension if not already present
@@ -38,15 +42,21 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Could not enable pgvector extension: {e}")
 
-    # Auto-create tables if they don't exist
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("Database tables verified/created")
+    # Auto-create tables if they don't exist (gracefully retry on query if cold starting)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("Database tables verified/created")
+    except Exception as e:
+        logger.warning(f"Database initialization warning on startup (will connect on query): {e}")
 
     yield
 
     # Shutdown
-    await engine.dispose()
+    try:
+        await engine.dispose()
+    except Exception:
+        pass
     logger.info("DataPilot AI shutting down")
 
 

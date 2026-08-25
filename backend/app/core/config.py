@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     app_name: str = "DataPilot AI"
     app_env: str = "development"
     debug: bool = False
-    allowed_origins: str = "http://localhost:5173,http://localhost:3000,https://datapilot-ai.vercel.app"
+    allowed_origins: str = "http://localhost:5173,http://localhost:3000,https://datapilot-ai.vercel.app,https://datapilot-final-pearl.vercel.app"
 
     # Database
     database_url: str = "postgresql+asyncpg://datapilot:datapilot_secret@localhost:5432/datapilot"
@@ -24,7 +24,13 @@ class Settings(BaseSettings):
     @property
     def async_database_url(self) -> str:
         """Ensure the connection string is asyncpg-ready and Neon-compatible."""
-        url = self.database_url
+        url = self.database_url or ""
+        
+        # Fallback if unconfigured on serverless (e.g. cold test without env var)
+        if not url or "localhost:5432" in url:
+            if os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME"):
+                return "sqlite+aiosqlite:////tmp/datapilot.db"
+
         if url.startswith("postgres://"):
             url = "postgresql+asyncpg://" + url[len("postgres://"):]
         elif url.startswith("postgresql://") and not url.startswith("postgresql+asyncpg://"):

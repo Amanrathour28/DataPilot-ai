@@ -3,12 +3,15 @@
 import sys
 from pathlib import Path
 
-# Add backend root directory to sys.path so 'app' module resolves correctly
-backend_root = Path(__file__).resolve().parent.parent
-if str(backend_root) not in sys.path:
-    sys.path.insert(0, str(backend_root))
+# Add backend directory and parent directories to sys.path
+api_dir = Path(__file__).resolve().parent
+backend_dir = api_dir.parent
+root_dir = backend_dir.parent
+
+for p in [backend_dir, root_dir, root_dir / "backend"]:
+    if str(p) not in sys.path and p.exists():
+        sys.path.insert(0, str(p))
 
 from app.main import app  # noqa: E402
 
-# Export 'app' for Vercel @vercel/python builder
 __all__ = ["app"]
