@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Bot, Cpu, Network, Activity, CheckCircle2, Clock,
-  AlertCircle, ChevronRight, Terminal, RefreshCw, Layers, ShieldCheck, Zap
+  Cpu, Activity, CheckCircle2, XCircle, Clock, Search, ChevronRight,
+  RefreshCw, Terminal, Layers, Sparkles, AlertCircle
 } from 'lucide-react'
-import { Button, IconButton } from '../../components/ui/Button'
+import { Button } from '../../components/ui/Button'
+import { StatusBadge } from '../../components/ui/Badge'
 import { CardSkeleton } from '../../components/ui/Skeleton'
-import { useToast } from '../../components/ui/Toast'
 import useWorkspaceStore from '../../stores/workspaceStore'
 import { analyticsApi } from '../../services/api'
 import { clsx } from 'clsx'
@@ -14,52 +14,44 @@ import { clsx } from 'clsx'
 const AGENT_ROLES = [
   {
     id: 'Supervisor',
-    title: 'Supervisor Agent',
-    description: 'Deconstructs business questions, orchestrates child agents, and manages execution graph loop.',
-    badge: 'Orchestrator',
-    color: 'border-brand-500/30 bg-brand-500/10 text-brand-400',
-    icon: Network,
-  },
-  {
-    id: 'Planner',
-    title: 'Planning Agent',
-    description: 'Generates analytical investigation step-by-step plans mapped against dataset schema.',
-    badge: 'Strategy',
-    color: 'border-blue-500/30 bg-blue-500/10 text-blue-400',
-    icon: Layers,
+    name: 'Supervisor / Orchestrator Agent',
+    description: 'Generates structured investigation plans, breaks objectives into step-by-step tasks, and monitors swarm execution.',
+    icon: Cpu,
+    color: 'from-purple-500 to-indigo-600',
+    capabilities: ['Dynamic DAG Planning', 'Task Allocation', 'Reinvestigation Triggering']
   },
   {
     id: 'Analyst',
-    title: 'Data Analyst Agent',
-    description: 'Writes and executes Python/Pandas & DuckDB queries to compute metrics, segmentations, and correlations.',
-    badge: 'Code & Math',
-    color: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400',
-    icon: Cpu,
+    name: 'Data Analysis Agent',
+    description: 'Executes automated statistical profiles, anomaly detection, cohort segmentation, and DuckDB analytical queries.',
+    icon: Activity,
+    color: 'from-blue-500 to-cyan-600',
+    capabilities: ['DuckDB SQL Queries', 'Pandas Profiling', 'Correlation Matrix']
   },
   {
-    id: 'Hypothesis Generator & Tester',
-    title: 'Hypothesis Agents',
-    description: 'Formulates candidate causal explanations and rigorously validates them against evidence with statistical confidence.',
-    badge: 'Causality',
-    color: 'border-amber-500/30 bg-amber-500/10 text-amber-400',
-    icon: Zap,
+    id: 'Hypothesis',
+    name: 'Hypothesis Generation & Test Agent',
+    description: 'Formulates competing causal hypotheses and tests them using statistical hypothesis tests (t-tests, Chi-square).',
+    icon: Sparkles,
+    color: 'from-amber-500 to-orange-600',
+    capabilities: ['Causal Hypothesis Formulation', 'Welch t-Test', 'Chi-Square Test']
   },
   {
-    id: 'Root Cause & RAG',
-    title: 'Root Cause Agent',
-    description: 'Cross-references quantitative findings with domain knowledge base documents to explain the "why".',
-    badge: 'Synthesis',
-    color: 'border-purple-500/30 bg-purple-500/10 text-purple-400',
-    icon: Bot,
+    id: 'Root Cause',
+    name: 'Root Cause Synthesis Agent',
+    description: 'Aggregates statistical evidence, ranks root causes by probability and impact, and computes overall confidence score.',
+    icon: Layers,
+    color: 'from-emerald-500 to-teal-600',
+    capabilities: ['Evidence Synthesis', 'Root Cause Ranking', 'Confidence Scoring']
   },
   {
     id: 'Critic',
-    title: 'Critic & Validator',
-    description: 'Evaluates logical consistency, flags hallucinations, and verifies confidence thresholds before report compilation.',
-    badge: 'Verification',
-    color: 'border-rose-500/30 bg-rose-500/10 text-rose-400',
-    icon: ShieldCheck,
-  },
+    name: 'Critic & Audit Agent',
+    description: 'Audits evidence ledger, verifies statistical significance, catches correlation vs causation fallacies, and enforces rigor.',
+    icon: CheckCircle2,
+    color: 'from-rose-500 to-pink-600',
+    capabilities: ['Correlation vs Causation Audit', 'Significance Verification', 'Sanity Checks']
+  }
 ]
 
 export default function Agents() {
@@ -68,16 +60,37 @@ export default function Agents() {
   const [selectedRun, setSelectedRun] = useState(null)
 
   // Fetch recent agent runs
-  const { data: activity = [], isLoading, refetch, isFetching } = useQuery({
+  const { data: activityRaw = [], isLoading, isError, error, refetch, isFetching } = useQuery({
     queryKey: ['agents-activity', activeWorkspace?.id],
     queryFn: () => analyticsApi.agentsActivity(activeWorkspace.id),
     enabled: !!activeWorkspace?.id,
-    refetchInterval: 5000, // Poll every 5s for live agent runs
+    refetchInterval: (data, query) => {
+      if (query?.state?.error) return false
+      return 10000
+    },
   })
+
+  const activity = Array.isArray(activityRaw) ? activityRaw : []
 
   const filteredActivity = selectedRole === 'ALL'
     ? activity
-    : activity.filter(a => (a.agent_role || '').toLowerCase().includes(selectedRole.toLowerCase()))
+    : activity.filter(a => a && (a.agent_role || '').toLowerCase().includes(selectedRole.toLowerCase()))
+
+  if (!activeWorkspace) {
+    return (
+      <div className="p-8 max-w-7xl mx-auto space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-100">Autonomous Agent Swarm</h1>
+            <p className="text-xs text-slate-500 mt-1">Loading workspace context…</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <CardSkeleton /><CardSkeleton />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8">
@@ -106,41 +119,67 @@ export default function Agents() {
         </div>
       </div>
 
+      {/* Error state alert */}
+      {isError && (
+        <div className="card p-5 border border-red-500/30 bg-red-500/10 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <AlertCircle size={20} className="text-red-400 flex-shrink-0" />
+            <div>
+              <h3 className="text-sm font-semibold text-red-300">Failed to load agent telemetry</h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {error?.response?.data?.detail || error?.message || 'Could not connect to backend server.'}
+              </p>
+            </div>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => refetch()}>
+            <RefreshCw size={14} /> Retry
+          </Button>
+        </div>
+      )}
+
       {/* Agent Roles Swarm Grid */}
       <div>
-        <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
-          Specialized Agent Swarm Mesh
+        <h2 className="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
+          <Layers size={16} className="text-brand-400" />
+          Specialized Agent Architecture (5 Autonomous Roles)
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {AGENT_ROLES.map((role) => {
             const Icon = role.icon
+            const roleRunCount = activity.filter(a => a && (a.agent_role || '').toLowerCase().includes(role.id.toLowerCase())).length
             return (
               <div
                 key={role.id}
-                className="card p-4 border border-slate-800/80 hover:border-slate-700 transition-all flex flex-col justify-between"
+                onClick={() => setSelectedRole(selectedRole === role.id ? 'ALL' : role.id)}
+                className={clsx(
+                  'card p-5 cursor-pointer transition-all duration-200 space-y-3 relative overflow-hidden',
+                  selectedRole === role.id
+                    ? 'border-brand-500 ring-1 ring-brand-500/50 bg-[#14142a]'
+                    : 'hover:border-slate-700'
+                )}
               >
-                <div>
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-lg bg-slate-800/80 flex items-center justify-center text-slate-300">
-                        <Icon size={16} />
-                      </div>
-                      <span className="text-sm font-semibold text-slate-200">{role.title}</span>
-                    </div>
-                    <span className={clsx('text-[10px] font-medium px-2 py-0.5 rounded border', role.color)}>
-                      {role.badge}
-                    </span>
+                <div className="flex items-center justify-between">
+                  <div className={clsx('w-9 h-9 rounded-xl flex items-center justify-center text-white bg-gradient-to-br', role.color)}>
+                    <Icon size={18} />
                   </div>
-                  <p className="text-xs text-slate-400 leading-relaxed mt-2">
+                  <span className="text-[11px] font-mono font-medium px-2 py-0.5 rounded bg-[#1e1e38] text-slate-400 border border-[#2a2a50]">
+                    {roleRunCount} run{roleRunCount !== 1 ? 's' : ''}
+                  </span>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-bold text-slate-100">{role.name}</h3>
+                  <p className="text-xs text-slate-400 mt-1 leading-relaxed line-clamp-2">
                     {role.description}
                   </p>
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-slate-800/60 flex items-center justify-between text-[11px] text-slate-500">
-                  <span className="flex items-center gap-1.5 text-emerald-400">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Ready & Idle
-                  </span>
-                  <span>Autonomous Tool Calling</span>
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {role.capabilities.map((cap, i) => (
+                    <span key={i} className="text-[10px] bg-[#111124] text-slate-400 px-2 py-0.5 rounded border border-[#222244]">
+                      {cap}
+                    </span>
+                  ))}
                 </div>
               </div>
             )
@@ -148,25 +187,30 @@ export default function Agents() {
         </div>
       </div>
 
-      {/* Execution Stream and Logs */}
-      <div className="space-y-4">
+      {/* Execution Telemetry Trace Log */}
+      <div className="card p-6 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Activity className="text-brand-400" size={18} />
-            <h2 className="text-base font-semibold text-slate-200">Live Agent Execution Telemetry</h2>
+          <div>
+            <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">
+              <Terminal size={16} className="text-brand-400" />
+              Agent Execution Telemetry Traces
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Live audit logs of tool calls, prompt executions, and LLM reasoning steps
+            </p>
           </div>
 
           {/* Filter Pills */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
             {['ALL', 'Supervisor', 'Analyst', 'Hypothesis', 'Root Cause', 'Critic'].map(f => (
               <button
                 key={f}
                 onClick={() => setSelectedRole(f)}
                 className={clsx(
-                  'px-2.5 py-1 rounded-lg text-xs font-medium transition-all',
+                  'text-xs px-3 py-1 rounded-lg transition-colors font-medium whitespace-nowrap',
                   selectedRole === f
-                    ? 'bg-brand-500/20 text-brand-300 border border-brand-500/30'
-                    : 'bg-[#161626] text-slate-400 hover:text-slate-200 border border-slate-800'
+                    ? 'bg-brand-600 text-white'
+                    : 'bg-[#191932] text-slate-400 hover:text-slate-200 border border-[#2a2a50]'
                 )}
               >
                 {f}
@@ -175,68 +219,52 @@ export default function Agents() {
           </div>
         </div>
 
+        {/* List of Traces */}
         {isLoading ? (
           <div className="space-y-3">
             <CardSkeleton />
             <CardSkeleton />
-            <CardSkeleton />
           </div>
         ) : filteredActivity.length === 0 ? (
-          <div className="card text-center py-16 flex flex-col items-center justify-center">
-            <div className="w-12 h-12 rounded-2xl bg-brand-500/10 flex items-center justify-center text-brand-400 mb-3">
-              <Bot size={24} />
-            </div>
-            <h3 className="text-base font-semibold text-slate-200 mb-1">No Agent Activity Logged</h3>
-            <p className="text-xs text-slate-500 max-w-sm">
-              Start an investigation from the Investigations tab to see live agent traces and tool invocations.
-            </p>
+          <div className="py-12 text-center text-slate-500 text-xs">
+            No agent execution traces recorded yet for &ldquo;{selectedRole}&rdquo;. Run an investigation to observe live telemetry.
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-2.5">
             {filteredActivity.map((run) => (
               <div
-                key={run.id}
-                className="card p-4 border border-slate-800/80 hover:border-slate-700 transition-all cursor-pointer"
+                key={run.id || Math.random()}
+                className="p-4 bg-[#111124] rounded-xl border border-[#202040] hover:border-slate-700 transition-colors cursor-pointer"
                 onClick={() => setSelectedRun(selectedRun?.id === run.id ? null : run)}
               >
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div className="flex items-center gap-3">
-                    <div className={clsx(
-                      'w-2 h-2 rounded-full flex-shrink-0',
-                      run.status === 'COMPLETED' ? 'bg-emerald-400' :
-                      run.status === 'RUNNING' ? 'bg-amber-400 animate-ping' :
-                      'bg-red-400'
-                    )} />
-
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-semibold text-slate-200">{run.agent_role}</span>
-                        <span className={clsx(
-                          'text-[10px] px-2 py-0.5 rounded font-mono',
-                          run.status === 'COMPLETED' ? 'bg-emerald-500/10 text-emerald-400' :
-                          run.status === 'RUNNING' ? 'bg-amber-500/10 text-amber-400' :
-                          'bg-red-500/10 text-red-400'
-                        )}>
-                          {run.status}
-                        </span>
-                        {run.duration_ms && (
-                          <span className="text-[11px] text-slate-500">
-                            {(run.duration_ms / 1000).toFixed(1)}s
-                          </span>
-                        )}
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-8 h-8 rounded-lg bg-brand-500/10 text-brand-400 flex items-center justify-center flex-shrink-0">
+                      <Cpu size={15} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-slate-200">{run.agent_name || run.agent_role || 'Autonomous Agent'}</span>
+                        <StatusBadge status={run.status || 'COMPLETED'} />
                       </div>
-                      <p className="text-xs text-slate-400 mt-0.5 line-clamp-1">
-                        Investigation: <span className="text-slate-300 font-medium">{run.investigation_objective}</span>
+                      <p className="text-xs text-slate-400 mt-0.5 truncate font-mono">
+                        Task: {run.task_description || run.action || 'Executed investigation step'}
                       </p>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-4 text-xs text-slate-500">
-                    <span>{new Date(run.created_at).toLocaleTimeString()}</span>
+                  <div className="flex items-center gap-3 flex-shrink-0 text-xs text-slate-500">
+                    <span className="font-mono text-[11px] hidden sm:inline">
+                      {((run.execution_time_ms || 0) / 1000).toFixed(2)}s
+                    </span>
+                    <span className="flex items-center gap-1 font-mono text-[11px]">
+                      <Clock size={11} />
+                      {run.created_at ? new Date(run.created_at).toLocaleTimeString() : '—'}
+                    </span>
                     <ChevronRight
-                      size={16}
+                      size={14}
                       className={clsx(
-                        'transition-transform text-slate-400',
+                        'transition-transform text-slate-500',
                         selectedRun?.id === run.id && 'rotate-90'
                       )}
                     />
@@ -251,7 +279,7 @@ export default function Agents() {
                       Tool Invocations & Trace Details
                     </div>
 
-                    {run.tool_calls && run.tool_calls.length > 0 ? (
+                    {Array.isArray(run.tool_calls) && run.tool_calls.length > 0 ? (
                       <div className="space-y-2">
                         {run.tool_calls.map((tc, idx) => (
                           <div key={idx} className="p-3 bg-[#0c0c16] rounded-xl border border-slate-800/80 font-mono text-xs text-slate-300">
@@ -268,7 +296,7 @@ export default function Agents() {
 
                     {run.error_message && (
                       <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-xs text-red-400">
-                        <strong>Error:</strong> {run.error_message}
+                        Error: {run.error_message}
                       </div>
                     )}
                   </div>

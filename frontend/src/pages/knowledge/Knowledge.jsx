@@ -25,15 +25,18 @@ export default function Knowledge() {
   const [selectedDoc, setSelectedDoc] = useState(null)
 
   // Fetch documents list
-  const { data: documents = [], isLoading, refetch } = useQuery({
+  const { data: documentsRaw = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['documents', activeWorkspace?.id],
     queryFn: () => documentsApi.list(activeWorkspace.id),
     enabled: !!activeWorkspace?.id,
-    refetchInterval: (data) => {
-      const hasPending = data?.some(d => ['UPLOADED', 'PROCESSING'].includes(d.status))
+    refetchInterval: (data, query) => {
+      if (query?.state?.error) return false
+      const hasPending = Array.isArray(data) && data.some(d => d && ['UPLOADED', 'PROCESSING'].includes(d.status))
       return hasPending ? 3000 : false
     }
   })
+
+  const documents = Array.isArray(documentsRaw) ? documentsRaw : []
 
   // Handle file drop/selection
   const handleFileUpload = async (e) => {
@@ -60,49 +63,47 @@ export default function Knowledge() {
 
     setIsSearching(true)
     try {
-      const results = await documentsApi.search(activeWorkspace.id, searchQuery.trim(), 4)
-      setSearchResults(results)
+      const results = await documentsApi.search(activeWorkspace.id, searchQuery)
+      setSearchResults(Array.isArray(results?.results) ? results.results : Array.isArray(results) ? results : [])
+      toast?.show(`Found ${Array.isArray(results?.results) ? results.results.length : 0} semantic matches`, 'info')
     } catch (err) {
-      toast?.show('Search failed', 'error')
+      toast?.show(err.response?.data?.detail || 'Semantic search failed', 'error')
     } finally {
       setIsSearching(false)
     }
   }
 
-  // Handle delete
   const handleDelete = async (docId, title) => {
-    if (!confirm(`Delete "${title}"?`)) return
+    if (!confirm(`Delete "${title}" and all associated semantic vector chunks?`)) return
     try {
       await documentsApi.delete(docId)
-      toast?.show('Document deleted', 'info')
-      queryClient.invalidateQueries(['documents', activeWorkspace.id])
-      if (selectedDoc?.id === docId) setSelectedDoc(null)
+      toast?.show(`Deleted "${title}"`, 'success')
+      queryClient.invalidateQueries(['documents', activeWorkspace?.id])
     } catch (err) {
-      toast?.show('Failed to delete document', 'error')
+      toast?.show(err.response?.data?.detail || 'Failed to delete document', 'error')
     }
   }
 
-  // Inspect document chunks
   const handleInspect = async (docId) => {
     try {
-      const fullDoc = await documentsApi.get(docId)
-      setSelectedDoc(fullDoc)
-    } catch {
-      toast?.show('Failed to load document details', 'error')
+      const doc = await documentsApi.get(docId)
+      setSelectedDoc(doc)
+    } catch (err) {
+      toast?.show('Could not fetch document details', 'error')
     }
   }
 
   if (!activeWorkspace) {
     return (
       <div className="p-8 max-w-7xl mx-auto space-y-6">
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-slate-100">Knowledge Base</h1>
-            <p className="text-sm text-slate-500 mt-0.5">Loading workspace…</p>
+            <h1 className="text-2xl font-bold text-slate-100">Knowledge Base</h1>
+            <p className="text-xs text-slate-500 mt-1">Loading workspace context…</p>
           </div>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[1, 2, 3].map(i => <CardSkeleton key={i} />)}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <CardSkeleton /><CardSkeleton /><CardSkeleton />
         </div>
       </div>
     )
@@ -111,15 +112,19 @@ export default function Knowledge() {
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-bold text-slate-100">Knowledge Base</h1>
-          <p className="text-sm text-slate-500 mt-0.5">
-            {documents.length} document{documents.length !== 1 ? 's' : ''} indexed for autonomous RAG retrieval
+          <div className="flex items-center gap-2 mb-1">
+            <BookOpen className="text-brand-400" size={24} />
+            <h1 className="text-2xl font-bold text-slate-100">Knowledge Base & RAG Index</h1>
+          </div>
+          <p className="text-xs text-slate-400">
+            Domain context, SLAs, and policy documents ingested into vector index for autonomous multi-agent retrieval.
           </p>
         </div>
+
         <div className="flex items-center gap-2">
-          <IconButton icon={RefreshCw} label="Refresh" onClick={() => refetch()} />
+          <IconButton icon={RefreshCw} label="Refresh List" onClick={() => refetch()} size={15} />
           <Button variant="primary" onClick={() => setShowUpload(!showUpload)}>
             <Plus size={15} />
             {showUpload ? 'Cancel' : 'Upload Document'}
@@ -127,46 +132,70 @@ export default function Knowledge() {
         </div>
       </div>
 
-      {/* Upload Dropzone */}
-      {showUpload && (
-        <div className="card p-6 border-dashed border-2 border-brand-500/30 bg-[#16162d] text-center space-y-3 animate-slide-up">
-          <UploadCloud size={32} className="mx-auto text-brand-400" />
-          <div>
-            <h3 className="text-sm font-semibold text-slate-200">Upload Business Documents</h3>
-            <p className="text-xs text-slate-500 mt-0.5">Supports PDF, Markdown (.md), Plain Text (.txt), Word (.docx)</p>
+      {/* Error state alert */}
+      {isError && (
+        <div className="card p-5 border border-red-500/30 bg-red-500/10 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <AlertCircle size={20} className="text-red-400 flex-shrink-0" />
+            <div>
+              <h3 className="text-sm font-semibold text-red-300">Failed to load documents</h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {error?.response?.data?.detail || error?.message || 'Could not connect to backend server.'}
+              </p>
+            </div>
           </div>
-          <div className="pt-2">
-            <label className="btn btn-primary cursor-pointer inline-flex items-center gap-2">
-              <input type="file" className="hidden" accept=".pdf,.txt,.md,.docx,.json" onChange={handleFileUpload} disabled={uploading} />
-              {uploading ? 'Processing…' : 'Choose File'}
-            </label>
-          </div>
+          <Button variant="secondary" size="sm" onClick={() => refetch()}>
+            <RefreshCw size={14} /> Retry
+          </Button>
         </div>
       )}
 
-      {/* Semantic Search Box */}
-      <div className="card p-5 space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-brand-400">
-            <Sparkles size={16} />
-            <h3 className="text-sm font-semibold text-slate-200">RAG Semantic Search Explorer</h3>
+      {/* Upload Drawer / Card */}
+      {showUpload && (
+        <div className="card p-6 border-dashed border-[#333366] bg-[#121226] animate-slide-up space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-200">Upload Business Document</h2>
+            <IconButton icon={X} label="Close" onClick={() => setShowUpload(false)} />
           </div>
-          <span className="text-[10px] text-slate-500 font-mono">Vector & Keyword Hybrid</span>
+
+          <label className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-[#2a2a52] rounded-xl hover:border-brand-500/50 cursor-pointer bg-[#0c0c1a] transition-all group">
+            <UploadCloud size={32} className="text-slate-500 group-hover:text-brand-400 mb-2 transition-colors" />
+            <p className="text-xs font-semibold text-slate-300">Click to upload or drag and drop</p>
+            <p className="text-[11px] text-slate-500 mt-1">PDF, TXT, MD, DOCX, JSON (Max 50MB)</p>
+            <input
+              type="file"
+              onChange={handleFileUpload}
+              accept=".pdf,.txt,.md,.docx,.json"
+              className="hidden"
+              disabled={uploading}
+            />
+          </label>
+        </div>
+      )}
+
+      {/* Semantic Search Sandbox */}
+      <div className="card p-5 space-y-4 bg-[#111122]">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Sparkles size={16} className="text-brand-400" />
+            <h2 className="text-sm font-semibold text-slate-200">RAG Semantic Search Test</h2>
+          </div>
+          <span className="text-[11px] text-slate-500 font-mono">Vector Cosine Similarity Sandbox</span>
         </div>
 
         <form onSubmit={handleSearch} className="flex gap-2">
           <div className="relative flex-1">
-            <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
             <input
               type="text"
-              placeholder="Test retrieval (e.g. marketing budget cuts, Q3 expansion strategy, SLA policies)..."
+              placeholder="Test a natural language RAG query (e.g., 'West region SLA response times')..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="input pl-9 text-xs"
+              className="input pl-9 text-xs py-2 w-full"
             />
           </div>
-          <Button type="submit" variant="primary" loading={isSearching}>
-            Search
+          <Button type="submit" variant="secondary" size="sm" loading={isSearching}>
+            Search Vector Index
           </Button>
         </form>
 
@@ -178,13 +207,13 @@ export default function Knowledge() {
               {searchResults.map((res, i) => (
                 <div key={i} className="card p-3.5 bg-[#0e0e20] border-[#222244] space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-slate-200 truncate">{res.document_title}</span>
+                    <span className="text-xs font-semibold text-slate-200 truncate">{res.document_title || 'Document'}</span>
                     <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">
-                      {(res.similarity_score * 100).toFixed(1)}% match
+                      {(((res.similarity_score || 0)) * 100).toFixed(1)}% match
                     </span>
                   </div>
                   <p className="text-xs text-slate-400 leading-relaxed font-mono line-clamp-3">
-                    &ldquo;{res.content}&rdquo;
+                    &ldquo;{res.content || ''}&rdquo;
                   </p>
                 </div>
               ))}
@@ -239,21 +268,21 @@ export default function Knowledge() {
                           onClick={() => handleInspect(doc.id)}
                           className="font-medium text-slate-200 hover:text-brand-400 text-left transition-colors text-xs"
                         >
-                          {doc.title}
+                          {doc.title || doc.original_filename || 'Untitled Document'}
                         </button>
-                        <p className="text-[11px] text-slate-500 font-mono">{doc.original_filename}</p>
+                        <p className="text-[11px] text-slate-500 font-mono">{doc.original_filename || '—'}</p>
                       </div>
                     </div>
                   </td>
-                  <td className="text-xs font-mono">{doc.chunk_count} chunks</td>
+                  <td className="text-xs font-mono">{doc.chunk_count ?? 0} chunks</td>
                   <td className="text-xs text-slate-400 font-mono">
-                    {(doc.file_size_bytes / 1024 / 1024).toFixed(2)} MB
+                    {(((doc.file_size_bytes || 0)) / 1024 / 1024).toFixed(2)} MB
                   </td>
                   <td>
                     <StatusBadge status={doc.status} />
                   </td>
                   <td className="text-xs text-slate-500">
-                    {new Date(doc.created_at).toLocaleDateString()}
+                    {doc.created_at ? new Date(doc.created_at).toLocaleDateString() : '—'}
                   </td>
                   <td className="text-right">
                     <div className="flex items-center justify-end gap-1">
@@ -267,7 +296,7 @@ export default function Knowledge() {
                         icon={Trash2}
                         label="Delete"
                         variant="danger"
-                        onClick={() => handleDelete(doc.id, doc.title)}
+                        onClick={() => handleDelete(doc.id, doc.title || 'document')}
                         size={14}
                       />
                     </div>
@@ -286,17 +315,17 @@ export default function Knowledge() {
             <div className="flex items-center justify-between border-b border-[#1e1e35] pb-3">
               <div>
                 <h3 className="text-base font-bold text-slate-100">{selectedDoc.title}</h3>
-                <p className="text-xs text-slate-500">{selectedDoc.chunk_count} indexed semantic chunks</p>
+                <p className="text-xs text-slate-500">{selectedDoc.chunk_count || 0} indexed semantic chunks</p>
               </div>
               <IconButton icon={X} label="Close" onClick={() => setSelectedDoc(null)} />
             </div>
 
             <div className="flex-1 overflow-y-auto space-y-3 pr-2">
-              {selectedDoc.chunks?.length === 0 ? (
+              {!Array.isArray(selectedDoc.chunks) || selectedDoc.chunks.length === 0 ? (
                 <p className="text-xs text-slate-500 py-8 text-center">No chunks available for this document.</p>
               ) : (
-                selectedDoc.chunks?.map((c) => (
-                  <div key={c.id} className="card p-3 bg-[#0d0d1e] border-[#1d1d36] space-y-1.5">
+                selectedDoc.chunks.map((c) => (
+                  <div key={c.id || c.chunk_index} className="card p-3 bg-[#0d0d1e] border-[#1d1d36] space-y-1.5">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-bold uppercase tracking-wider text-brand-400 bg-brand-500/10 px-2 py-0.5 rounded">
                         Chunk #{c.chunk_index}
@@ -306,7 +335,7 @@ export default function Knowledge() {
                       </span>
                     </div>
                     <p className="text-xs text-slate-300 font-mono leading-relaxed whitespace-pre-wrap">
-                      {c.content}
+                      {c.content || ''}
                     </p>
                   </div>
                 ))

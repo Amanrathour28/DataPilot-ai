@@ -31,19 +31,19 @@ export default function Dashboard() {
   const { activeWorkspace } = useWorkspaceStore()
   const navigate = useNavigate()
 
-  const { data: datasets = [], isLoading } = useQuery({
+  const { data: datasetsRaw = [], isLoading } = useQuery({
     queryKey: ['datasets', activeWorkspace?.id],
     queryFn: () => datasetsApi.list(activeWorkspace.id),
     enabled: !!activeWorkspace?.id,
   })
 
-  const { data: investigations = [] } = useQuery({
+  const { data: investigationsRaw = [] } = useQuery({
     queryKey: ['investigations', activeWorkspace?.id],
     queryFn: () => investigationsApi.list(activeWorkspace.id),
     enabled: !!activeWorkspace?.id,
   })
 
-  const { data: documents = [] } = useQuery({
+  const { data: documentsRaw = [] } = useQuery({
     queryKey: ['documents', activeWorkspace?.id],
     queryFn: () => documentsApi.list(activeWorkspace.id),
     enabled: !!activeWorkspace?.id,
@@ -55,9 +55,13 @@ export default function Dashboard() {
     enabled: !!activeWorkspace?.id,
   })
 
+  const datasets = Array.isArray(datasetsRaw) ? datasetsRaw : []
+  const investigations = Array.isArray(investigationsRaw) ? investigationsRaw : []
+  const documents = Array.isArray(documentsRaw) ? documentsRaw : []
+
   const recentDatasets = datasets.slice(0, 3)
-  const profiledCount  = datasets.filter(d => d.status === 'PROFILED').length
-  const completedInvCount = investigations.filter(i => i.status === 'COMPLETED').length
+  const profiledCount  = datasets.filter(d => d && d.status === 'PROFILED').length
+  const completedInvCount = investigations.filter(i => i && i.status === 'COMPLETED').length
   const totalFindings = summary?.agents?.total_findings || 0
   const totalHypotheses = summary?.agents?.total_hypotheses || 0
 
@@ -202,7 +206,7 @@ export default function Dashboard() {
                       <Database size={16} className="text-brand-400" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-slate-200 truncate">{ds.name}</p>
+                      <p className="text-sm font-medium text-slate-200 truncate">{ds.name || 'Untitled Dataset'}</p>
                       <p className="text-xs text-slate-500 mt-0.5">
                         {ds.row_count != null ? `${ds.row_count.toLocaleString()} rows` : 'Counting…'}
                         {ds.column_count != null ? ` · ${ds.column_count} cols` : ''}

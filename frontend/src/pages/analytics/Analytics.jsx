@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   BarChart3, TrendingUp, CheckCircle, Clock, Zap, Cpu,
-  DollarSign, Database, FileText, Brain, ArrowUpRight, Award, ShieldAlert
+  DollarSign, Database, FileText, Brain, ArrowUpRight, Award, ShieldAlert, AlertCircle, RefreshCw
 } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { CardSkeleton } from '../../components/ui/Skeleton'
@@ -13,7 +13,7 @@ import { clsx } from 'clsx'
 export default function Analytics() {
   const { activeWorkspace } = useWorkspaceStore()
 
-  const { data: analytics, isLoading, refetch } = useQuery({
+  const { data: analytics, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['analytics-summary', activeWorkspace?.id],
     queryFn: () => analyticsApi.summary(activeWorkspace.id),
     enabled: !!activeWorkspace?.id,
@@ -24,8 +24,24 @@ export default function Analytics() {
   const kb = analytics?.knowledge_base || {}
   const ag = analytics?.agents || {}
 
-  const roles = ag?.roles_distribution || {}
-  const totalRoleRuns = Object.values(roles).reduce((a, b) => a + b, 0) || 1
+  const roles = (ag?.roles_distribution && typeof ag.roles_distribution === 'object') ? ag.roles_distribution : {}
+  const totalRoleRuns = Object.values(roles).reduce((a, b) => (typeof b === 'number' ? a + b : a), 0) || 1
+
+  if (!activeWorkspace) {
+    return (
+      <div className="p-8 max-w-7xl mx-auto space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-100">Analytics & Observability</h1>
+            <p className="text-xs text-slate-500 mt-1">Loading workspace context…</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <CardSkeleton /><CardSkeleton /><CardSkeleton /><CardSkeleton />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-8">
@@ -37,10 +53,33 @@ export default function Analytics() {
             <h1 className="text-2xl font-bold text-slate-100">Analytics & Observability</h1>
           </div>
           <p className="text-sm text-slate-400">
-            Performance metrics, agent operational efficiency, and token economics for {activeWorkspace?.name || 'this workspace'}.
+            Performance metrics, agent operational efficiency, and token economics for workspace &ldquo;{activeWorkspace.name}&rdquo;.
           </p>
         </div>
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" size="sm" onClick={() => refetch()}>
+            <RefreshCw size={14} /> Refresh Metrics
+          </Button>
+        </div>
       </div>
+
+      {/* Error state alert */}
+      {isError && (
+        <div className="card p-5 border border-red-500/30 bg-red-500/10 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <AlertCircle size={20} className="text-red-400 flex-shrink-0" />
+            <div>
+              <h3 className="text-sm font-semibold text-red-300">Failed to load analytics</h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {error?.response?.data?.detail || error?.message || 'Could not connect to backend server.'}
+              </p>
+            </div>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => refetch()}>
+            <RefreshCw size={14} /> Retry
+          </Button>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -136,7 +175,7 @@ export default function Analytics() {
               ) : (
                 <div className="space-y-3">
                   {Object.entries(roles).map(([role, count]) => {
-                    const pct = Math.round((count / totalRoleRuns) * 100)
+                    const pct = Math.round(((typeof count === 'number' ? count : 0) / totalRoleRuns) * 100)
                     return (
                       <div key={role} className="space-y-1">
                         <div className="flex justify-between text-xs">
@@ -172,7 +211,7 @@ export default function Analytics() {
                     <Database size={14} className="text-blue-400" /> Structured Datasets
                   </div>
                   <div className="text-xl font-bold text-slate-200">{ds.total_datasets || 0}</div>
-                  <div className="text-[11px] text-slate-500 mt-1">{(ds.total_rows || 0).toLocaleString()} rows analyzed</div>
+                  <div className="text-[11px] text-slate-500 mt-1">{((ds.total_rows || 0)).toLocaleString()} rows analyzed</div>
                 </div>
 
                 <div className="p-4 bg-[#121222] rounded-xl border border-slate-800/80">

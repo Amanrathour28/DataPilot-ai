@@ -35,7 +35,7 @@ export default function Memory() {
   const [saving, setSaving] = useState(false)
 
   // Query Memories
-  const { data: memories = [], isLoading, refetch } = useQuery({
+  const { data: memoriesRaw = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['memories', activeWorkspace?.id, selectedCategory],
     queryFn: () => memoriesApi.list(
       activeWorkspace.id,
@@ -43,6 +43,8 @@ export default function Memory() {
     ),
     enabled: !!activeWorkspace?.id,
   })
+
+  const memories = Array.isArray(memoriesRaw) ? memoriesRaw : []
 
   // Create / Update Memory
   const handleSave = async (e) => {
@@ -94,15 +96,34 @@ export default function Memory() {
 
   const openEdit = (mem) => {
     setEditingMemory(mem)
-    setContent(mem.content)
+    setContent(mem.content || '')
     setCategory(mem.category || 'business_rule')
     setShowAddModal(true)
   }
 
-  const filteredMemories = memories.filter(m =>
-    m.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    m.category.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  const filteredMemories = memories.filter(m => {
+    if (!m) return false
+    const contentStr = (m.content || '').toLowerCase()
+    const catStr = (m.category || '').toLowerCase()
+    const q = (searchQuery || '').toLowerCase()
+    return contentStr.includes(q) || catStr.includes(q)
+  })
+
+  if (!activeWorkspace) {
+    return (
+      <div className="p-8 max-w-7xl mx-auto space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-100">Workspace Memory</h1>
+            <p className="text-xs text-slate-500 mt-1">Loading workspace context…</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <CardSkeleton /><CardSkeleton />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
@@ -114,7 +135,7 @@ export default function Memory() {
             <h1 className="text-2xl font-bold text-slate-100">Workspace Memory</h1>
           </div>
           <p className="text-sm text-slate-400">
-            Explicit business context and learned domain rules utilized by agents during data investigations.
+            Explicit business context and learned domain rules utilized by agents during data investigations in &ldquo;{activeWorkspace.name}&rdquo;.
           </p>
         </div>
 
@@ -130,6 +151,24 @@ export default function Memory() {
           <Plus size={16} /> Add Memory
         </Button>
       </div>
+
+      {/* Error state alert */}
+      {isError && (
+        <div className="card p-5 border border-red-500/30 bg-red-500/10 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <AlertCircle size={20} className="text-red-400 flex-shrink-0" />
+            <div>
+              <h3 className="text-sm font-semibold text-red-300">Failed to load memories</h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {error?.response?.data?.detail || error?.message || 'Could not connect to backend server.'}
+              </p>
+            </div>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => refetch()}>
+            <RefreshCw size={14} /> Retry
+          </Button>
+        </div>
+      )}
 
       {/* Category Tabs & Search Bar */}
       <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
@@ -216,7 +255,7 @@ export default function Memory() {
                     mem.category === 'domain_knowledge' && 'bg-purple-500/10 text-purple-400 border border-purple-500/20',
                     mem.category === 'context' && 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
                   )}>
-                    {mem.category.replace('_', ' ')}
+                    {(mem.category || 'general').replace('_', ' ')}
                   </span>
 
                   <button
@@ -243,7 +282,7 @@ export default function Memory() {
               </div>
 
               <div className="flex items-center justify-between pt-4 mt-4 border-t border-slate-800/60 text-xs text-slate-500">
-                <span>Updated {new Date(mem.updated_at || mem.created_at).toLocaleDateString()}</span>
+                <span>Updated {mem.updated_at || mem.created_at ? new Date(mem.updated_at || mem.created_at).toLocaleDateString() : '—'}</span>
                 <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
                   <button
                     onClick={() => openEdit(mem)}

@@ -13,20 +13,26 @@ export default function Investigations() {
   const { activeWorkspace } = useWorkspaceStore()
   const [search, setSearch] = useState('')
 
-  const { data: investigations = [], isLoading, refetch } = useQuery({
+  const { data: investigationsRaw = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['investigations', activeWorkspace?.id],
     queryFn: () => investigationsApi.list(activeWorkspace.id),
     enabled: !!activeWorkspace?.id,
-    refetchInterval: (data) => {
-      const hasRunning = data?.some(inv => inv.status === 'RUNNING' || inv.status === 'PENDING')
+    refetchInterval: (data, query) => {
+      if (query?.state?.error) return false
+      const hasRunning = Array.isArray(data) && data.some(inv => inv && ['RUNNING', 'PENDING'].includes(inv.status))
       return hasRunning ? 3000 : false
     },
   })
 
-  const filtered = investigations.filter(inv =>
-    inv.title?.toLowerCase().includes(search.toLowerCase()) ||
-    inv.objective?.toLowerCase().includes(search.toLowerCase())
-  )
+  const investigations = Array.isArray(investigationsRaw) ? investigationsRaw : []
+
+  const filtered = investigations.filter(inv => {
+    if (!inv) return false
+    const titleStr = (inv.title || '').toLowerCase()
+    const objStr = (inv.objective || '').toLowerCase()
+    const q = (search || '').toLowerCase()
+    return titleStr.includes(q) || objStr.includes(q)
+  })
 
   if (!activeWorkspace) {
     return (
@@ -51,7 +57,7 @@ export default function Investigations() {
         <div>
           <h1 className="text-xl font-bold text-slate-100">Investigations</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            {investigations.length} investigation{investigations.length !== 1 ? 's' : ''} in this workspace
+            {investigations.length} investigation{investigations.length !== 1 ? 's' : ''} in workspace &ldquo;{activeWorkspace.name}&rdquo;
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -61,6 +67,24 @@ export default function Investigations() {
           </Button>
         </div>
       </div>
+
+      {/* Error state alert */}
+      {isError && (
+        <div className="card p-5 border border-red-500/30 bg-red-500/10 mb-6 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <AlertCircle size={20} className="text-red-400 flex-shrink-0" />
+            <div>
+              <h3 className="text-sm font-semibold text-red-300">Failed to load investigations</h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {error?.response?.data?.detail || error?.message || 'Could not connect to backend server.'}
+              </p>
+            </div>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => refetch()}>
+            <RefreshCw size={14} /> Retry
+          </Button>
+        </div>
+      )}
 
       {/* Search Bar */}
       {investigations.length > 0 && (
@@ -81,7 +105,7 @@ export default function Investigations() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3].map(i => <CardSkeleton key={i} />)}
         </div>
-      ) : investigations.length === 0 ? (
+      ) : filtered.length === 0 && investigations.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-24 text-center">
           <div className="w-16 h-16 rounded-2xl bg-[#1e1e35] flex items-center justify-center mb-5">
             <Search size={28} className="text-slate-600" />
@@ -111,20 +135,20 @@ export default function Investigations() {
                   <StatusBadge status={inv.status} />
                   <span className="text-xs text-slate-500 flex items-center gap-1">
                     <Clock size={12} />
-                    {new Date(inv.created_at).toLocaleDateString()}
+                    {inv.created_at ? new Date(inv.created_at).toLocaleDateString() : '—'}
                   </span>
                 </div>
                 <h3 className="font-semibold text-slate-200 text-sm group-hover:text-brand-300 transition-colors line-clamp-2">
-                  {inv.title || inv.objective}
+                  {inv.title || inv.objective || 'Untitled Investigation'}
                 </h3>
                 <p className="text-xs text-slate-400 mt-2 line-clamp-3 leading-relaxed">
-                  {inv.objective}
+                  {inv.objective || '—'}
                 </p>
               </div>
 
               <div className="mt-5 pt-4 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-500">
                 <span>
-                  Confidence: <strong className="text-slate-300 font-semibold">{Math.round((inv.confidence_score || 0) * 100)}%</strong>
+                  Confidence: <strong className="text-slate-300 font-semibold">{Math.round(((inv.confidence_score || 0)) * 100)}%</strong>
                 </span>
                 <span className="flex items-center gap-1 text-brand-400 group-hover:translate-x-0.5 transition-transform">
                   View Report <ArrowRight size={13} />
