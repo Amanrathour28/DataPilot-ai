@@ -30,21 +30,39 @@ MAX_BYTES = settings.max_upload_size_mb * 1024 * 1024
 
 
 async def _assert_workspace_member(workspace_id: str, user_id: str, db: AsyncSession) -> None:
-    """Raise 403 if the user is not a member of the workspace."""
+    """Check membership or auto-heal if user is the workspace owner."""
     result = await db.execute(
         select(WorkspaceMember).where(
             WorkspaceMember.workspace_id == workspace_id,
             WorkspaceMember.user_id == user_id,
         )
     )
-    if not result.scalar_one_or_none():
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+    if result.scalar_one_or_none():
+        return
 
+    # Check if user is the owner or workspace exists
     result2 = await db.execute(
         select(Workspace).where(Workspace.id == workspace_id, Workspace.is_deleted == False)
     )
-    if not result2.scalar_one_or_none():
+    workspace = result2.scalar_one_or_none()
+    if not workspace:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
+
+    if workspace.owner_id == user_id:
+        try:
+            from app.db.models.workspace import WorkspaceMemberRole
+            member = WorkspaceMember(
+                workspace_id=workspace_id,
+                user_id=user_id,
+                role=WorkspaceMemberRole.OWNER,
+            )
+            db.add(member)
+            await db.commit()
+            return
+        except Exception:
+            return
+
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
 
 def _get_upload_path(workspace_id: str, dataset_id: str, filename: str) -> Path:

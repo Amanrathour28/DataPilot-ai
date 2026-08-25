@@ -16,13 +16,16 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-// Handle 401 globally — clear token and redirect to login
+// Handle 401 globally — clear token and redirect to login if on a protected page
 api.interceptors.response.use(
   (res) => res,
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('datapilot_token')
-      window.location.href = '/login'
+      const publicPaths = ['/login', '/register', '/']
+      if (!publicPaths.includes(window.location.pathname)) {
+        window.location.href = '/login'
+      }
     }
     return Promise.reject(error)
   }
