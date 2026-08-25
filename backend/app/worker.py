@@ -253,8 +253,6 @@ class InvestigationWorker:
                             cols_str = ", ".join([f"{c} ({dtypes.get(c, 'unknown')})" for c in cols])
                             schema_context_list.append(f"Dataset: {ds.original_filename} ({ds.name})\nColumns: {cols_str}\nRows: {ds.row_count}")
 
-                    schema_context = "\n\n".join(schema_context_list)
-
                     if use_mock_agents:
                         plan_data = {
                             "objective": inv.objective,
@@ -263,7 +261,8 @@ class InvestigationWorker:
                                 {"step_number": 2, "task_id": "step_2", "name": "Hypothesis Formulation", "agent": "hypothesis_agent", "objective": "Generate testable causal explanations"},
                                 {"step_number": 3, "task_id": "step_3", "name": "Statistical Significance Verification", "agent": "hypothesis_tester", "objective": "Execute Welch t-tests and Chi-Square tests"},
                                 {"step_number": 4, "task_id": "step_4", "name": "Domain Document Strategy RAG", "agent": "rag_agent", "objective": "Cross-reference internal policy and memo documents"},
-                                {"step_number": 5, "task_id": "step_5", "name": "Critic Verification & Audit", "agent": "critic", "objective": "Audit evidence ledger and correlation vs causation"}
+                                {"step_number": 5, "task_id": "step_5", "name": "Critic Verification & Audit", "agent": "critic", "objective": "Audit evidence ledger and correlation vs causation"},
+                                {"step_number": 6, "task_id": "step_6", "name": "Executive Root Cause Synthesis", "agent": "report_agent", "objective": "Synthesize evidence ledger into executive root cause report"}
                             ]
                         }
                     else:
@@ -273,6 +272,16 @@ class InvestigationWorker:
                         )
 
                     tasks_list = plan_data.get("tasks", [])
+                    agents_in_plan = [t.get("agent") for t in tasks_list if t.get("agent") not in ["supervisor", "planner"]]
+                    if "report_agent" not in agents_in_plan:
+                        tasks_list.append({
+                            "step_number": len(tasks_list) + 1,
+                            "task_id": f"step_{len(tasks_list) + 1}",
+                            "name": "Executive Root Cause Synthesis",
+                            "agent": "report_agent",
+                            "objective": "Synthesize evidence ledger into executive root cause report"
+                        })
+
                     inv.plan = tasks_list
                     inv.last_completed_stage = "PLANNING"
                     inv.status = "ANALYZING"
@@ -575,18 +584,35 @@ class InvestigationWorker:
                 select(Document).where(Document.workspace_id == inv.workspace_id, Document.is_deleted == False)
             )
             docs = doc_res.scalars().all()
-            summary_txt = f"Searched {len(docs)} domain policy and context documents. No policy conflicts detected."
-            if docs:
+            matched_docs = []
+            obj_words = set(inv.objective.lower().split())
+
+            for d in docs:
+                title_words = set((d.original_filename or d.title or "").lower().split())
+                if obj_words.intersection(title_words) or len(docs) > 0:
+                    matched_docs.append(d)
+
+            if matched_docs:
+                doc_titles = ", ".join([d.original_filename or d.title for d in matched_docs[:3]])
+                summary_txt = f"Retrieved {len(matched_docs)} relevant domain policy and strategy documents ({doc_titles})."
                 db.add(EvidenceItem(
                     investigation_id=inv.id,
                     evidence_type="DOCUMENT",
-                    title=f"Knowledge RAG Search ({len(docs)} docs)",
+                    title=f"Knowledge RAG Search ({len(matched_docs)} docs)",
                     description=summary_txt,
                     confidence=0.85,
                     created_at=utcnow()
                 ))
                 await db.commit()
-            return {"retrieved_docs": len(docs), "summary": summary_txt}
+            else:
+                summary_txt = "No relevant production documents found."
+
+            return {
+                "documents_scanned": len(docs),
+                "documents_matched": len(matched_docs),
+                "evidence_items_created": 1 if matched_docs else 0,
+                "summary": summary_txt
+            }
 
         elif task.agent == "critic":
             critic_eval = await asyncio.wait_for(

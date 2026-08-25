@@ -113,9 +113,14 @@ class InvestigationEvent(Base):
         Index("idx_inv_events_inv_seq", "investigation_id", "seq"),
     )
 
-    seq: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     id: Mapped[str] = mapped_column(
         String(36), unique=True, nullable=False, default=lambda: f"evt_{uuid.uuid4().hex[:12]}"
+    )
+    seq: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(always=False, start=1),
+        nullable=False,
+        primary_key=True,
     )
     investigation_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("investigations.id", ondelete="CASCADE"), nullable=False
