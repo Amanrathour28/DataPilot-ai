@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, DateTime, ForeignKey, Text, JSON, Float, Integer, Boolean
+from sqlalchemy import String, DateTime, ForeignKey, Text, JSON, Float, Integer, Boolean, BigInteger, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -12,6 +12,9 @@ def utcnow() -> datetime:
 
 class Investigation(Base):
     __tablename__ = "investigations"
+    __table_args__ = (
+        Index("idx_inv_status_lock", "status", "lock_expires_at"),
+    )
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
@@ -42,6 +45,15 @@ class Investigation(Base):
     agent_activity: Mapped[list | None] = mapped_column(JSON, nullable=True)
     reinvestigation_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
+    # Durable Execution Lease & Observability
+    execution_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    locked_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    lock_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_completed_stage: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    attempt_number: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
     is_deleted: Mapped[bool] = mapped_column(default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
@@ -51,11 +63,14 @@ class Investigation(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Investigation id={self.id} status={self.status} objective={self.objective[:30]}>"
+        return f"<Investigation id={self.id} status={self.status} execution_id={self.execution_id}>"
 
 
 class InvestigationTask(Base):
     __tablename__ = "investigation_tasks"
+    __table_args__ = (
+        Index("idx_inv_tasks_inv_status", "investigation_id", "status"),
+    )
 
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
@@ -71,6 +86,16 @@ class InvestigationTask(Base):
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     step_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Task Execution & Retry Fields
+    execution_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    max_retries: Mapped[int] = mapped_column(Integer, default=2, nullable=False)
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, nullable=False
     )
@@ -80,6 +105,31 @@ class InvestigationTask(Base):
 
     def __repr__(self) -> str:
         return f"<InvestigationTask id={self.id} agent={self.agent} status={self.status}>"
+
+
+class InvestigationEvent(Base):
+    __tablename__ = "investigation_events"
+    __table_args__ = (
+        Index("idx_inv_events_inv_seq", "investigation_id", "seq"),
+    )
+
+    seq: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[str] = mapped_column(
+        String(36), unique=True, nullable=False, default=lambda: f"evt_{uuid.uuid4().hex[:12]}"
+    )
+    investigation_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("investigations.id", ondelete="CASCADE"), nullable=False
+    )
+    agent: Mapped[str] = mapped_column(String(50), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(30), nullable=False)  # STARTED, PROGRESS, COMPLETED, FAILED, STATUS_CHANGE
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<InvestigationEvent id={self.id} seq={self.seq} agent={self.agent} type={self.event_type}>"
 
 
 class AgentRun(Base):

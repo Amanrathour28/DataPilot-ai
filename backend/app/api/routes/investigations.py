@@ -1,21 +1,20 @@
 import asyncio
 import json
 import logging
-from typing import AsyncGenerator, List, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
-
-logger = logging.getLogger("datapilot")
+from typing import AsyncGenerator, List, Dict, Any, Optional
+from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from app.db.base import get_db
+from app.db.base import get_db, AsyncSessionLocal
 from app.db.models.user import User
 from app.db.models.workspace import Workspace, WorkspaceMember
 from app.db.models.investigation import (
     Investigation,
     InvestigationTask,
+    InvestigationEvent,
     AgentRun,
     Finding,
     Hypothesis,
@@ -28,15 +27,9 @@ from app.schemas.investigation import (
     InvestigationDetailResponse,
 )
 from app.api.dependencies import get_current_user
-from app.services.investigation_service import (
-    start_investigation_workflow,
-    ensure_investigation_workflow_running,
-    subscribe_to_investigation,
-    pause_investigation_run,
-    resume_investigation_run,
-    cancel_investigation_run,
-)
+from app.worker import InvestigationWorker, utcnow
 
+logger = logging.getLogger("datapilot.investigations_route")
 router = APIRouter(prefix="/investigations", tags=["investigations"])
 
 
@@ -66,6 +59,12 @@ async def _assert_workspace_access(
     return workspace
 
 
+async def _run_worker_async(investigation_id: str):
+    """Helper to run durable worker task in background."""
+    worker = InvestigationWorker()
+    await worker.run_investigation(investigation_id)
+
+
 @router.post("", response_model=InvestigationResponse, status_code=status.HTTP_201_CREATED)
 async def create_investigation(
     payload: InvestigationCreate,
@@ -75,7 +74,7 @@ async def create_investigation(
     db: AsyncSession = Depends(get_db),
 ):
     """Start an autonomous investigation on a workspace."""
-    logger.info(f"[DEBUG_WORKFLOW] INVESTIGATION REQUEST RECEIVED for workspace {workspace_id}")
+    logger.info(f"Investigation request received for workspace {workspace_id}")
     await _assert_workspace_access(workspace_id, current_user, db)
 
     investigation = Investigation(
@@ -88,13 +87,50 @@ async def create_investigation(
     await db.commit()
     await db.refresh(investigation)
 
-    logger.info(f"[DEBUG_WORKFLOW] INVESTIGATION CREATED: {investigation.id}")
-    logger.info(f"[DEBUG_WORKFLOW] WORKFLOW START REQUESTED for {investigation.id}")
-
-    background_tasks.add_task(start_investigation_workflow, investigation.id)
-    ensure_investigation_workflow_running(investigation.id)
-    logger.info(f"[DEBUG_WORKFLOW] BACKGROUND TASK CREATED for {investigation.id}")
+    logger.info(f"Investigation created: {investigation.id}")
+    background_tasks.add_task(_run_worker_async, investigation.id)
     return investigation
+
+
+@router.post("/{investigation_id}/start")
+async def start_investigation(
+    investigation_id: str,
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Idempotent workflow start endpoint."""
+    result = await db.execute(select(Investigation).where(Investigation.id == investigation_id))
+    inv = result.scalar_one_or_none()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Investigation not found")
+
+    await _assert_workspace_access(inv.workspace_id, current_user, db)
+
+    # Check terminal state protection
+    if inv.status in ["COMPLETED", "FAILED", "CANCELLED"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Investigation is in terminal status '{inv.status}' and cannot be restarted."
+        )
+
+    now = utcnow()
+    if inv.status != "PENDING" and inv.lock_expires_at and inv.lock_expires_at > now:
+        return {
+            "status": "ALREADY_RUNNING",
+            "investigation_id": inv.id,
+            "execution_id": inv.execution_id,
+            "locked_by": inv.locked_by,
+            "lock_expires_at": inv.lock_expires_at.isoformat() if inv.lock_expires_at else None,
+            "message": "Workflow is already running under an active execution lease."
+        }
+
+    background_tasks.add_task(_run_worker_async, investigation_id)
+    return {
+        "status": "TRIGGERED",
+        "investigation_id": inv.id,
+        "message": "Durable background execution triggered."
+    }
 
 
 @router.get("", response_model=list[InvestigationResponse])
@@ -123,7 +159,7 @@ async def get_investigation(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get a detailed investigation report including tasks, runs, findings, and hypotheses."""
+    """Pure read endpoint. Get detailed investigation report."""
     result = await db.execute(
         select(Investigation).where(
             Investigation.id == investigation_id,
@@ -135,9 +171,6 @@ async def get_investigation(
         raise HTTPException(status_code=404, detail="Investigation not found")
 
     await _assert_workspace_access(investigation.workspace_id, current_user, db)
-
-    if investigation.status in ['PENDING', 'PLANNING', 'RUNNING', 'ANALYZING', 'TESTING', 'RETRIEVING', 'VERIFYING', 'REPORTING', 'REINVESTIGATING']:
-        ensure_investigation_workflow_running(investigation_id)
 
     tasks = await db.execute(
         select(InvestigationTask)
@@ -185,125 +218,15 @@ async def get_investigation(
     )
 
 
-@router.post("/{investigation_id}/replay", response_model=InvestigationResponse, status_code=status.HTTP_201_CREATED)
-async def replay_investigation(
-    investigation_id: str,
-    background_tasks: BackgroundTasks = BackgroundTasks(),
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Replay an existing investigation as a new reproducible execution instance."""
-    result = await db.execute(
-        select(Investigation).where(Investigation.id == investigation_id, Investigation.is_deleted == False)
-    )
-    orig = result.scalar_one_or_none()
-    if not orig:
-        raise HTTPException(status_code=404, detail="Original investigation not found")
-
-    await _assert_workspace_access(orig.workspace_id, current_user, db)
-
-    replay_inv = Investigation(
-        workspace_id=orig.workspace_id,
-        parent_id=orig.id,
-        created_by=current_user.id,
-        objective=orig.objective,
-        status="PENDING",
-    )
-    db.add(replay_inv)
-    await db.commit()
-    await db.refresh(replay_inv)
-
-    background_tasks.add_task(start_investigation_workflow, replay_inv.id)
-    return replay_inv
-
-
-@router.post("/{investigation_id}/pause")
-async def pause_investigation(
-    investigation_id: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Pause an active investigation."""
-    pause_investigation_run(investigation_id)
-    return {"status": "PAUSED", "investigation_id": investigation_id}
-
-
-@router.post("/{investigation_id}/resume")
-async def resume_investigation(
-    investigation_id: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Resume a paused investigation."""
-    resume_investigation_run(investigation_id)
-    return {"status": "RESUMED", "investigation_id": investigation_id}
-
-
-@router.post("/{investigation_id}/cancel")
-async def cancel_investigation(
-    investigation_id: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Cancel an active investigation."""
-    cancel_investigation_run(investigation_id)
-    return {"status": "CANCELLED", "investigation_id": investigation_id}
-
-
-@router.get("/{investigation_id}/evidence", response_model=List[Dict[str, Any]])
-async def get_investigation_evidence(
-    investigation_id: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Get the full Evidence Ledger items for an investigation."""
-    result = await db.execute(
-        select(Investigation).where(Investigation.id == investigation_id, Investigation.is_deleted == False)
-    )
-    inv = result.scalar_one_or_none()
-    if not inv:
-        raise HTTPException(status_code=404, detail="Investigation not found")
-
-    await _assert_workspace_access(inv.workspace_id, current_user, db)
-
-    ev_items = await db.execute(
-        select(EvidenceItem)
-        .where(EvidenceItem.investigation_id == investigation_id)
-        .order_by(EvidenceItem.created_at.asc())
-    )
-    items = ev_items.scalars().all()
-    if items:
-        return [
-            {
-                "evidence_id": e.id,
-                "claim": e.claim,
-                "source_type": e.source_type,
-                "source_id": e.source_id,
-                "source_name": e.source_name,
-                "analysis_type": e.analysis_type,
-                "query_or_method": e.query_or_method,
-                "result_summary": e.result_summary,
-                "statistical_metrics": e.statistical_metrics,
-                "document_citation": e.document_citation,
-                "causal_classification": e.causal_classification,
-                "confidence": e.confidence,
-                "supports_claim": e.supports_claim,
-                "created_by_agent": e.created_by_agent,
-                "created_at": e.created_at.isoformat() if e.created_at else None,
-            }
-            for e in items
-        ]
-
-    return inv.evidence_ledger or []
-
-
 @router.get("/{investigation_id}/stream")
 async def stream_investigation_events(
     investigation_id: str,
+    request: Request,
+    last_event_id: Optional[int] = Query(None, description="Cursor sequence number for reconnection"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Stream live investigation events (SSE)."""
+    """Observation-only cursor-based SSE stream using DB-backed event store."""
     result = await db.execute(select(Investigation).where(Investigation.id == investigation_id))
     investigation = result.scalar_one_or_none()
     if not investigation:
@@ -311,19 +234,123 @@ async def stream_investigation_events(
 
     await _assert_workspace_access(investigation.workspace_id, current_user, db)
 
-    # Ensure background workflow task is active
-    if investigation.status in ['PENDING', 'PLANNING', 'RUNNING', 'ANALYZING', 'TESTING', 'RETRIEVING', 'VERIFYING', 'REPORTING', 'REINVESTIGATING']:
-        ensure_investigation_workflow_running(investigation_id)
+    # Determine starting cursor from query param or Last-Event-ID header
+    header_last_id = request.headers.get("Last-Event-ID")
+    cursor = 0
+    if last_event_id is not None:
+        cursor = last_event_id
+    elif header_last_id and header_last_id.isdigit():
+        cursor = int(header_last_id)
 
     async def event_generator() -> AsyncGenerator[str, None]:
-        queue = subscribe_to_investigation(investigation_id)
-        try:
-            while True:
-                event = await queue.get()
-                if event is None:
+        nonlocal cursor
+        while True:
+            async with AsyncSessionLocal() as s_db:
+                events_res = await s_db.execute(
+                    select(InvestigationEvent)
+                    .where(
+                        InvestigationEvent.investigation_id == investigation_id,
+                        InvestigationEvent.seq > cursor,
+                    )
+                    .order_by(InvestigationEvent.seq.asc())
+                )
+                events = events_res.scalars().all()
+
+                for evt in events:
+                    cursor = evt.seq
+                    payload = {
+                        "id": evt.id,
+                        "seq": evt.seq,
+                        "agent": evt.agent,
+                        "event_type": evt.event_type,
+                        "type": "agent_activity",
+                        "message": evt.message,
+                        "activity": {
+                            "id": evt.id,
+                            "agent": evt.agent,
+                            "action": evt.message,
+                            "status": "completed" if evt.event_type in ["COMPLETED", "PROGRESS"] else ("failed" if evt.event_type == "FAILED" else "running"),
+                            "timestamp": evt.created_at.isoformat(),
+                            "finding": evt.details.get("finding") if evt.details else None
+                        },
+                        "details": evt.details,
+                        "timestamp": evt.created_at.isoformat(),
+                    }
+                    yield f"id: {evt.seq}\ndata: {json.dumps(payload)}\n\n"
+
+                # Check if investigation has concluded
+                inv_res = await s_db.execute(select(Investigation.status).where(Investigation.id == investigation_id))
+                curr_status = inv_res.scalar_one_or_none()
+                if curr_status in ["COMPLETED", "FAILED", "CANCELLED"] and len(events) == 0:
+                    yield f"data: {json.dumps({'type': 'status', 'status': curr_status, 'message': f'Workflow concluded with status {curr_status}'})}\n\n"
                     break
-                yield f"data: {json.dumps(event)}\n\n"
-        except asyncio.CancelledError:
-            pass
+
+            await asyncio.sleep(1.5)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
+@router.get("/{investigation_id}/debug")
+async def debug_investigation(
+    investigation_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin / Debug observability endpoint inspecting active execution lease, tasks, and events."""
+    result = await db.execute(select(Investigation).where(Investigation.id == investigation_id))
+    inv = result.scalar_one_or_none()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Investigation not found")
+
+    await _assert_workspace_access(inv.workspace_id, current_user, db)
+
+    tasks_res = await db.execute(
+        select(InvestigationTask)
+        .where(InvestigationTask.investigation_id == investigation_id)
+        .order_by(InvestigationTask.step_number.asc())
+    )
+    tasks = tasks_res.scalars().all()
+
+    events_res = await db.execute(
+        select(InvestigationEvent)
+        .where(InvestigationEvent.investigation_id == investigation_id)
+        .order_by(InvestigationEvent.seq.asc())
+    )
+    events = events_res.scalars().all()
+
+    return {
+        "investigation_id": inv.id,
+        "execution_id": inv.execution_id,
+        "status": inv.status,
+        "locked_by": inv.locked_by,
+        "lock_expires_at": inv.lock_expires_at.isoformat() if inv.lock_expires_at else None,
+        "heartbeat_at": inv.heartbeat_at.isoformat() if inv.heartbeat_at else None,
+        "last_completed_stage": inv.last_completed_stage,
+        "attempt_number": inv.attempt_number,
+        "failure_reason": inv.failure_reason,
+        "tasks": [
+            {
+                "task_id": t.id,
+                "agent": t.agent,
+                "status": t.status,
+                "retry_count": t.retry_count,
+                "max_retries": t.max_retries,
+                "started_at": t.started_at.isoformat() if t.started_at else None,
+                "completed_at": t.completed_at.isoformat() if t.completed_at else None,
+                "duration_ms": t.duration_ms,
+                "error": t.error,
+            }
+            for t in tasks
+        ],
+        "events": [
+            {
+                "id": e.id,
+                "seq": e.seq,
+                "agent": e.agent,
+                "event_type": e.event_type,
+                "message": e.message,
+                "timestamp": e.created_at.isoformat(),
+            }
+            for e in events
+        ]
+    }

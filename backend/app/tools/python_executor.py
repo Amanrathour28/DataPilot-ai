@@ -5,7 +5,7 @@ import os
 import subprocess
 import sys
 import tempfile
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, Optional
 
 logger = logging.getLogger("datapilot.executor")
 
@@ -76,11 +76,13 @@ class PythonExecutor:
     def execute_code(
         cls,
         code: str,
-        datasets: Dict[str, str],
+        datasets: Optional[Dict[str, str]] = None,
+        file_mappings: Optional[Dict[str, str]] = None,
         timeout_seconds: float = 10.0,
         max_output_chars: int = 50000,
     ) -> Dict[str, Any]:
         """Runs validated Python code with dataset file mapping arguments."""
+        ds_map = datasets or file_mappings or {}
         # 1. Security Check
         is_safe, sec_msg = cls.validate_code_safety(code)
         if not is_safe:
@@ -102,7 +104,7 @@ class PythonExecutor:
                 f.write(code)
 
             args = [sys.executable, temp_file_path]
-            for name, path in datasets.items():
+            for name, path in ds_map.items():
                 args.append(f"{name}={path}")
 
             logger.info(f"Executing sandboxed analysis: timeout={timeout_seconds}s datasets={len(datasets)}")

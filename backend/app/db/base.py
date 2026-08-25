@@ -36,6 +36,13 @@ class Base(DeclarativeBase):
     pass
 
 
+async def init_db():
+    """Initializes database tables for all metadata models."""
+    import app.db.models  # Ensure models imported
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+
 async def get_db() -> AsyncSession:
     """FastAPI dependency that yields a database session."""
     async with AsyncSessionLocal() as session:

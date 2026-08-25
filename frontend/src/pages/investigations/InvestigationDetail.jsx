@@ -88,13 +88,16 @@ export default function InvestigationDetail() {
     }
   }, [detail])
 
+  const lastEventIdRef = useRef(0)
+  const seenEventIdsRef = useRef(new Set())
+
   // Establish SSE connection if running
   useEffect(() => {
     if (!id) return
     const isRunning = ['PENDING', 'RUNNING', 'PLANNING', 'ANALYZING', 'TESTING', 'RETRIEVING', 'VERIFYING', 'REPORTING', 'REINVESTIGATING'].includes(detail?.status)
     if (detail && !isRunning) return
 
-    const streamUrl = investigationsApi.getStreamUrl(id)
+    const streamUrl = investigationsApi.getStreamUrl(id, lastEventIdRef.current)
     const eventSource = new EventSource(streamUrl)
 
     eventSource.onopen = () => {
@@ -105,6 +108,10 @@ export default function InvestigationDetail() {
       try {
         const data = JSON.parse(event.data)
         if (!data) return
+
+        if (data.id && seenEventIdsRef.current.has(data.id)) return
+        if (data.id) seenEventIdsRef.current.add(data.id)
+        if (data.seq) lastEventIdRef.current = data.seq
 
         if (data.type === 'status') {
           setStreamStatus(data.status)

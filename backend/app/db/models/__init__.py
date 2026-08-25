@@ -3,7 +3,7 @@
 from app.db.models.user import User
 from app.db.models.workspace import Workspace, WorkspaceMember
 from app.db.models.dataset import Dataset, DatasetProfile
-from app.db.models.investigation import Investigation, InvestigationTask, AgentRun, Finding, Hypothesis
+from app.db.models.investigation import Investigation, InvestigationTask, AgentRun, Finding, Hypothesis, EvidenceItem, CriticReview, InvestigationEvent
 from app.db.models.document import Document, DocumentChunk
 from app.db.models.memory import Memory, MemoryCategory
 
@@ -18,6 +18,9 @@ __all__ = [
     "AgentRun",
     "Finding",
     "Hypothesis",
+    "EvidenceItem",
+    "CriticReview",
+    "InvestigationEvent",
     "Document",
     "DocumentChunk",
     "Memory",

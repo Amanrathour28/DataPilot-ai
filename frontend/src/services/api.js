@@ -82,14 +82,16 @@ export const datasetsApi = {
 // ── Investigations ────────────────────────────────────────────────────────────
 export const investigationsApi = {
   create:       (workspaceId, data) => api.post(`/investigations?workspace_id=${workspaceId}`, data).then(r => r.data),
+  start:        (id)                => api.post(`/investigations/${id}/start`).then(r => r.data),
   list:         (workspaceId)       => api.get(`/investigations?workspace_id=${workspaceId}`).then(r => r.data),
   get:          (id)                => api.get(`/investigations/${id}`).then(r => r.data),
+  debug:        (id)                => api.get(`/investigations/${id}/debug`).then(r => r.data),
   replay:       (id)                => api.post(`/investigations/${id}/replay`).then(r => r.data),
   pause:        (id)                => api.post(`/investigations/${id}/pause`).then(r => r.data),
   resume:       (id)                => api.post(`/investigations/${id}/resume`).then(r => r.data),
   cancel:       (id)                => api.post(`/investigations/${id}/cancel`).then(r => r.data),
   getEvidence:  (id)                => api.get(`/investigations/${id}/evidence`).then(r => r.data),
-  getStreamUrl: (id)                => `${BASE_URL}/api/v1/investigations/${id}/stream`,
+  getStreamUrl: (id, lastEventId)   => `${BASE_URL}/api/v1/investigations/${id}/stream${lastEventId ? `?last_event_id=${lastEventId}` : ''}`,
 }
 
 // ── Documents ─────────────────────────────────────────────────────────────────
