@@ -28,9 +28,48 @@ from app.schemas.investigation import (
 )
 from app.api.dependencies import get_current_user
 from app.worker import InvestigationWorker, utcnow
+from sqlalchemy import select, or_
 
 logger = logging.getLogger("datapilot.investigations_route")
 router = APIRouter(prefix="/investigations", tags=["investigations"])
+
+
+@router.api_route("/cron-worker", methods=["GET", "POST"])
+async def cron_worker_trigger():
+    """Vercel Cron / Serverless background worker trigger endpoint.
+    Scans for PENDING or stale RUNNING investigations and executes them.
+    Strictly protected by atomic DB lease locking.
+    """
+    logger.info("Cron worker endpoint triggered.")
+    worker = InvestigationWorker(worker_id="vercel_cron_worker")
+    async with AsyncSessionLocal() as db:
+        now = utcnow()
+        res = await db.execute(
+            select(Investigation.id)
+            .where(
+                Investigation.status.notin_(["COMPLETED", "FAILED", "CANCELLED"]),
+                or_(
+                    Investigation.status == "PENDING",
+                    Investigation.lock_expires_at == None,
+                    Investigation.lock_expires_at < now,
+                ),
+            )
+            .order_by(Investigation.created_at.asc())
+            .limit(5)
+        )
+        pending_ids = res.scalars().all()
+
+        executed = []
+        for inv_id in pending_ids:
+            success = await worker.run_investigation(inv_id)
+            executed.append({"investigation_id": inv_id, "success": success})
+
+        return {
+            "status": "OK",
+            "worker_id": worker.worker_id,
+            "claimed_count": len(executed),
+            "results": executed
+        }
 
 
 async def _assert_workspace_access(
