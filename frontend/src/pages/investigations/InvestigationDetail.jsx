@@ -50,10 +50,15 @@ export default function InvestigationDetail() {
   const [streamAppliedMemories, setStreamAppliedMemories] = useState([])
   const [isPaused, setIsPaused] = useState(false)
 
-  // Fetch full details
+  // Fetch full details with active polling when running
   const { data: detail, isLoading, refetch } = useQuery({
     queryKey: ['investigation-detail', id],
     queryFn: () => investigationsApi.get(id),
+    refetchInterval: (data, query) => {
+      if (query?.state?.error) return false
+      const running = ['PENDING', 'RUNNING', 'PLANNING', 'ANALYZING', 'TESTING', 'RETRIEVING', 'VERIFYING', 'REPORTING', 'REINVESTIGATING'].includes(data?.status)
+      return running ? 3000 : false
+    },
     refetchOnWindowFocus: false
   })
 
@@ -65,6 +70,7 @@ export default function InvestigationDetail() {
       setStreamHypotheses(detail.hypotheses || [])
       setStreamEvidence(detail.evidence_ledger || [])
       setStreamStatus(detail.status)
+      if (detail.status) setStreamStage(detail.status)
       setStreamSummary(detail.summary)
       setStreamConfidence(detail.confidence_score)
       setStreamPlan(detail.plan || [])

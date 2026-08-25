@@ -27,6 +27,7 @@ from app.schemas.investigation import (
 from app.api.dependencies import get_current_user
 from app.services.investigation_service import (
     start_investigation_workflow,
+    ensure_investigation_workflow_running,
     subscribe_to_investigation,
     pause_investigation_run,
     resume_investigation_run,
@@ -84,6 +85,7 @@ async def create_investigation(
     await db.refresh(investigation)
 
     background_tasks.add_task(start_investigation_workflow, investigation.id)
+    ensure_investigation_workflow_running(investigation.id)
     return investigation
 
 
@@ -125,6 +127,9 @@ async def get_investigation(
         raise HTTPException(status_code=404, detail="Investigation not found")
 
     await _assert_workspace_access(investigation.workspace_id, current_user, db)
+
+    if investigation.status in ['PENDING', 'PLANNING', 'RUNNING', 'ANALYZING', 'TESTING', 'RETRIEVING', 'VERIFYING', 'REPORTING', 'REINVESTIGATING']:
+        ensure_investigation_workflow_running(investigation_id)
 
     tasks = await db.execute(
         select(InvestigationTask)
@@ -297,6 +302,10 @@ async def stream_investigation_events(
         raise HTTPException(status_code=404, detail="Investigation not found")
 
     await _assert_workspace_access(investigation.workspace_id, current_user, db)
+
+    # Ensure background workflow task is active
+    if investigation.status in ['PENDING', 'PLANNING', 'RUNNING', 'ANALYZING', 'TESTING', 'RETRIEVING', 'VERIFYING', 'REPORTING', 'REINVESTIGATING']:
+        ensure_investigation_workflow_running(investigation_id)
 
     async def event_generator() -> AsyncGenerator[str, None]:
         queue = subscribe_to_investigation(investigation_id)

@@ -67,12 +67,55 @@ async def lifespan(app: FastAPI):
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE;",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(512);",
+                    "ALTER TABLE investigation_tasks ADD COLUMN IF NOT EXISTS step_number INTEGER;",
+                    "ALTER TABLE investigation_tasks ADD COLUMN IF NOT EXISTS duration_ms INTEGER;",
+                    "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS agent_role VARCHAR(64);",
+                    "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS error_message TEXT;",
+                    "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS duration_ms INTEGER;",
+                    "ALTER TABLE findings ADD COLUMN IF NOT EXISTS causal_classification VARCHAR(64);",
+                    "ALTER TABLE hypotheses ADD COLUMN IF NOT EXISTS causal_classification VARCHAR(64);",
+                    "ALTER TABLE hypotheses ADD COLUMN IF NOT EXISTS statistical_results JSON;",
+                    "ALTER TABLE hypotheses ADD COLUMN IF NOT EXISTS details JSON;",
                 ]
                 for stmt in migrations:
                     try:
                         await conn.execute(text(stmt))
                     except Exception as col_err:
                         logger.warning(f"Column migration skipped: {col_err}")
+            else:
+                from sqlalchemy import text
+                sqlite_migrations = [
+                    "ALTER TABLE datasets ADD COLUMN description TEXT;",
+                    "ALTER TABLE datasets ADD COLUMN is_deleted BOOLEAN DEFAULT 0;",
+                    "ALTER TABLE datasets ADD COLUMN error_message TEXT;",
+                    "ALTER TABLE investigations ADD COLUMN parent_id VARCHAR(36);",
+                    "ALTER TABLE investigations ADD COLUMN reinvestigation_count INTEGER DEFAULT 0;",
+                    "ALTER TABLE investigations ADD COLUMN confidence_breakdown JSON;",
+                    "ALTER TABLE investigations ADD COLUMN applied_memories JSON;",
+                    "ALTER TABLE investigations ADD COLUMN critic_reviews JSON;",
+                    "ALTER TABLE investigations ADD COLUMN plan JSON;",
+                    "ALTER TABLE investigations ADD COLUMN evidence_ledger JSON;",
+                    "ALTER TABLE investigations ADD COLUMN root_causes JSON;",
+                    "ALTER TABLE workspaces ADD COLUMN is_deleted BOOLEAN DEFAULT 0;",
+                    "ALTER TABLE workspaces ADD COLUMN description TEXT;",
+                    "ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT 1;",
+                    "ALTER TABLE users ADD COLUMN is_verified BOOLEAN DEFAULT 0;",
+                    "ALTER TABLE users ADD COLUMN avatar_url VARCHAR(512);",
+                    "ALTER TABLE investigation_tasks ADD COLUMN step_number INTEGER;",
+                    "ALTER TABLE investigation_tasks ADD COLUMN duration_ms INTEGER;",
+                    "ALTER TABLE agent_runs ADD COLUMN agent_role VARCHAR(64);",
+                    "ALTER TABLE agent_runs ADD COLUMN error_message TEXT;",
+                    "ALTER TABLE agent_runs ADD COLUMN duration_ms INTEGER;",
+                    "ALTER TABLE findings ADD COLUMN causal_classification VARCHAR(64);",
+                    "ALTER TABLE hypotheses ADD COLUMN causal_classification VARCHAR(64);",
+                    "ALTER TABLE hypotheses ADD COLUMN statistical_results JSON;",
+                    "ALTER TABLE hypotheses ADD COLUMN details JSON;",
+                ]
+                for stmt in sqlite_migrations:
+                    try:
+                        await conn.execute(text(stmt))
+                    except Exception:
+                        pass
 
         logger.info("Database tables and columns verified/synchronized")
     except Exception as e:
