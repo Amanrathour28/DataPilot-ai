@@ -151,17 +151,25 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Database initialization warning on startup (will connect on query): {e}")
 
-    # Launch standing durable background worker loop
-    import asyncio
-    from app.worker import run_worker_loop
-    worker_loop_task = asyncio.create_task(run_worker_loop(poll_interval=3.0))
-    logger.info("Standing background worker process loop launched.")
+    # NOTE: On Vercel serverless, we do NOT launch a background worker loop here.
+    # asyncio.create_task() has no persistent event loop on serverless and will crash.
+    # Worker execution is handled exclusively by the /cron-worker endpoint (Vercel Cron).
+    import os
+    if os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME"):
+        logger.info("Serverless environment detected — skipping background worker loop (cron handles execution).")
+    else:
+        import asyncio
+        from app.worker import run_worker_loop
+        worker_loop_task = asyncio.create_task(run_worker_loop(poll_interval=3.0))
+        logger.info("Local dev: background worker loop launched.")
 
     yield
 
     # Shutdown
+    import os
     try:
-        worker_loop_task.cancel()
+        if not (os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME")):
+            worker_loop_task.cancel()
     except Exception:
         pass
     try:

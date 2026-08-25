@@ -3,14 +3,24 @@ from sqlalchemy.orm import DeclarativeBase
 
 from app.core.config import settings
 
+import os as _os
+
 # SQLite doesn't support pool parameters
 _is_sqlite = settings.async_database_url.startswith("sqlite")
+_is_serverless = bool(_os.getenv("VERCEL") or _os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
 
 _engine_kwargs = {
     "echo": settings.debug,
 }
 if _is_sqlite:
     _engine_kwargs["connect_args"] = {"check_same_thread": False}
+elif _is_serverless:
+    # Vercel serverless: use NullPool — no persistent connections between invocations
+    from sqlalchemy.pool import NullPool
+    _engine_kwargs["poolclass"] = NullPool
+    _engine_kwargs["connect_args"] = {
+        "statement_cache_size": 0,
+    }
 else:
     _engine_kwargs.update({
         "pool_pre_ping": True,
