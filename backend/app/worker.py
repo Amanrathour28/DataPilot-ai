@@ -66,16 +66,8 @@ class InvestigationWorker:
         details: Optional[Dict[str, Any]] = None,
     ) -> InvestigationEvent:
         """Persists a durable event into investigation_events table."""
-        from sqlalchemy import func
-        seq_res = await db.execute(
-            select(func.coalesce(func.max(InvestigationEvent.seq), 0))
-            .where(InvestigationEvent.investigation_id == investigation_id)
-        )
-        next_seq = (seq_res.scalar() or 0) + 1
-
         evt = InvestigationEvent(
             id=generate_event_id(),
-            seq=next_seq,
             investigation_id=investigation_id,
             agent=agent,
             event_type=event_type,

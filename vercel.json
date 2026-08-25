@@ -21,7 +21,7 @@
   ],
   "routes": [
     {
-      "src": "/api/v1/(.*)",
+      "src": "/api/(.*)",
       "dest": "api/index.py"
     },
     {

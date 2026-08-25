@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import uuid
 from typing import AsyncGenerator, List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks, Request
 from fastapi.responses import StreamingResponse
@@ -60,7 +61,7 @@ async def cron_worker_trigger(request: Request):
             .where(
                 Investigation.status.notin_(["COMPLETED", "FAILED", "CANCELLED"]),
                 or_(
-                    Investigation.status == "PENDING",
+                    Investigation.status.in_(["PENDING", "QUEUED"]),
                     Investigation.lock_expires_at == None,
                     Investigation.lock_expires_at < now,
                 ),
@@ -151,13 +152,24 @@ async def create_investigation(
         workspace_id=workspace_id,
         created_by=current_user.id,
         objective=payload.objective,
-        status="PENDING",
+        status="QUEUED",
     )
     db.add(investigation)
     await db.commit()
     await db.refresh(investigation)
 
-    logger.info(f"Investigation created: {investigation.id}")
+    # Persist initial QUEUED event
+    worker = InvestigationWorker(worker_id="system_init")
+    await worker.record_event(
+        db,
+        investigation.id,
+        agent="Supervisor Agent",
+        event_type="STARTED",
+        message="Investigation initialized and queued for worker execution.",
+        details={"status": "QUEUED"},
+    )
+
+    logger.info(f"Investigation created & queued: {investigation.id}")
     ensure_worker_running(investigation.id)
     background_tasks.add_task(_run_worker_async, investigation.id)
     return investigation
@@ -186,7 +198,7 @@ async def start_investigation(
         )
 
     now = utcnow()
-    if inv.status != "PENDING" and inv.lock_expires_at and inv.lock_expires_at > now:
+    if inv.status not in ["PENDING", "QUEUED"] and inv.lock_expires_at and inv.lock_expires_at > now:
         return {
             "status": "ALREADY_RUNNING",
             "investigation_id": inv.id,
@@ -196,12 +208,15 @@ async def start_investigation(
             "message": "Workflow is already running under an active execution lease."
         }
 
+    inv.status = "QUEUED"
+    await db.commit()
+
     ensure_worker_running(investigation_id)
     background_tasks.add_task(_run_worker_async, investigation_id)
     return {
-        "status": "TRIGGERED",
+        "status": "QUEUED",
         "investigation_id": inv.id,
-        "message": "Durable background execution triggered."
+        "message": "Durable background execution queued for worker claim."
     }
 
 
