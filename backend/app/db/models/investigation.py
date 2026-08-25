@@ -114,13 +114,12 @@ class InvestigationEvent(Base):
     )
 
     id: Mapped[str] = mapped_column(
-        String(36), unique=True, nullable=False, default=lambda: f"evt_{uuid.uuid4().hex[:12]}"
+        String(36), primary_key=True, default=lambda: f"evt_{uuid.uuid4().hex[:12]}"
     )
     seq: Mapped[int] = mapped_column(
         BigInteger().with_variant(Integer, "sqlite"),
-        Identity(always=False, start=1),
+        Identity(always=False, start=1000),
         nullable=False,
-        primary_key=True,
     )
     investigation_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("investigations.id", ondelete="CASCADE"), nullable=False
