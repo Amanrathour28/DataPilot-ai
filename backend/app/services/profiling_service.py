@@ -12,8 +12,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-import pandas as pd
+try:
+    import numpy as np
+    import pandas as pd
+except ImportError:
+    np = None
+    pd = None
 from sqlalchemy import select
 from app.db.base import AsyncSessionLocal
 from app.db.models.dataset import Dataset, DatasetProfile, DatasetStatus

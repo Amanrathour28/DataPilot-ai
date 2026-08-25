@@ -1,13 +1,18 @@
 import logging
 import math
 from typing import Dict, List, Any, Optional, Tuple
-import numpy as np
-import pandas as pd
+try:
+    import numpy as np
+    import pandas as pd
+except ImportError:
+    np = None
+    pd = None
 
 try:
     from scipy import stats
     _HAS_SCIPY = True
 except ImportError:
+    stats = None
     _HAS_SCIPY = False
 
 from app.schemas.investigation_state import StatisticalMetric

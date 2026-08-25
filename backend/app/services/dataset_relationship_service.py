@@ -2,7 +2,10 @@ import logging
 import os
 import uuid
 from typing import List, Dict, Any, Optional
-import pandas as pd
+try:
+    import pandas as pd
+except ImportError:
+    pd = None
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
