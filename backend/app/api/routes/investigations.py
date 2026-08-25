@@ -268,12 +268,6 @@ async def stream_investigation_events(
         nonlocal cursor
         while True:
             async with AsyncSessionLocal() as s_db:
-                inv_res = await s_db.execute(select(Investigation.status).where(Investigation.id == investigation_id))
-                curr_status = inv_res.scalar_one_or_none()
-
-                if curr_status in ["PENDING", "PLANNING", "RUNNING", "ANALYZING", "TESTING", "RETRIEVING", "VERIFYING", "REPORTING"]:
-                    ensure_worker_running(investigation_id)
-
                 events_res = await s_db.execute(
                     select(InvestigationEvent)
                     .where(

@@ -151,9 +151,19 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Database initialization warning on startup (will connect on query): {e}")
 
+    # Launch standing durable background worker loop
+    import asyncio
+    from app.worker import run_worker_loop
+    worker_loop_task = asyncio.create_task(run_worker_loop(poll_interval=3.0))
+    logger.info("Standing background worker process loop launched.")
+
     yield
 
     # Shutdown
+    try:
+        worker_loop_task.cancel()
+    except Exception:
+        pass
     try:
         await engine.dispose()
     except Exception:
