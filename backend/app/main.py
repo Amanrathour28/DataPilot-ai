@@ -51,6 +51,7 @@ async def lifespan(app: FastAPI):
             if not _is_sqlite:
                 from sqlalchemy import text
                 migrations = [
+                    "ALTER TABLE investigation_events ALTER COLUMN seq RESTART WITH 1000;",
                     "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS description TEXT;",
                     "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;",
                     "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS error_message TEXT;",
@@ -253,6 +254,7 @@ async def sync_schema_endpoint():
     from sqlalchemy import text
     results = {}
     migrations = [
+        "ALTER TABLE investigation_events ALTER COLUMN seq RESTART WITH 1000;",
         "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS description TEXT;",
         "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;",
         "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS error_message TEXT;",
@@ -268,8 +270,6 @@ async def sync_schema_endpoint():
         "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS description TEXT;",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE;",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(512);",
-        "SELECT setval(pg_get_serial_sequence('investigation_events', 'seq'), COALESCE((SELECT MAX(seq) FROM investigation_events), 1) + 100, true);",
-        "ALTER TABLE investigation_events ALTER COLUMN seq RESTART WITH 1000;",
     ]
     try:
         async with engine.begin() as conn:
