@@ -65,9 +65,18 @@ class InvestigationWorker:
         message: str,
         details: Optional[Dict[str, Any]] = None,
     ) -> InvestigationEvent:
-        """Persists a durable event into investigation_events table."""
+        # Calculate next monotonic sequence number to guarantee no sequence generator conflicts
+        seq_res = await db.execute(
+            select(InvestigationEvent.seq)
+            .order_by(InvestigationEvent.seq.desc())
+            .limit(1)
+        )
+        max_seq = seq_res.scalar_one_or_none() or 0
+        next_seq = max_seq + 1
+
         evt = InvestigationEvent(
             id=generate_event_id(),
+            seq=next_seq,
             investigation_id=investigation_id,
             agent=agent,
             event_type=event_type,
@@ -80,20 +89,16 @@ class InvestigationWorker:
             await db.commit()
         except Exception as ex:
             await db.rollback()
-            logger.warning(f"Event insertion hit sequence conflict ({ex}). Executing automatic sequence repair...")
-            try:
-                await db.execute(text("SELECT setval(pg_get_serial_sequence('investigation_events', 'seq'), (SELECT COALESCE(MAX(seq), 0) + 50 FROM investigation_events), true)"))
-                await db.commit()
-            except Exception as seq_err1:
-                logger.warning(f"setval repair skipped: {seq_err1}")
-                try:
-                    await db.execute(text("ALTER TABLE investigation_events ALTER COLUMN seq RESTART WITH 1000"))
-                    await db.commit()
-                except Exception as seq_err2:
-                    logger.warning(f"ALTER SEQUENCE repair skipped: {seq_err2}")
-            
+            logger.warning(f"Event insert sequence race ({ex}). Recalculating next sequence...")
+            retry_res = await db.execute(
+                select(InvestigationEvent.seq)
+                .order_by(InvestigationEvent.seq.desc())
+                .limit(1)
+            )
+            retry_max = retry_res.scalar_one_or_none() or 100
             evt_retry = InvestigationEvent(
                 id=generate_event_id(),
+                seq=retry_max + 1,
                 investigation_id=investigation_id,
                 agent=agent,
                 event_type=event_type,
