@@ -75,8 +75,35 @@ class InvestigationWorker:
             details=details or {},
             created_at=utcnow(),
         )
-        db.add(evt)
-        await db.commit()
+        try:
+            db.add(evt)
+            await db.commit()
+        except Exception as ex:
+            await db.rollback()
+            logger.warning(f"Event insertion hit sequence conflict ({ex}). Executing automatic sequence repair...")
+            try:
+                await db.execute(text("SELECT setval(pg_get_serial_sequence('investigation_events', 'seq'), (SELECT COALESCE(MAX(seq), 0) + 50 FROM investigation_events), true)"))
+                await db.commit()
+            except Exception as seq_err1:
+                logger.warning(f"setval repair skipped: {seq_err1}")
+                try:
+                    await db.execute(text("ALTER TABLE investigation_events ALTER COLUMN seq RESTART WITH 1000"))
+                    await db.commit()
+                except Exception as seq_err2:
+                    logger.warning(f"ALTER SEQUENCE repair skipped: {seq_err2}")
+            
+            evt_retry = InvestigationEvent(
+                id=generate_event_id(),
+                investigation_id=investigation_id,
+                agent=agent,
+                event_type=event_type,
+                message=message,
+                details=details or {},
+                created_at=utcnow(),
+            )
+            db.add(evt_retry)
+            await db.commit()
+            evt = evt_retry
 
         # Update legacy agent_activity snapshot on Investigation for backwards compatibility
         try:
