@@ -6,7 +6,8 @@ const getBaseUrl = () => {
     return envUrl.trim()
   }
   if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-    return window.location.origin
+    // Backend is deployed separately — use the backend's production domain
+    return 'https://datapilot-backend-6ycp8n9xw-amanrathour8972-gmailcoms-projects.vercel.app'
   }
   return 'http://localhost:8000'
 }

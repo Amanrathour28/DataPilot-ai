@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     app_name: str = "DataPilot AI"
     app_env: str = "development"
     debug: bool = False
-    allowed_origins: str = "http://localhost:5173,http://localhost:3000,https://datapilot-ai.vercel.app,https://datapilot-final-pearl.vercel.app"
+    allowed_origins: str = "http://localhost:5173,http://localhost:3000,https://datapilot-ai.vercel.app,https://datapilot-final-pearl.vercel.app,https://datapilot-final-c4eyzbwpl-amanrathour8972-gmailcoms-projects.vercel.app"
 
     # Database
     database_url: str = "postgresql+asyncpg://datapilot:datapilot_secret@localhost:5432/datapilot"
