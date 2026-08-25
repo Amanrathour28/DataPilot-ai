@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Search, Database, RefreshCw, Grid, List, AlertCircle } from 'lucide-react'
 import { Button, IconButton } from '../../components/ui/Button'
@@ -36,6 +37,8 @@ export default function Datasets() {
   const [view, setView]             = useState('grid') // 'grid' | 'list'
   const toast        = useToast()
   const queryClient  = useQueryClient()
+
+  const navigate = useNavigate()
 
   const { data: datasetsRaw = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ['datasets', activeWorkspace?.id],
@@ -188,7 +191,7 @@ export default function Datasets() {
               {filtered.map(ds => (
                 <tr
                   key={ds.id}
-                  onClick={() => window.location.href = `/datasets/${ds.id}`}
+                  onClick={() => navigate(`/datasets/${ds.id}`)}
                   className="cursor-pointer"
                 >
                   <td>

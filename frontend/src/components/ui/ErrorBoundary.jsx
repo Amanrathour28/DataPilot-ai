@@ -49,8 +49,8 @@ export class ErrorBoundary extends React.Component {
               <Button variant="secondary" onClick={this.handleReset} size="sm">
                 <RefreshCw size={14} /> Try Again
               </Button>
-              <Button variant="primary" onClick={() => window.location.href = '/dashboard'} size="sm">
-                <Home size={14} /> Back to Dashboard
+              <Button variant="primary" onClick={() => { this.handleReset(); if (typeof window !== 'undefined') window.history.back() }} size="sm">
+                <Home size={14} /> Back
               </Button>
             </div>
           </div>
