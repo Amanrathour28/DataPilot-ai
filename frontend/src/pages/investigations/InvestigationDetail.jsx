@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -90,21 +90,34 @@ export default function InvestigationDetail() {
 
   const lastEventIdRef = useRef(0)
   const seenEventIdsRef = useRef(new Set())
+  const eventSourceRef = useRef(null)
 
   // Establish SSE connection if running
   useEffect(() => {
     if (!id) return
     const isRunning = ['PENDING', 'RUNNING', 'PLANNING', 'ANALYZING', 'TESTING', 'RETRIEVING', 'VERIFYING', 'REPORTING', 'REINVESTIGATING'].includes(detail?.status)
-    if (detail && !isRunning) return
+    if (detail && !isRunning) {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close()
+        eventSourceRef.current = null
+      }
+      return
+    }
+
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close()
+      eventSourceRef.current = null
+    }
 
     const streamUrl = investigationsApi.getStreamUrl(id, lastEventIdRef.current)
-    const eventSource = new EventSource(streamUrl)
+    const es = new EventSource(streamUrl)
+    eventSourceRef.current = es
 
-    eventSource.onopen = () => {
+    es.onopen = () => {
       setConnectionStatus('connected')
     }
 
-    eventSource.onmessage = (event) => {
+    es.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data)
         if (!data) return
@@ -124,7 +137,10 @@ export default function InvestigationDetail() {
 
           if (data.status === 'COMPLETED' || data.status === 'FAILED') {
             toast?.show(data.message || 'Investigation concluded', 'info')
-            eventSource.close()
+            if (eventSourceRef.current) {
+              eventSourceRef.current.close()
+              eventSourceRef.current = null
+            }
             queryClient.invalidateQueries(['investigation-detail', id])
             setActiveTab('report')
           }
@@ -174,12 +190,15 @@ export default function InvestigationDetail() {
       }
     }
 
-    eventSource.onerror = () => {
+    es.onerror = () => {
       setConnectionStatus('reconnecting')
     }
 
     return () => {
-      eventSource.close()
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close()
+        eventSourceRef.current = null
+      }
     }
   }, [id, detail?.status])
 
