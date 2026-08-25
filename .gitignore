@@ -29,6 +29,8 @@ backend/uploads/
 # Environment & Local Test Scripts
 .env
 *.env.local
+qa_*.py
+test_*.py
 backend/execute_exact_schema.py
 backend/fix_neon_schema.py
 backend/test_live_endpoint.py

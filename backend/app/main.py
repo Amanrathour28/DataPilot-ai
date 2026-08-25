@@ -46,7 +46,35 @@ async def lifespan(app: FastAPI):
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database tables verified/created")
+            
+            # Ensure newly added columns exist in tables (Postgres auto-migration)
+            if not _is_sqlite:
+                from sqlalchemy import text
+                migrations = [
+                    "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS description TEXT;",
+                    "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;",
+                    "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS error_message TEXT;",
+                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS parent_id VARCHAR(36);",
+                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS reinvestigation_count INTEGER DEFAULT 0;",
+                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS confidence_breakdown JSON;",
+                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS applied_memories JSON;",
+                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS critic_reviews JSON;",
+                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS plan JSON;",
+                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS evidence_ledger JSON;",
+                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS root_causes JSON;",
+                    "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;",
+                    "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS description TEXT;",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE;",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(512);",
+                ]
+                for stmt in migrations:
+                    try:
+                        await conn.execute(text(stmt))
+                    except Exception as col_err:
+                        logger.warning(f"Column migration skipped: {col_err}")
+
+        logger.info("Database tables and columns verified/synchronized")
     except Exception as e:
         logger.warning(f"Database initialization warning on startup (will connect on query): {e}")
 
@@ -121,7 +149,44 @@ app.include_router(memories.router, prefix="/api/v1")
 app.include_router(analytics.router, prefix="/api/v1")
 
 
-# ── Health Check ──────────────────────────────────────────────────────────────
+# ── Health & Schema Check ────────────────────────────────────────────────────
 @app.get("/health", tags=["health"])
 async def health_check():
     return {"status": "ok", "app": settings.app_name, "version": "0.1.0"}
+
+
+@app.get("/api/v1/system/sync-schema", tags=["health"])
+async def sync_schema_endpoint():
+    """Endpoint to explicitly verify and migrate all database columns."""
+    from sqlalchemy import text
+    results = {}
+    migrations = [
+        "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS description TEXT;",
+        "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;",
+        "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS error_message TEXT;",
+        "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS parent_id VARCHAR(36);",
+        "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS reinvestigation_count INTEGER DEFAULT 0;",
+        "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS confidence_breakdown JSON;",
+        "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS applied_memories JSON;",
+        "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS critic_reviews JSON;",
+        "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS plan JSON;",
+        "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS evidence_ledger JSON;",
+        "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS root_causes JSON;",
+        "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;",
+        "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS description TEXT;",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE;",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(512);",
+    ]
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            for stmt in migrations:
+                try:
+                    await conn.execute(text(stmt))
+                    results[stmt[:30]] = "OK"
+                except Exception as ex:
+                    results[stmt[:30]] = str(ex)
+        return {"status": "success", "results": results}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
