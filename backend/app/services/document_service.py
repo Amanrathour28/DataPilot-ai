@@ -10,6 +10,8 @@ from typing import Any, Dict, List, Optional
 import aiofiles
 from fastapi import UploadFile, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.config import settings
 from app.db.base import AsyncSessionLocal
 from app.db.models.document import Document, DocumentChunk
 
