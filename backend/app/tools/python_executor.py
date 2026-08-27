@@ -107,7 +107,7 @@ class PythonExecutor:
             for name, path in ds_map.items():
                 args.append(f"{name}={path}")
 
-            logger.info(f"Executing sandboxed analysis: timeout={timeout_seconds}s datasets={len(datasets)}")
+            logger.info(f"Executing sandboxed analysis: timeout={timeout_seconds}s datasets={len(ds_map)}")
 
             result = subprocess.run(
                 args,

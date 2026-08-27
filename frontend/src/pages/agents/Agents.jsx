@@ -15,23 +15,23 @@ const AGENT_ROLES = [
   {
     id: 'Supervisor',
     name: 'Supervisor / Orchestrator Agent',
-    description: 'Generates structured investigation plans, breaks objectives into step-by-step tasks, and monitors swarm execution.',
+    description: 'Generates structured investigation plans, breaks objectives into step-by-step tasks, and coordinates multi-agent execution.',
     icon: Cpu,
     color: 'from-purple-500 to-indigo-600',
-    capabilities: ['Dynamic DAG Planning', 'Task Allocation', 'Reinvestigation Triggering']
+    capabilities: ['Dynamic Planning', 'Execution Leases', 'Task Allocation']
   },
   {
     id: 'Analyst',
     name: 'Data Analysis Agent',
-    description: 'Executes automated statistical profiles, anomaly detection, cohort segmentation, and DuckDB analytical queries.',
+    description: 'Executes sandboxed Python and Pandas analysis, anomaly detection, cohort segmentation, and variance calculations.',
     icon: Activity,
     color: 'from-blue-500 to-cyan-600',
-    capabilities: ['DuckDB SQL Queries', 'Pandas Profiling', 'Correlation Matrix']
+    capabilities: ['AST Python Sandbox', 'Pandas Profiling', 'Cohort Segmentation']
   },
   {
     id: 'Hypothesis',
     name: 'Hypothesis Generation & Test Agent',
-    description: 'Formulates competing causal hypotheses and tests them using statistical hypothesis tests (t-tests, Chi-square).',
+    description: 'Formulates causal hypotheses and deterministically evaluates them using SciPy statistical hypothesis tests.',
     icon: Sparkles,
     color: 'from-amber-500 to-orange-600',
     capabilities: ['Causal Hypothesis Formulation', 'Welch t-Test', 'Chi-Square Test']
@@ -39,18 +39,18 @@ const AGENT_ROLES = [
   {
     id: 'Root Cause',
     name: 'Root Cause Synthesis Agent',
-    description: 'Aggregates statistical evidence, ranks root causes by probability and impact, and computes overall confidence score.',
+    description: 'Aggregates statistical evidence, ranks root causes dynamically by impact, and calculates transparent calibrated confidence.',
     icon: Layers,
     color: 'from-emerald-500 to-teal-600',
-    capabilities: ['Evidence Synthesis', 'Root Cause Ranking', 'Confidence Scoring']
+    capabilities: ['Evidence Synthesis', 'Dynamic Root Cause Ranking', 'Calibrated Confidence Scoring']
   },
   {
     id: 'Critic',
     name: 'Critic & Audit Agent',
-    description: 'Audits evidence ledger, verifies statistical significance, catches correlation vs causation fallacies, and enforces rigor.',
+    description: 'Audits evidence ledger, verifies statistical significance, catches correlation vs causation fallacies, and enforces analytical rigor.',
     icon: CheckCircle2,
     color: 'from-rose-500 to-pink-600',
-    capabilities: ['Correlation vs Causation Audit', 'Significance Verification', 'Sanity Checks']
+    capabilities: ['Correlation vs Causation Audit', 'Significance Verification', 'Evidence Ledger Integrity']
   }
 ]
 

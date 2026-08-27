@@ -1,4 +1,5 @@
-from fastapi import Depends, HTTPException, status
+from typing import Optional
+from fastapi import Depends, HTTPException, status, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -7,19 +8,32 @@ from app.db.base import get_db
 from app.db.models.user import User
 from app.core.security import decode_access_token
 
-bearer_scheme = HTTPBearer()
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
+    token: Optional[str] = Query(None, description="Auth token for SSE streaming"),
     db: AsyncSession = Depends(get_db),
 ) -> User:
-    """Dependency that validates the JWT and returns the current user.
+    """Dependency that validates the JWT from Bearer header or query parameter and returns the current user.
 
     Raises 401 if the token is missing, invalid, or the user does not exist.
     """
-    token = credentials.credentials
-    user_id = decode_access_token(token)
+    raw_token = None
+    if credentials and credentials.credentials:
+        raw_token = credentials.credentials
+    elif token:
+        raw_token = token
+
+    if not raw_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    user_id = decode_access_token(raw_token)
 
     if not user_id:
         raise HTTPException(

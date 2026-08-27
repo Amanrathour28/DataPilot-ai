@@ -104,7 +104,25 @@ export const investigationsApi = {
   resume:       (id)                => api.post(`/investigations/${id}/resume`).then(r => r.data),
   cancel:       (id)                => api.post(`/investigations/${id}/cancel`).then(r => r.data),
   getEvidence:  (id)                => api.get(`/investigations/${id}/evidence`).then(r => r.data),
-  getStreamUrl: (id, lastEventId)   => `${BASE_URL}/api/v1/investigations/${id}/stream${lastEventId ? `?last_event_id=${lastEventId}` : ''}`,
+  getStreamUrl: (id, lastEventId)   => {
+    let token = localStorage.getItem('datapilot_token')
+    if (!token) {
+      try {
+        const authStorage = localStorage.getItem('datapilot_auth')
+        if (authStorage) {
+          const parsed = JSON.parse(authStorage)
+          token = parsed?.state?.token
+        }
+      } catch {
+        // Ignore JSON parse errors
+      }
+    }
+    const params = new URLSearchParams()
+    if (token) params.set('token', token)
+    if (lastEventId) params.set('last_event_id', lastEventId)
+    const queryString = params.toString()
+    return `${BASE_URL}/api/v1/investigations/${id}/stream${queryString ? `?${queryString}` : ''}`
+  },
 }
 
 // ── Documents ─────────────────────────────────────────────────────────────────
