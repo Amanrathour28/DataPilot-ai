@@ -87,7 +87,7 @@ async def cron_worker_trigger(request: Request):
 async def _assert_workspace_access(
     workspace_id: str, user: User, db: AsyncSession
 ) -> Workspace:
-    """Verify workspace exists and user is a member. Returns the workspace."""
+    """Verify workspace exists and user is a member or owner. Returns the workspace."""
     result = await db.execute(
         select(Workspace).where(
             Workspace.id == workspace_id,
@@ -96,7 +96,10 @@ async def _assert_workspace_access(
     )
     workspace = result.scalar_one_or_none()
     if not workspace:
-        raise HTTPException(status_code=404, detail="Workspace not found")
+        raise HTTPException(status_code=404, detail=f"Workspace '{workspace_id}' not found")
+
+    if workspace.owner_id == user.id:
+        return workspace
 
     member = await db.execute(
         select(WorkspaceMember).where(
@@ -105,7 +108,7 @@ async def _assert_workspace_access(
         )
     )
     if not member.scalar_one_or_none():
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise HTTPException(status_code=403, detail="Access denied to this workspace")
 
     return workspace
 
@@ -139,17 +142,24 @@ def ensure_worker_running(investigation_id: str) -> asyncio.Task:
 @router.post("", response_model=InvestigationResponse, status_code=status.HTTP_201_CREATED)
 async def create_investigation(
     payload: InvestigationCreate,
-    workspace_id: str = Query(..., description="Target workspace ID"),
+    workspace_id: Optional[str] = Query(None, description="Target workspace ID"),
     background_tasks: BackgroundTasks = BackgroundTasks(),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Start an autonomous investigation on a workspace."""
-    logger.info(f"Investigation request received for workspace {workspace_id}")
-    await _assert_workspace_access(workspace_id, current_user, db)
+    target_workspace_id = workspace_id or payload.workspace_id
+    if not target_workspace_id:
+        raise HTTPException(
+            status_code=422,
+            detail="workspace_id is required either as a query parameter or in the request body"
+        )
+
+    logger.info(f"Investigation request received for workspace {target_workspace_id}")
+    await _assert_workspace_access(target_workspace_id, current_user, db)
 
     investigation = Investigation(
-        workspace_id=workspace_id,
+        workspace_id=target_workspace_id,
         created_by=current_user.id,
         objective=payload.objective,
         status="QUEUED",

@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict
 
 class InvestigationCreate(BaseModel):
     objective: str
+    workspace_id: Optional[str] = None
 
 
 class FindingResponse(BaseModel):

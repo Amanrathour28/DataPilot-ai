@@ -94,7 +94,10 @@ export const datasetsApi = {
 
 // ── Investigations ────────────────────────────────────────────────────────────
 export const investigationsApi = {
-  create:       (workspaceId, data) => api.post(`/investigations?workspace_id=${workspaceId}`, data).then(r => r.data),
+  create:       (workspaceId, data) => {
+    const payload = typeof data === 'object' ? { workspace_id: workspaceId, ...data } : { workspace_id: workspaceId, objective: data }
+    return api.post(`/investigations?workspace_id=${encodeURIComponent(workspaceId)}`, payload).then(r => r.data)
+  },
   start:        (id)                => api.post(`/investigations/${id}/start`).then(r => r.data),
   list:         (workspaceId)       => api.get(`/investigations?workspace_id=${workspaceId}`).then(r => r.data),
   get:          (id)                => api.get(`/investigations/${id}`).then(r => r.data),

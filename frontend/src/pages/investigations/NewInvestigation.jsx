@@ -51,15 +51,42 @@ export default function NewInvestigation() {
       return
     }
 
+    if (!activeWorkspace?.id) {
+      toast?.show('Failed to start investigation: 400 - No active workspace selected.', 'error')
+      return
+    }
+
     setLoading(true)
     try {
       const result = await investigationsApi.create(activeWorkspace.id, {
         objective: objective.trim(),
+        workspace_id: activeWorkspace.id,
       })
       toast?.show('AI Agents launched successfully', 'success')
       navigate(`/investigations/${result.id}`)
     } catch (err) {
-      toast?.show(err.response?.data?.detail || 'Failed to start investigation', 'error')
+      const status = err.response?.status
+      const data = err.response?.data
+      let detailMsg = 'Failed to start investigation'
+
+      if (typeof data?.detail === 'string') {
+        detailMsg = data.detail
+      } else if (Array.isArray(data?.detail)) {
+        detailMsg = data.detail.map(d => `${d.loc ? d.loc.slice(-1)[0] + ': ' : ''}${d.msg}`).join(', ')
+      } else if (data?.message) {
+        detailMsg = data.message
+      } else if (err.message) {
+        detailMsg = err.message
+      }
+
+      const fullError = status ? `Failed to start investigation: ${status} - ${detailMsg}` : `Failed to start investigation: ${detailMsg}`
+      console.error('Investigation creation failed', {
+        status,
+        response: data,
+        payload: { workspace_id: activeWorkspace.id, objective: objective.trim() },
+        error: err
+      })
+      toast?.show(fullError, 'error')
       setLoading(false)
     }
   }

@@ -30,7 +30,7 @@ export function Toast({ message, type = 'info', onClose }) {
       STYLES[type]
     )}>
       <Icon size={16} className="mt-0.5 flex-shrink-0" />
-      <span className="flex-1 text-slate-200">{message}</span>
+      <span className="flex-1 text-slate-200">{typeof message === 'string' ? message : JSON.stringify(message)}</span>
       <button onClick={onClose} className="flex-shrink-0 text-slate-500 hover:text-slate-300">
         <X size={14} />
       </button>
