@@ -33,7 +33,16 @@ export default function DataExplorer({ datasetId }) {
       const res = await datasetsApi.query(datasetId, sqlQuery)
       setQueryResult(res)
     } catch (err) {
-      setQueryError(err.response?.data?.detail || 'Failed to execute query.')
+      const detail = err.response?.data?.detail
+      let message = 'Failed to execute query.'
+      if (typeof detail === 'string') {
+        message = detail
+      } else if (typeof detail === 'object' && detail !== null) {
+        message = detail.message || detail.error || detail.details || JSON.stringify(detail)
+      } else if (err.message) {
+        message = err.message
+      }
+      setQueryError(message)
       setQueryResult(null)
     } finally {
       setQueryLoading(false)
@@ -181,33 +190,44 @@ export default function DataExplorer({ datasetId }) {
             <div className="card border border-slate-800 overflow-hidden">
               <div className="p-3 bg-[#111122] border-b border-slate-800 text-xs text-slate-300 flex items-center justify-between">
                 <span className="font-semibold text-emerald-400 flex items-center gap-1.5">
-                  <CheckCircle size={14} /> Query succeeded ({queryResult.row_count} rows returned)
+                  <CheckCircle size={14} /> Query succeeded ({queryResult.row_count} {queryResult.row_count === 1 ? 'row' : 'rows'} returned{queryResult.execution_time_ms ? ` in ${queryResult.execution_time_ms}ms` : ''})
                 </span>
+                {queryResult.source === 'profile_cache' && (
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                    Cached Snapshot
+                  </span>
+                )}
               </div>
-              <div className="overflow-x-auto max-h-[400px]">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead className="bg-[#121222] border-b border-slate-800 sticky top-0 z-10">
-                    <tr>
-                      {queryResult.columns.map((col) => (
-                        <th key={col} className="py-2.5 px-3 text-slate-300 font-semibold border-r border-slate-800/40 whitespace-nowrap">
-                          {col}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/40 font-mono">
-                    {queryResult.rows.map((row, idx) => (
-                      <tr key={idx} className="hover:bg-slate-800/30 transition-colors">
+              {queryResult.rows.length === 0 ? (
+                <div className="p-8 text-center text-xs text-slate-500">
+                  Query returned 0 rows.
+                </div>
+              ) : (
+                <div className="overflow-x-auto max-h-[400px]">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-[#121222] border-b border-slate-800 sticky top-0 z-10">
+                      <tr>
                         {queryResult.columns.map((col) => (
-                          <td key={col} className="py-2 px-3 text-slate-300 border-r border-slate-800/40 whitespace-nowrap max-w-xs truncate">
-                            {String(row[col] ?? '')}
-                          </td>
+                          <th key={col} className="py-2.5 px-3 text-slate-300 font-semibold border-r border-slate-800/40 whitespace-nowrap">
+                            {col}
+                          </th>
                         ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/40 font-mono">
+                      {queryResult.rows.map((row, idx) => (
+                        <tr key={idx} className="hover:bg-slate-800/30 transition-colors">
+                          {queryResult.columns.map((col) => (
+                            <td key={col} className="py-2 px-3 text-slate-300 border-r border-slate-800/40 whitespace-nowrap max-w-xs truncate">
+                              {String(row[col] ?? '')}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
         </div>

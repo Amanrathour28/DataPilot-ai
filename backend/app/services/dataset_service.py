@@ -210,22 +210,40 @@ async def preview_dataset_rows(
     dataset = await get_dataset_by_id(dataset_id, user_id, db)
     file_path = dataset.file_path
 
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Dataset file not found on disk")
+    df = None
+    if file_path and os.path.exists(file_path):
+        try:
+            ext = dataset.file_extension.lower()
+            if ext == ".csv":
+                df = pd.read_csv(file_path, nrows=limit + offset)
+            elif ext in [".xlsx", ".xls"]:
+                df = pd.read_excel(file_path, nrows=limit + offset)
+            elif ext == ".json":
+                df = pd.read_json(file_path)
+        except Exception as e:
+            logger.warning(f"Failed to read disk file {file_path} for preview: {e}")
+
+    # Fallback to DatasetProfile sample_rows if disk file is unavailable (e.g., serverless Vercel)
+    if df is None:
+        prof_res = await db.execute(
+            select(DatasetProfile).where(DatasetProfile.dataset_id == dataset_id)
+        )
+        profile = prof_res.scalar_one_or_none()
+        if profile and profile.sample_rows and len(profile.sample_rows) > 0:
+            df = pd.DataFrame(profile.sample_rows)
+        else:
+            raise HTTPException(
+                status_code=404,
+                detail="Dataset file not found on disk or cached profile. Please re-upload or re-profile the dataset."
+            )
 
     try:
-        ext = dataset.file_extension.lower()
-        if ext == ".csv":
-            df = pd.read_csv(file_path, nrows=limit + offset)
-        elif ext in [".xlsx", ".xls"]:
-            df = pd.read_excel(file_path, nrows=limit + offset)
-        elif ext == ".json":
-            df = pd.read_json(file_path)
-        else:
-            raise HTTPException(status_code=400, detail=f"Unsupported format for preview: {ext}")
-
         total_rows = len(df)
         df_slice = df.iloc[offset : offset + limit]
+
+        # Format datetime columns
+        for col in df_slice.select_dtypes(include=['datetime64', 'datetimetz']).columns:
+            df_slice[col] = df_slice[col].dt.strftime('%Y-%m-%d %H:%M:%S')
 
         # Clean NaN/Inf for JSON serialization
         df_slice = df_slice.fillna("")
@@ -253,48 +271,140 @@ async def query_dataset_sql(
     user_id: str,
     db: AsyncSession,
 ) -> dict:
-    """Execute a read-only SQL query against the dataset using DuckDB."""
+    """Execute a read-only SQL query against the dataset using DuckDB in-memory engine."""
+    import time
     import duckdb
+    import pandas as pd
 
+    start_time = time.time()
     dataset = await get_dataset_by_id(dataset_id, user_id, db)
     file_path = dataset.file_path
 
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="Dataset file not found on disk")
-
-    # Guard against non-SELECT queries
+    # Security check: Only allow read-only queries
     cleaned_query = query.strip()
-    if not cleaned_query.lower().startswith("select") and not cleaned_query.lower().startswith("with"):
-        raise HTTPException(status_code=400, detail="Only SELECT / WITH read-only queries are permitted.")
+    if not cleaned_query:
+        raise HTTPException(status_code=400, detail="Query string cannot be empty.")
 
-    try:
-        con = duckdb.connect(database=":memory:")
+    # Strip any comment lines at the start to find the first actionable SQL keyword
+    lines = [line.strip() for line in cleaned_query.splitlines() if line.strip() and not line.strip().startswith("--")]
+    first_token = lines[0].split()[0].upper() if lines and lines[0].split() else ""
+
+    allowed_starts = ["SELECT", "WITH", "DESCRIBE", "SHOW", "EXPLAIN", "PRAGMA"]
+    if first_token not in allowed_starts:
+        raise HTTPException(
+            status_code=400,
+            detail="Only analytical read-only queries (SELECT, WITH, DESCRIBE, SHOW, EXPLAIN) are permitted."
+        )
+
+    # Check for forbidden mutation keywords anywhere in query
+    forbidden_keywords = [
+        "DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "ATTACH", "DETACH",
+        "COPY", "INSTALL", "LOAD", "EXPORT", "IMPORT", "CREATE SECRET", "CALL"
+    ]
+    query_tokens = [w.upper().strip("();,") for w in cleaned_query.split()]
+    for kw in forbidden_keywords:
+        if kw in query_tokens:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Operation '{kw}' is not allowed in read-only SQL console."
+            )
+
+    # Initialize DuckDB
+    con = duckdb.connect(database=":memory:")
+
+    # Load dataset into DuckDB
+    loaded = False
+    load_source = "file"
+
+    # 1. Attempt loading from physical file if it exists
+    if file_path and os.path.exists(file_path):
         ext = dataset.file_extension.lower()
-        table_name = "df"
+        cleaned_path = file_path.replace("\\", "/")
+        try:
+            if ext == ".csv":
+                con.execute(f"CREATE TABLE df AS SELECT * FROM read_csv_auto('{cleaned_path}', ignore_errors=true)")
+                loaded = True
+            elif ext in [".xlsx", ".xls"]:
+                raw_df = pd.read_excel(file_path)
+                con.register("df", raw_df)
+                loaded = True
+            elif ext == ".json":
+                con.execute(f"CREATE TABLE df AS SELECT * FROM read_json_auto('{cleaned_path}', ignore_errors=true)")
+                loaded = True
+        except Exception as file_load_err:
+            logger.warning(f"DuckDB native load failed for {file_path}: {file_load_err}, falling back to pandas")
+            try:
+                if ext == ".csv":
+                    raw_df = pd.read_csv(file_path)
+                elif ext in [".xlsx", ".xls"]:
+                    raw_df = pd.read_excel(file_path)
+                elif ext == ".json":
+                    raw_df = pd.read_json(file_path)
+                con.register("df", raw_df)
+                loaded = True
+            except Exception as pd_err:
+                logger.warning(f"Pandas load also failed for {file_path}: {pd_err}")
 
-        if ext == ".csv":
-            con.execute(f"CREATE TABLE {table_name} AS SELECT * FROM read_csv_auto('{file_path.replace(os.sep, '/')}')")
-        elif ext in [".xlsx", ".xls"]:
-            import pandas as pd
-            raw_df = pd.read_excel(file_path)
-            con.register(table_name, raw_df)
-        elif ext == ".json":
-            con.execute(f"CREATE TABLE {table_name} AS SELECT * FROM read_json_auto('{file_path.replace(os.sep, '/')}')")
+    # 2. If file missing or not loaded (e.g. serverless Vercel lambda instance), load from DatasetProfile sample_rows
+    if not loaded:
+        prof_res = await db.execute(
+            select(DatasetProfile).where(DatasetProfile.dataset_id == dataset_id)
+        )
+        profile = prof_res.scalar_one_or_none()
+        if profile and profile.sample_rows and len(profile.sample_rows) > 0:
+            try:
+                sample_df = pd.DataFrame(profile.sample_rows)
+                con.register("df", sample_df)
+                loaded = True
+                load_source = "profile_cache"
+                logger.info(f"Loaded dataset {dataset_id} into DuckDB from cached DatasetProfile ({len(profile.sample_rows)} rows)")
+            except Exception as sample_err:
+                logger.error(f"Failed to load sample_rows for {dataset_id}: {sample_err}")
 
-        # Replace common placeholder table names with our registered table
-        sanitized_sql = re.sub(r"\b(dataset|data|table|df)\b", table_name, cleaned_query, flags=re.IGNORECASE)
+    if not loaded:
+        raise HTTPException(
+            status_code=404,
+            detail="Dataset data could not be located on disk or profile cache. Please re-upload or re-profile the dataset."
+        )
 
-        result_df = con.execute(sanitized_sql).fetchdf()
+    # 3. Create convenient alias views so queries referencing 'dataset', 'data', 'table' work seamlessly
+    try:
+        con.execute("CREATE OR REPLACE VIEW dataset AS SELECT * FROM df")
+        con.execute("CREATE OR REPLACE VIEW data AS SELECT * FROM df")
+    except Exception:
+        pass
+
+    # 4. Execute the SQL query cleanly
+    try:
+        result_df = con.execute(cleaned_query).fetchdf()
+    except Exception as exec_err:
+        logger.error(f"DuckDB execution error for dataset {dataset_id}: {exec_err}")
+        err_msg = str(exec_err).replace('Catalog Error: ', '').replace('Binder Error: ', '').replace('Parser Error: ', '')
+        raise HTTPException(status_code=400, detail=f"SQL Error: {err_msg}")
+
+    # 5. Format results safely for JSON serialization
+    try:
+        # Format datetime columns to ISO string
+        for col in result_df.select_dtypes(include=['datetime64', 'datetimetz']).columns:
+            result_df[col] = result_df[col].dt.strftime('%Y-%m-%d %H:%M:%S')
+
+        # Replace NaN / NaT / Inf
         result_df = result_df.fillna("")
 
         columns = list(result_df.columns)
-        rows = result_df.head(100).to_dict(orient="records")
+        total_matched_rows = len(result_df)
+        rows = result_df.head(500).to_dict(orient="records")
+
+        duration_ms = max(1, int((time.time() - start_time) * 1000))
 
         return {
+            "success": True,
             "columns": columns,
             "rows": rows,
-            "row_count": len(result_df),
+            "row_count": total_matched_rows,
+            "execution_time_ms": duration_ms,
+            "source": load_source,
         }
-    except Exception as e:
-        logger.error(f"Error querying dataset {dataset_id}: {e}")
-        raise HTTPException(status_code=400, detail=f"Query error: {str(e)}")
+    except Exception as format_err:
+        logger.exception(f"Error formatting query result for dataset {dataset_id}: {format_err}")
+        raise HTTPException(status_code=500, detail=f"Error formatting query result: {str(format_err)}")

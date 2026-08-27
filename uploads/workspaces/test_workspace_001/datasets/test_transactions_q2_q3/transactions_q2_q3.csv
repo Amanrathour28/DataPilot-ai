@@ -1,0 +1,101 @@
+transaction_id,date,region,product_category,customer_segment,marketing_channel,transaction_value
+TXN_1000,2023-05-15,North America,Enterprise Software,Enterprise,Paid Search,1200.0
+TXN_1001,2023-05-15,Europe,Cloud Services,Mid-Market,Direct,450.0
+TXN_1002,2023-05-15,Asia Pacific,Hardware,SMB,Referral,890.0
+TXN_1003,2023-05-15,Latin America,Consulting,Startup,Email,2300.0
+TXN_1004,2023-05-15,North America,Support,Enterprise,Organic,600.0
+TXN_1005,2023-05-15,Europe,Enterprise Software,Mid-Market,Paid Search,1200.0
+TXN_1006,2023-05-15,Asia Pacific,Cloud Services,SMB,Direct,450.0
+TXN_1007,2023-05-15,Latin America,Hardware,Startup,Referral,890.0
+TXN_1008,2023-05-15,North America,Consulting,Enterprise,Email,2300.0
+TXN_1009,2023-05-15,Europe,Support,Mid-Market,Organic,600.0
+TXN_1010,2023-05-15,Asia Pacific,Enterprise Software,SMB,Paid Search,1200.0
+TXN_1011,2023-05-15,Latin America,Cloud Services,Startup,Direct,450.0
+TXN_1012,2023-05-15,North America,Hardware,Enterprise,Referral,890.0
+TXN_1013,2023-05-15,Europe,Consulting,Mid-Market,Email,2300.0
+TXN_1014,2023-05-15,Asia Pacific,Support,SMB,Organic,600.0
+TXN_1015,2023-05-15,Latin America,Enterprise Software,Startup,Paid Search,1200.0
+TXN_1016,2023-05-15,North America,Cloud Services,Enterprise,Direct,450.0
+TXN_1017,2023-05-15,Europe,Hardware,Mid-Market,Referral,890.0
+TXN_1018,2023-05-15,Asia Pacific,Consulting,SMB,Email,2300.0
+TXN_1019,2023-05-15,Latin America,Support,Startup,Organic,600.0
+TXN_1020,2023-05-15,North America,Enterprise Software,Enterprise,Paid Search,1200.0
+TXN_1021,2023-05-15,Europe,Cloud Services,Mid-Market,Direct,450.0
+TXN_1022,2023-05-15,Asia Pacific,Hardware,SMB,Referral,890.0
+TXN_1023,2023-05-15,Latin America,Consulting,Startup,Email,2300.0
+TXN_1024,2023-05-15,North America,Support,Enterprise,Organic,600.0
+TXN_1025,2023-05-15,Europe,Enterprise Software,Mid-Market,Paid Search,1200.0
+TXN_1026,2023-05-15,Asia Pacific,Cloud Services,SMB,Direct,450.0
+TXN_1027,2023-05-15,Latin America,Hardware,Startup,Referral,890.0
+TXN_1028,2023-05-15,North America,Consulting,Enterprise,Email,2300.0
+TXN_1029,2023-05-15,Europe,Support,Mid-Market,Organic,600.0
+TXN_1030,2023-05-15,Asia Pacific,Enterprise Software,SMB,Paid Search,1200.0
+TXN_1031,2023-05-15,Latin America,Cloud Services,Startup,Direct,450.0
+TXN_1032,2023-05-15,North America,Hardware,Enterprise,Referral,890.0
+TXN_1033,2023-05-15,Europe,Consulting,Mid-Market,Email,2300.0
+TXN_1034,2023-05-15,Asia Pacific,Support,SMB,Organic,600.0
+TXN_1035,2023-05-15,Latin America,Enterprise Software,Startup,Paid Search,1200.0
+TXN_1036,2023-05-15,North America,Cloud Services,Enterprise,Direct,450.0
+TXN_1037,2023-05-15,Europe,Hardware,Mid-Market,Referral,890.0
+TXN_1038,2023-05-15,Asia Pacific,Consulting,SMB,Email,2300.0
+TXN_1039,2023-05-15,Latin America,Support,Startup,Organic,600.0
+TXN_1040,2023-05-15,North America,Enterprise Software,Enterprise,Paid Search,1200.0
+TXN_1041,2023-05-15,Europe,Cloud Services,Mid-Market,Direct,450.0
+TXN_1042,2023-05-15,Asia Pacific,Hardware,SMB,Referral,890.0
+TXN_1043,2023-05-15,Latin America,Consulting,Startup,Email,2300.0
+TXN_1044,2023-05-15,North America,Support,Enterprise,Organic,600.0
+TXN_1045,2023-05-15,Europe,Enterprise Software,Mid-Market,Paid Search,1200.0
+TXN_1046,2023-05-15,Asia Pacific,Cloud Services,SMB,Direct,450.0
+TXN_1047,2023-05-15,Latin America,Hardware,Startup,Referral,890.0
+TXN_1048,2023-05-15,North America,Consulting,Enterprise,Email,2300.0
+TXN_1049,2023-05-15,Europe,Support,Mid-Market,Organic,600.0
+TXN_1050,2023-08-20,Asia Pacific,Enterprise Software,SMB,Paid Search,1200.0
+TXN_1051,2023-08-20,Latin America,Cloud Services,Startup,Direct,450.0
+TXN_1052,2023-08-20,North America,Hardware,Enterprise,Referral,890.0
+TXN_1053,2023-08-20,Europe,Consulting,Mid-Market,Email,2300.0
+TXN_1054,2023-08-20,Asia Pacific,Support,SMB,Organic,600.0
+TXN_1055,2023-08-20,Latin America,Enterprise Software,Startup,Paid Search,1200.0
+TXN_1056,2023-08-20,North America,Cloud Services,Enterprise,Direct,450.0
+TXN_1057,2023-08-20,Europe,Hardware,Mid-Market,Referral,890.0
+TXN_1058,2023-08-20,Asia Pacific,Consulting,SMB,Email,2300.0
+TXN_1059,2023-08-20,Latin America,Support,Startup,Organic,600.0
+TXN_1060,2023-08-20,North America,Enterprise Software,Enterprise,Paid Search,1200.0
+TXN_1061,2023-08-20,Europe,Cloud Services,Mid-Market,Direct,450.0
+TXN_1062,2023-08-20,Asia Pacific,Hardware,SMB,Referral,890.0
+TXN_1063,2023-08-20,Latin America,Consulting,Startup,Email,2300.0
+TXN_1064,2023-08-20,North America,Support,Enterprise,Organic,600.0
+TXN_1065,2023-08-20,Europe,Enterprise Software,Mid-Market,Paid Search,1200.0
+TXN_1066,2023-08-20,Asia Pacific,Cloud Services,SMB,Direct,450.0
+TXN_1067,2023-08-20,Latin America,Hardware,Startup,Referral,890.0
+TXN_1068,2023-08-20,North America,Consulting,Enterprise,Email,2300.0
+TXN_1069,2023-08-20,Europe,Support,Mid-Market,Organic,600.0
+TXN_1070,2023-08-20,Asia Pacific,Enterprise Software,SMB,Paid Search,1200.0
+TXN_1071,2023-08-20,Latin America,Cloud Services,Startup,Direct,450.0
+TXN_1072,2023-08-20,North America,Hardware,Enterprise,Referral,890.0
+TXN_1073,2023-08-20,Europe,Consulting,Mid-Market,Email,2300.0
+TXN_1074,2023-08-20,Asia Pacific,Support,SMB,Organic,600.0
+TXN_1075,2023-08-20,Latin America,Enterprise Software,Startup,Paid Search,1200.0
+TXN_1076,2023-08-20,North America,Cloud Services,Enterprise,Direct,450.0
+TXN_1077,2023-08-20,Europe,Hardware,Mid-Market,Referral,890.0
+TXN_1078,2023-08-20,Asia Pacific,Consulting,SMB,Email,2300.0
+TXN_1079,2023-08-20,Latin America,Support,Startup,Organic,600.0
+TXN_1080,2023-08-20,North America,Enterprise Software,Enterprise,Paid Search,1200.0
+TXN_1081,2023-08-20,Europe,Cloud Services,Mid-Market,Direct,450.0
+TXN_1082,2023-08-20,Asia Pacific,Hardware,SMB,Referral,890.0
+TXN_1083,2023-08-20,Latin America,Consulting,Startup,Email,2300.0
+TXN_1084,2023-08-20,North America,Support,Enterprise,Organic,600.0
+TXN_1085,2023-08-20,Europe,Enterprise Software,Mid-Market,Paid Search,1200.0
+TXN_1086,2023-08-20,Asia Pacific,Cloud Services,SMB,Direct,450.0
+TXN_1087,2023-08-20,Latin America,Hardware,Startup,Referral,890.0
+TXN_1088,2023-08-20,North America,Consulting,Enterprise,Email,2300.0
+TXN_1089,2023-08-20,Europe,Support,Mid-Market,Organic,600.0
+TXN_1090,2023-08-20,Asia Pacific,Enterprise Software,SMB,Paid Search,1200.0
+TXN_1091,2023-08-20,Latin America,Cloud Services,Startup,Direct,450.0
+TXN_1092,2023-08-20,North America,Hardware,Enterprise,Referral,890.0
+TXN_1093,2023-08-20,Europe,Consulting,Mid-Market,Email,2300.0
+TXN_1094,2023-08-20,Asia Pacific,Support,SMB,Organic,600.0
+TXN_1095,2023-08-20,Latin America,Enterprise Software,Startup,Paid Search,1200.0
+TXN_1096,2023-08-20,North America,Cloud Services,Enterprise,Direct,450.0
+TXN_1097,2023-08-20,Europe,Hardware,Mid-Market,Referral,890.0
+TXN_1098,2023-08-20,Asia Pacific,Consulting,SMB,Email,2300.0
+TXN_1099,2023-08-20,Latin America,Support,Startup,Organic,600.0
