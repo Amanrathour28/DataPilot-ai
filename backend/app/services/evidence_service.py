@@ -145,8 +145,13 @@ class EvidenceLedgerService:
         # 1. Statistical Evidence (35%)
         stat_items = [e for e in evidence_items if e.source_type == "statistical"]
         if stat_items:
-            valid_stats = [s for s in stat_items if s.statistical_metrics and (s.statistical_metrics.p_value or 1.0) < 0.05]
-            stat_score = 0.35 * (len(valid_stats) / len(stat_items))
+            valid_stats = []
+            for s in stat_items:
+                sm = s.statistical_metrics
+                p_val = getattr(sm, "p_value", None) if hasattr(sm, "p_value") else (sm.get("p_value") if isinstance(sm, dict) else None)
+                if p_val is not None and p_val < 0.05:
+                    valid_stats.append(s)
+            stat_score = 0.35 * (len(valid_stats) / len(stat_items)) if stat_items else 0.15
         else:
             stat_score = 0.15  # Partial baseline if only observational queries
 
