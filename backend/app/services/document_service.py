@@ -48,14 +48,37 @@ def _cosine_similarity(vec1: Dict[str, float], vec2: Dict[str, float]) -> float:
     return sum(vec1[k] * vec2[k] for k in common_keys)
 
 
+def _sanitize_text(text: str) -> str:
+    """Sanitizes text by removing control characters, unicode replacement chars, and unreadable binary artifacts."""
+    if not text:
+        return ""
+    # Remove null bytes and non-printable control characters (except newline, tab, carriage return)
+    cleaned = re.sub(r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F\uFFFD]", " ", text)
+    # Collapse multiple whitespace characters
+    cleaned = re.sub(r"[ \t]+", " ", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def _is_legible_text(text: str, min_alpha_ratio: float = 0.5) -> bool:
+    """Checks if extracted text contains a reasonable ratio of readable alphanumeric characters."""
+    if not text or len(text.strip()) < 10:
+        return False
+    alpha_chars = sum(1 for c in text if c.isalnum() or c.isspace() or c in ".,!?:;\"'()-$%&/")
+    return (alpha_chars / len(text)) >= min_alpha_ratio
+
+
 def _extract_text_from_file(file_path: str, extension: str) -> str:
     """Extract raw text from PDF, TXT, Markdown, or other supported formats."""
     ext = extension.lower()
     path = Path(file_path)
 
+    if not path.exists():
+        return ""
+
     if ext in (".txt", ".md", ".json"):
         with open(path, "r", encoding="utf-8", errors="ignore") as f:
-            return f.read()
+            return _sanitize_text(f.read())
     
     elif ext == ".pdf":
         text_content = []
@@ -65,26 +88,29 @@ def _extract_text_from_file(file_path: str, extension: str) -> str:
             reader = pypdf.PdfReader(str(path))
             for page in reader.pages:
                 extracted = page.extract_text()
-                if extracted:
-                    text_content.append(extracted)
+                if extracted and _is_legible_text(extracted):
+                    text_content.append(_sanitize_text(extracted))
         except Exception:
-            # Fallback binary stream text scraper
-            with open(path, "rb") as f:
-                raw = f.read().decode("latin1", errors="ignore")
-                matches = re.findall(r"\(([^\)]+)\)\s*Tj", raw)
-                if matches:
-                    text_content.append(" ".join(matches))
-                else:
-                    text_content.append(re.sub(r"[^\x20-\x7E\n\r\t]", " ", raw))
-        return "\n\n".join(text_content) if text_content else "No text could be extracted from PDF."
+            # Fallback binary stream text scraper with strict legibility check
+            try:
+                with open(path, "rb") as f:
+                    raw = f.read().decode("latin1", errors="ignore")
+                    matches = re.findall(r"\(([^\)]+)\)\s*Tj", raw)
+                    if matches:
+                        cand = " ".join(matches)
+                        if _is_legible_text(cand):
+                            text_content.append(_sanitize_text(cand))
+            except Exception:
+                pass
+        return _sanitize_text("\n\n".join(text_content)) if text_content else ""
 
     elif ext == ".docx":
         try:
             import docx
             doc = docx.Document(str(path))
-            return "\n".join([p.text for p in doc.paragraphs if p.text])
+            return _sanitize_text("\n".join([p.text for p in doc.paragraphs if p.text and _is_legible_text(p.text)]))
         except Exception:
-            return "Unable to parse docx format without python-docx."
+            return ""
 
     return ""
 
@@ -242,6 +268,10 @@ async def search_workspace_documents(
 
     scored_results = []
     for chunk, doc in rows:
+        cleaned_content = _sanitize_text(chunk.content)
+        if not _is_legible_text(cleaned_content):
+            continue
+
         # Reconstruct vector
         chunk_vec = dict(chunk.embedding) if chunk.embedding else {}
         similarity = _cosine_similarity(query_vec, chunk_vec)
@@ -250,12 +280,12 @@ async def search_workspace_documents(
         overlap_count = len(set(query_tokens) & set(chunk_vec.keys()))
         final_score = similarity * 0.7 + (overlap_count / max(len(query_tokens), 1)) * 0.3
 
-        if final_score > 0.05 or len(rows) <= 3:
+        if final_score >= 0.10:
             scored_results.append({
                 "chunk_id": chunk.id,
                 "document_id": doc.id,
                 "document_title": doc.title,
-                "content": chunk.content,
+                "content": cleaned_content,
                 "similarity_score": round(final_score, 4),
                 "chunk_index": chunk.chunk_index,
                 "chunk_metadata": chunk.chunk_metadata,

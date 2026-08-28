@@ -119,8 +119,9 @@ class EvidenceLedgerService:
         evidence_items: List[EvidenceItemSchema],
         has_critic_pass: bool = True,
         has_contradictions: bool = False,
+        sample_size: Optional[int] = None,
     ) -> Tuple[float, ConfidenceCalibrationBreakdown]:
-        """Compute transparent deterministic confidence calibration.
+        """Compute transparent deterministic confidence calibration with sample size awareness.
 
         Weights:
         - Statistical Evidence: 35%
@@ -129,6 +130,7 @@ class EvidenceLedgerService:
         - Document / Context Support: 10%
         - Critic Validation: 10%
         - Contradiction Penalty: -10%
+        - Sample Size Calibration: Multiplier (0.70 for n<10 exploratory, up to 1.0 for n>=100)
         """
         if not evidence_items:
             breakdown = ConfidenceCalibrationBreakdown(
@@ -174,9 +176,21 @@ class EvidenceLedgerService:
         # 6. Contradiction Penalty (-10%)
         contradiction_penalty = -0.10 if has_contradictions else 0.0
 
-        final_conf = max(0.10, min(0.99, (
-            stat_score + data_score + consistency_score + doc_score + critic_score + contradiction_penalty
-        )))
+        raw_conf = stat_score + data_score + consistency_score + doc_score + critic_score + contradiction_penalty
+
+        # Sample size calibration multiplier
+        if sample_size is not None:
+            if sample_size < 10:
+                sample_multiplier = 0.72  # Small exploratory sample size (e.g. n=8) -> caps ~0.65 - 0.70
+            elif sample_size < 30:
+                sample_multiplier = 0.85
+            elif sample_size < 100:
+                sample_multiplier = 0.95
+            else:
+                sample_multiplier = 1.0
+            raw_conf = raw_conf * sample_multiplier
+
+        final_conf = max(0.10, min(0.99, raw_conf))
 
         breakdown = ConfidenceCalibrationBreakdown(
             statistical_evidence_score=round(stat_score, 3),
