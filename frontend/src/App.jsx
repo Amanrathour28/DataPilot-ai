@@ -7,9 +7,11 @@ import ErrorBoundary from './components/ui/ErrorBoundary'
 import AppLayout from './components/layout/AppLayout'
 
 // Auth pages
-import Login    from './pages/auth/Login'
-import Register from './pages/auth/Register'
-import Landing  from './pages/Landing'
+import Login          from './pages/auth/Login'
+import Register       from './pages/auth/Register'
+import ForgotPassword from './pages/auth/ForgotPassword'
+import ResetPassword  from './pages/auth/ResetPassword'
+import Landing        from './pages/Landing'
 
 // App pages
 import Dashboard      from './pages/dashboard/Dashboard'
@@ -42,9 +44,11 @@ export default function App() {
           <BrowserRouter>
             <Routes>
               {/* Public routes */}
-              <Route path="/"         element={<ErrorBoundary><Landing /></ErrorBoundary>} />
-              <Route path="/login"    element={<ErrorBoundary><Login /></ErrorBoundary>} />
-              <Route path="/register" element={<ErrorBoundary><Register /></ErrorBoundary>} />
+              <Route path="/"                element={<ErrorBoundary><Landing /></ErrorBoundary>} />
+              <Route path="/login"           element={<ErrorBoundary><Login /></ErrorBoundary>} />
+              <Route path="/register"        element={<ErrorBoundary><Register /></ErrorBoundary>} />
+              <Route path="/forgot-password" element={<ErrorBoundary><ForgotPassword /></ErrorBoundary>} />
+              <Route path="/reset-password"  element={<ErrorBoundary><ResetPassword /></ErrorBoundary>} />
 
               {/* Protected app routes */}
               <Route element={<AppLayout />}>

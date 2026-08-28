@@ -53,9 +53,13 @@ api.interceptors.response.use(
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 export const authApi = {
-  register: (data) => api.post('/auth/register', data).then(r => r.data),
-  login:    (data) => api.post('/auth/login', data).then(r => r.data),
-  me:       ()     => api.get('/auth/me').then(r => r.data),
+  register:         (data) => api.post('/auth/register', data).then(r => r.data),
+  login:            (data) => api.post('/auth/login', data).then(r => r.data),
+  me:               ()     => api.get('/auth/me').then(r => r.data),
+  forgotPassword:   (email) => api.post('/auth/forgot-password', { email }).then(r => r.data),
+  verifyResetToken: (token) => api.get(`/auth/verify-reset-token?token=${encodeURIComponent(token)}`).then(r => r.data),
+  resetPassword:    (token, newPassword) => api.post('/auth/reset-password', { token, new_password: newPassword }).then(r => r.data),
+  googleAuth:       (credential) => api.post('/auth/google', { credential }).then(r => r.data),
 }
 
 // ── Workspaces ────────────────────────────────────────────────────────────────

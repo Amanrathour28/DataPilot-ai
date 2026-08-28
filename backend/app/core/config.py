@@ -65,6 +65,26 @@ class Settings(BaseSettings):
     openai_base_url: str = "https://api.openai.com/v1"
     openai_model: str = "gpt-4o-mini"
 
+    # Google OAuth
+    google_client_id: Optional[str] = None
+    google_client_secret: Optional[str] = None
+    google_redirect_uri: Optional[str] = None
+
+    # Email Service
+    email_provider: str = "console"  # "console" | "smtp" | "resend" | "sendgrid"
+    email_from: str = "DataPilot AI <noreply@datapilot.ai>"
+    email_api_key: Optional[str] = None
+    resend_api_key: Optional[str] = None
+    sendgrid_api_key: Optional[str] = None
+    smtp_host: Optional[str] = None
+    smtp_port: int = 587
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
+    smtp_tls: bool = True
+
+    # Frontend Base URL (used for password reset links)
+    frontend_base_url: str = "https://datapilot-final-8jpi99wra-amanrathour8972-gmailcoms-projects.vercel.app"
+
     # Local Ollama
     ollama_base_url: str = "http://localhost:11434"
     ollama_default_model: str = "llama3.2"

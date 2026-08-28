@@ -1,60 +1,124 @@
-# DataPilot AI - Datasets API, Preview & DuckDB SQL Fix Walkthrough
+# Authentication System Hardening & Feature Completion Walkthrough
 
-## Summary of Resolution
+## Summary of Changes
 
-We resolved the production issue causing the Datasets page to fail with `"Network Error"` while simultaneously displaying empty state `"0 datasets"` / `"No datasets yet"`.
-
----
-
-## 1. Exact Root Causes Identified
-
-1. **Missing Database Column in Neon PostgreSQL (`UndefinedColumnError: column datasets.raw_data does not exist`)**:
-   - The mapped ORM model `Dataset` included `raw_data: Mapped[str | None] = mapped_column(Text, nullable=True)`.
-   - When `datasetsApi.list(workspace_id)` (`select(Dataset)`) was executed by FastAPI, asyncpg attempted to select all columns (`SELECT ... datasets.raw_data ... FROM datasets ...`).
-   - Because the live Neon PostgreSQL table `datasets` did not yet have the `raw_data` column applied via DDL, PostgreSQL raised `UndefinedColumnError`, causing FastAPI to throw an unhandled HTTP 500 error.
-   - The browser / Axios caught the 500 error and reported `"Network Error"`.
-2. **UI State Logic Confusion (`0 datasets` and `No datasets yet` during errors)**:
-   - In `Datasets.jsx`, `const { data: datasetsRaw = [] } = useQuery(...)` defaulted `datasetsRaw` to `[]` whenever the query errored.
-   - The page header calculated `${datasets.length} datasets` $\to$ displaying `"0 datasets in “Workspace”"`.
-   - The page content evaluated `filtered.length === 0 && datasets.length === 0` $\to$ rendering `<EmptyDatasets />` (`"No datasets yet"`), misleading the user into thinking their workspace had zero datasets.
+We completed a comprehensive upgrade of the DataPilot AI authentication system, covering:
+1. **Email Validation & Normalization**: Strict frontend + backend email validation and normalization (whitespace trimming and lowercase conversion).
+2. **Password Strength Hardening**: Enforced 8+ characters, uppercase, lowercase, and numeric requirements across registration and password reset, with a real-time visual strength checklist.
+3. **Account Enumeration Prevention**: Constant-response generic messages for login errors and forgot-password requests to prevent malicious user/account probing.
+4. **Google OAuth 2.0 Integration**: Added "Continue with Google" buttons on Login and Sign Up pages. Seamlessly links existing accounts by email and provisions workspaces for new users without duplicate records.
+5. **Cryptographic Password Reset Flow**: Single-use, SHA-256 hashed 15-minute expiration reset tokens with dedicated `/forgot-password` and `/reset-password` pages.
+6. **Multi-Provider Email Service Abstraction**: Pluggable email dispatcher supporting Console (dev mode), SMTP, Resend, and SendGrid without breaking local development.
 
 ---
 
-## 2. Changes Applied
+## 1. Database Schema Migrations
 
-### Database & Backend
-1. **Neon PostgreSQL Migration**: Executed `ALTER TABLE datasets ADD COLUMN IF NOT EXISTS raw_data TEXT;` in Neon DB.
-2. **Auto-Migration Integration**: Added `ALTER TABLE datasets ADD COLUMN IF NOT EXISTS raw_data TEXT;` into startup migration lists in `backend/app/main.py`.
-3. **Tri-Tier Preview & DuckDB SQL Engine**: Maintained disk $\to$ database `raw_data` $\to$ profile `sample_rows` loading in `backend/app/services/dataset_service.py`.
+### `User` Table Updates
+- Added `google_id: VARCHAR(255) UNIQUE` (indexed).
+- Added `auth_provider: VARCHAR(32) DEFAULT 'email'`.
 
-### Frontend
-1. **Clean UI State Separation in `Datasets.jsx`**:
-   - `isLoading` $\to$ Card Skeletons.
-   - `isError` $\to$ Dedicated Error Banner with diagnostic message and `"Retry Loading Datasets"` button. **Empty state is never rendered during errors**.
-   - `!isLoading && !isError && datasets.length === 0` $\to$ Empty State (`"No datasets yet"`).
-   - `!isLoading && !isError && datasets.length > 0` $\to$ Renders grid/list table with real datasets and count.
-2. **Page Header Description**:
-   - Dynamically displays `"Loading datasets…"` when loading, `"Error connecting to dataset service"` on error, and `"${datasets.length} dataset(s)"` only on success.
+### `PasswordResetToken` Table
+- `id`: VARCHAR(36) PRIMARY KEY
+- `user_id`: VARCHAR(36) FOREIGN KEY -> `users.id` ON DELETE CASCADE
+- `token_hash`: VARCHAR(64) UNIQUE (SHA-256 hash of raw URL-safe token)
+- `expires_at`: TIMESTAMP WITH TIME ZONE (15 minutes expiry)
+- `used_at`: TIMESTAMP WITH TIME ZONE NULL
+- `created_at`: TIMESTAMP WITH TIME ZONE
 
 ---
 
-## 3. End-to-End Live Production Verification
+## 2. API Endpoints
 
-Tested against live production backend (`https://datapilot-backend-five.vercel.app`) and Neon PostgreSQL:
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `POST` | `/api/v1/auth/register` | Normalizes email, validates password strength, registers user, creates default workspace. |
+| `POST` | `/api/v1/auth/login` | Normalizes email, verifies bcrypt hash, returns JWT token. |
+| `POST` | `/api/v1/auth/forgot-password` | Generates SHA-256 hashed 15-min token, dispatches reset email, returns generic 200 message. |
+| `GET` | `/api/v1/auth/verify-reset-token` | Verifies whether a reset token is valid and unexpired. |
+| `POST` | `/api/v1/auth/reset-password` | Validates token, enforces single-use, updates password hash securely. |
+| `POST` | `/api/v1/auth/google` | Verifies Google ID token, logs in existing user or creates new user + workspace. |
+| `GET` | `/api/v1/auth/me` | Returns current user profile with auth provider and verification status. |
+
+---
+
+## 3. Frontend Pages & Components
+
+1. **[`Login.jsx`](file:///c:/Users/amanr/Desktop/DataPilot/frontend/src/pages/auth/Login.jsx)**:
+   - "Continue with Google" button.
+   - "Forgot password?" link.
+   - Email format & non-empty validation.
+   - Password visibility toggle.
+   - Anti-double-click loading state.
+2. **[`Register.jsx`](file:///c:/Users/amanr/Desktop/DataPilot/frontend/src/pages/auth/Register.jsx)**:
+   - "Sign up with Google" button.
+   - Real-time password strength checklist.
+   - Duplicate email error display.
+3. **[`ForgotPassword.jsx`](file:///c:/Users/amanr/Desktop/DataPilot/frontend/src/pages/auth/ForgotPassword.jsx)**:
+   - Email input with regex validation.
+   - Generic confirmation screen.
+   - Return to login link.
+4. **[`ResetPassword.jsx`](file:///c:/Users/amanr/Desktop/DataPilot/frontend/src/pages/auth/ResetPassword.jsx)**:
+   - Token verification from URL query `?token=...`.
+   - New password + Confirm new password with strength meter and mismatch validation.
+   - Expired/invalid link handling.
+   - Auto-redirection to login upon success.
+5. **[`GoogleAuthButton.jsx`](file:///c:/Users/amanr/Desktop/DataPilot/frontend/src/components/auth/GoogleAuthButton.jsx)**:
+   - Google Identity Services integration with fallback to instructions if unconfigured.
+6. **[`PasswordStrengthIndicator.jsx`](file:///c:/Users/amanr/Desktop/DataPilot/frontend/src/components/auth/PasswordStrengthIndicator.jsx)**:
+   - Real-time interactive meter for 8+ chars, uppercase, lowercase, and number criteria.
+
+---
+
+## 4. Verification & Test Results
+
+All 24 required test scenarios executed with **100% success** (`scratch/test_complete_auth_system.py` and `scratch/test_live_neon_auth_endpoints.py`):
 
 ```
-[OK] Authenticated as 'Demo User' (token acquired).
-[OK] Active Workspace: 'Demo User's Workspace' (1906d7ce-d9f6-4b22-a442-ffa8ff1670ce)
-[OK] GET /api/v1/datasets -> Status 200, returned 5 datasets:
-  * [PROFILED] 02_growth_with_local_declines (rows: 6, cols: 6)
-  * [PROFILED] 03_full_business_diagnostic (rows: 12, cols: 8)
-  * [PROFILED] 04_small_sample_reliability_test (rows: 4, cols: 4)
-  * [PROFILED] 01_clear_revenue_decline (rows: 12, cols: 7)
-  * [PROFILED] transactions_q2_q3 (rows: 16, cols: 8)
-[OK] Uploaded dataset 'q3_production_audit_6c6255' (status: PROFILED)
-[OK] GET /api/v1/datasets/{id}/preview -> Status: 200 (6 columns, 8 rows)
-[OK] SQL 1 ('SELECT * FROM df LIMIT 5;') -> Status: 200 (5 rows matched)
-[OK] SQL 2 (Aggregation) -> Status: 200 (4 rows returned)
-[OK] SQL 3 ('SELECT * FROM df WHERE 1 = 0;') -> Status: 200 (0 rows, valid empty result)
-[OK] SQL 4 (Invalid syntax) -> Status: 400 (Syntax error caught cleanly)
+================================================================================
+RUNNING COMPLETE AUTHENTICATION & PASSWORD RESET TEST SUITE
+================================================================================
+--- 1. EMAIL VALIDATION & PASSWORD HARDENING ---
+[PASS] Invalid email rejected by Pydantic schema validation.
+[PASS] Weak password (no uppercase) rejected.
+[PASS] Weak password (no number) rejected.
+[PASS] Weak password (<8 chars) rejected.
+[PASS] Email and name successfully normalized (trimmed & lowercased).
+
+--- 2. REGISTRATION & WORKSPACE INITIALIZATION ---
+[PASS] User 'alice_...' registered with JWT token.
+[PASS] Default workspace 'Alice Walker's Workspace' automatically initialized for user.
+
+--- 3. DUPLICATE REGISTRATION PREVENTION ---
+[PASS] Duplicate registration rejected with HTTP 409: 'An account with this email already exists'
+
+--- 4. SIGN IN VALIDATION & SECURITY ---
+[PASS] Successful login with case-insensitive / trimmed email.
+[PASS] Invalid password rejected with generic 401 message.
+[PASS] Non-existent email returns identical generic 401 (prevents user enumeration).
+
+--- 5. FORGOT PASSWORD (GENERIC RESPONSE & TOKEN GENERATION) ---
+[PASS] Existing email response: 'If an account exists for this email, a password reset link has been sent.'
+[PASS] Non-existing email returned identical response (prevents account probing).
+[PASS] PasswordResetToken securely stored (token_hash=..., expires_at=...).
+
+--- 6. PASSWORD RESET TOKEN VERIFICATION ---
+[PASS] Token verified successfully for masked email: a***@datapilot.ai
+[PASS] Fake token correctly reported as invalid.
+[PASS] Expired token correctly rejected.
+
+--- 7. PASSWORD RESET EXECUTION & SINGLE-USE GUARANTEE ---
+[PASS] Reset password completed.
+[PASS] Token reuse rejected with HTTP 400: 'The password reset link is invalid, expired, or has already been used.'
+[PASS] Successfully logged in using the new password.
+[PASS] Old password correctly rejected after password reset.
+
+--- 8. GOOGLE AUTHENTICATION (NEW & EXISTING USERS) ---
+[PASS] Google user and workspace created cleanly.
+[PASS] Existing Google user mapped without duplication.
+[PASS] Existing email account safely linked to Google without duplicate user records.
+
+================================================================================
+ALL 24 AUTHENTICATION & SECURITY TEST CASES PASSED WITH 100% SUCCESS!
+================================================================================
 ```

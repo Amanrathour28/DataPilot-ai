@@ -92,7 +92,12 @@ async def lifespan(app: FastAPI):
                     "ALTER TABLE investigation_tasks ADD COLUMN IF NOT EXISTS error TEXT;",
                     "ALTER TABLE investigation_tasks ADD COLUMN IF NOT EXISTS retry_count INTEGER DEFAULT 0;",
                     "ALTER TABLE investigation_tasks ADD COLUMN IF NOT EXISTS max_retries INTEGER DEFAULT 2;",
-                    "ALTER TABLE investigation_tasks ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMP WITH TIME ZONE;",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255);",
+                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider VARCHAR(32) DEFAULT 'email';",
+                    "CREATE TABLE IF NOT EXISTS password_reset_tokens (id VARCHAR(36) PRIMARY KEY, user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE, token_hash VARCHAR(64) UNIQUE NOT NULL, expires_at TIMESTAMP WITH TIME ZONE NOT NULL, used_at TIMESTAMP WITH TIME ZONE, created_at TIMESTAMP WITH TIME ZONE NOT NULL);",
+                    "CREATE INDEX IF NOT EXISTS ix_password_reset_tokens_user_id ON password_reset_tokens(user_id);",
+                    "CREATE INDEX IF NOT EXISTS ix_password_reset_tokens_token_hash ON password_reset_tokens(token_hash);",
+                    "CREATE INDEX IF NOT EXISTS ix_users_google_id ON users(google_id);",
                     "DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'investigation_events_seq_seq') THEN PERFORM setval('investigation_events_seq_seq', GREATEST(COALESCE((SELECT MAX(seq) FROM investigation_events), 0), 1000) + 100, true); END IF; END $$;",
                 ]
                 for stmt in migrations:
@@ -107,6 +112,9 @@ async def lifespan(app: FastAPI):
                     "ALTER TABLE datasets ADD COLUMN is_deleted BOOLEAN DEFAULT 0;",
                     "ALTER TABLE datasets ADD COLUMN error_message TEXT;",
                     "ALTER TABLE datasets ADD COLUMN raw_data TEXT;",
+                    "ALTER TABLE users ADD COLUMN google_id VARCHAR(255);",
+                    "ALTER TABLE users ADD COLUMN auth_provider VARCHAR(32) DEFAULT 'email';",
+                    "CREATE TABLE IF NOT EXISTS password_reset_tokens (id VARCHAR(36) PRIMARY KEY, user_id VARCHAR(36) NOT NULL, token_hash VARCHAR(64) UNIQUE NOT NULL, expires_at TIMESTAMP NOT NULL, used_at TIMESTAMP, created_at TIMESTAMP NOT NULL);",
                     "ALTER TABLE investigations ADD COLUMN parent_id VARCHAR(36);",
                     "ALTER TABLE investigations ADD COLUMN reinvestigation_count INTEGER DEFAULT 0;",
                     "ALTER TABLE investigations ADD COLUMN confidence_breakdown JSON;",

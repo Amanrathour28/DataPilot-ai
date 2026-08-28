@@ -13,18 +13,22 @@ const useAuthStore = create(
       login: async (email, password) => {
         set({ isLoading: true, error: null })
         try {
-          const { access_token } = await authApi.login({ email, password })
+          const { access_token, user: returnedUser } = await authApi.login({ email, password })
           localStorage.setItem('datapilot_token', access_token)
-          const user = await authApi.me()
+          const user = returnedUser || (await authApi.me())
           set({ token: access_token, user, isLoading: false })
           return { success: true }
         } catch (err) {
           // Auto-register demo account if cold-starting on fresh DB
           if (err.response?.status === 401 && email === 'demo@datapilot.ai') {
             try {
-              const { access_token } = await authApi.register({ email: 'demo@datapilot.ai', password: 'Password123!', name: 'Demo User' })
+              const { access_token, user: returnedUser } = await authApi.register({
+                email: 'demo@datapilot.ai',
+                password: 'Password123!',
+                name: 'Demo User',
+              })
               localStorage.setItem('datapilot_token', access_token)
-              const user = await authApi.me()
+              const user = returnedUser || (await authApi.me())
               set({ token: access_token, user, isLoading: false })
               return { success: true }
             } catch (regErr) {
@@ -33,7 +37,10 @@ const useAuthStore = create(
               return { success: false, error: message }
             }
           }
-          const message = err.response?.data?.detail || 'Login failed'
+          const message =
+            typeof err.response?.data?.detail === 'string'
+              ? err.response.data.detail
+              : err.response?.data?.detail?.[0]?.msg || err.message || 'Login failed'
           set({ error: message, isLoading: false })
           return { success: false, error: message }
         }
@@ -42,13 +49,39 @@ const useAuthStore = create(
       register: async (email, password, name) => {
         set({ isLoading: true, error: null })
         try {
-          const { access_token } = await authApi.register({ email, password, name })
+          const { access_token, user: returnedUser } = await authApi.register({ email, password, name })
           localStorage.setItem('datapilot_token', access_token)
-          const user = await authApi.me()
+          const user = returnedUser || (await authApi.me())
           set({ token: access_token, user, isLoading: false })
           return { success: true }
         } catch (err) {
-          const message = err.response?.data?.detail || 'Registration failed'
+          let message = 'Registration failed'
+          const detail = err.response?.data?.detail
+          if (typeof detail === 'string') {
+            message = detail
+          } else if (Array.isArray(detail)) {
+            message = detail.map((d) => d.msg || d.message).join(', ')
+          } else if (err.message) {
+            message = err.message
+          }
+          set({ error: message, isLoading: false })
+          return { success: false, error: message }
+        }
+      },
+
+      loginWithGoogle: async (credential) => {
+        set({ isLoading: true, error: null })
+        try {
+          const { access_token, user: returnedUser } = await authApi.googleAuth(credential)
+          localStorage.setItem('datapilot_token', access_token)
+          const user = returnedUser || (await authApi.me())
+          set({ token: access_token, user, isLoading: false })
+          return { success: true }
+        } catch (err) {
+          const message =
+            typeof err.response?.data?.detail === 'string'
+              ? err.response.data.detail
+              : err.message || 'Google sign-in failed'
           set({ error: message, isLoading: false })
           return { success: false, error: message }
         }
@@ -72,8 +105,6 @@ const useAuthStore = create(
       },
 
       clearError: () => set({ error: null }),
-
-      isAuthenticated: () => !!get().token && !!get().user,
     }),
     {
       name: 'datapilot_auth',

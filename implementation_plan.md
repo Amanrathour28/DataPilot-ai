@@ -1,73 +1,108 @@
-# Implementation Plan - Production Dataset Preview & DuckDB SQL Console Fix
+# Authentication System Improvements & Completion Implementation Plan
 
-## 1. Problem Summary & Root Causes
+We will enhance the DataPilot AI authentication system with end-to-end email validation, password hardening, Google OAuth authentication, and a cryptographically secure Password Reset workflow with an extensible email service abstraction.
 
-### Problem 1: Dataset Preview Shows 0 Rows
-- **Root Cause 1 (`NameError: DatasetProfile`)**: In `backend/app/services/dataset_service.py`, `DatasetProfile` was missing from `from app.db.models.dataset import Dataset, DatasetStatus`. When running in serverless (where disk files in `/tmp` are ephemeral), the fallback to `DatasetProfile` immediately raised `NameError: name 'DatasetProfile' is not defined`, returning HTTP 500.
-- **Root Cause 2 (Ephemeral File Loss on Serverless & 10-Row Sample Limitation)**: Uploaded files were written only to ephemeral `/tmp` filesystem and `profiling_service.py` only saved 10 sample rows (`head(10)`). When disk files disappeared in serverless, previews were either missing or truncated to 10 rows.
-- **Root Cause 3 (UI Error Handling)**: `DataExplorer.jsx` did not handle preview API errors gracefully, defaulting to empty arrays and showing `"No rows available to preview."` instead of surfacing actionable error states.
+## User Review Required
 
-### Problem 2: DuckDB SQL Console Returns "Network Error"
-- **Root Cause 1 (`ModuleNotFoundError: duckdb`)**: `duckdb` was not listed in root `requirements.txt` or `backend/requirements.txt`. On Vercel serverless deployment, `import duckdb` raised `ModuleNotFoundError: No module named 'duckdb'`, returning HTTP 500.
-- **Root Cause 2 (In-Memory Fallback & SQL Registration)**: When disk files disappear on serverless, DuckDB needs to load directly from persisted database content (`raw_data` or `sample_rows`) and register aliases (`df`, `dataset`, `table`).
-- **Root Cause 3 (Frontend Error Parsing & Status Mapping)**: `DataExplorer.jsx` and `api.js` lacked HTTP status-specific diagnostics (401, 403, 404, 422, 500, 503).
+> [!IMPORTANT]
+> - **Google OAuth**: Integrates with Google OAuth 2.0. If `GOOGLE_CLIENT_ID` / `VITE_GOOGLE_CLIENT_ID` are not configured yet, the UI provides clean fallbacks and instructions without breaking existing email/password logins.
+> - **Email Delivery**: Implements an email service abstraction supporting Console (local/dev logging), SMTP, Resend, and SendGrid without requiring mandatory third-party credentials during development.
+> - **Existing Users**: Existing users and workspace relationships are 100% preserved.
 
 ---
 
-## 2. Proposed Technical Changes
+## Proposed Changes
 
-### Backend Changes
+### 1. Database Models & Schema Migrations
+#### [MODIFY] [`backend/app/db/models/user.py`](file:///c:/Users/amanr/Desktop/DataPilot/backend/app/db/models/user.py)
+- Add `PasswordResetToken` ORM model:
+  - `id`: UUID String(36)
+  - `user_id`: String(36), index=True
+  - `token_hash`: String(64), index=True (SHA-256 hashed token)
+  - `expires_at`: DateTime(timezone=True)
+  - `used_at`: DateTime(timezone=True), nullable=True
+  - `created_at`: DateTime(timezone=True)
+- Add Google OAuth ID / provider tracking fields to `User` model (`google_id: Mapped[str | None]`, `auth_provider: Mapped[str] = "email"`).
 
-1. **`requirements.txt` & `backend/requirements.txt`**:
-   - Add `duckdb>=1.0.0`
-   - Add `scipy>=1.13.0`
-   - Add `duckdb-engine>=0.13.0` (optional/standalone)
-
-2. **`backend/app/db/models/dataset.py` & Database Migrations**:
-   - Import `DatasetProfile` in `dataset_service.py`.
-   - Add `raw_data: Mapped[str | None]` column to `Dataset` model to persist raw tabular CSV/JSON text directly in PostgreSQL for small/medium datasets (<10MB), ensuring 100% data preservation across serverless re-deployments and cold starts.
-   - Add database auto-migration in `main.py` for `ALTER TABLE datasets ADD COLUMN IF NOT EXISTS raw_data TEXT;`.
-
-3. **`backend/app/services/dataset_service.py`**:
-   - Fix imports: `from app.db.models.dataset import Dataset, DatasetProfile, DatasetStatus`.
-   - Update `save_dataset_file`: If file is text/CSV/JSON, also store text content in `dataset.raw_data`.
-   - Update `preview_dataset_rows`:
-     - Prioritize disk file if present.
-     - Fallback to `dataset.raw_data` (parse via `StringIO`).
-     - Fallback to `DatasetProfile.sample_rows`.
-     - Return structured response: `columns`, `rows`, `total_rows`, `limit`, `offset`.
-     - Explicit error responses with HTTP 404 / 403 / 422 / 500.
-   - Update `query_dataset_sql`:
-     - Initialize DuckDB connection.
-     - Load dataset into `df` DataFrame from disk, `dataset.raw_data`, or `profile.sample_rows`.
-     - Register `df` in DuckDB.
-     - Execute query, format results, catch `duckdb.Error` and return structured HTTP 422 for invalid SQL (e.g. syntax error).
-     - Add detailed logging (dataset_id, workspace_id, query, row count, execution time).
-
-4. **`backend/app/services/profiling_service.py`**:
-   - Increase `sample_rows` capacity to 500 rows if raw data is unavailable.
-   - Ensure clean JSON serialization for timestamps, floats, NaNs, and infinities.
-
-### Frontend Changes
-
-1. **`frontend/src/components/datasets/DataExplorer.jsx`**:
-   - Add robust error handling for Data Table Preview (show error card with retry button on 404/500).
-   - Add robust error handling for DuckDB SQL Console (handle 401, 403, 404, 422, 500, and show structured SQL syntax error messages).
-   - Ensure `columns` and `rows` render cleanly with type badges and pagination.
-
-2. **`frontend/src/services/api.js`**:
-   - Refine `getBaseUrl` and error response interceptors.
+#### [MODIFY] [`backend/app/main.py`](file:///c:/Users/amanr/Desktop/DataPilot/backend/app/main.py)
+- Add auto-migrations for both Postgres (`ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id ...`, `CREATE TABLE IF NOT EXISTS password_reset_tokens ...`) and SQLite.
 
 ---
 
-## 3. Verification Plan
+### 2. Backend Authentication & Email Services
+#### [MODIFY] [`backend/app/core/config.py`](file:///c:/Users/amanr/Desktop/DataPilot/backend/app/core/config.py)
+- Add settings for:
+  - `google_client_id: Optional[str]`
+  - `google_client_secret: Optional[str]`
+  - `google_redirect_uri: Optional[str]`
+  - `email_provider: str = "console"`
+  - `email_api_key: Optional[str] = None`
+  - `email_from: str = "DataPilot AI <noreply@datapilot.ai>"`
+  - `smtp_host`, `smtp_port`, `smtp_user`, `smtp_password`
+  - `frontend_base_url: str = "http://localhost:5173"`
 
-### Automated & Live API Tests
-1. **Live Test Preview**: Call `GET /api/v1/datasets/{id}/preview` on live backend and verify HTTP 200 with columns and rows.
-2. **Live Test SQL**:
-   - `SELECT * FROM df LIMIT 25;` $\to$ verify rows returned.
-   - `SELECT COUNT(*) AS total_rows FROM df;` $\to$ verify scalar aggregation.
-   - `SELECT * FROM df WHERE 1 = 0;` $\to$ verify empty result set handled cleanly.
-   - `SELEC invalid syntax;` $\to$ verify structured 422 SQL error returned.
-3. **Workspace Authorization Test**: Verify user cannot access or query dataset from another workspace.
-4. **End-to-End Test Suite**: Run full python test script validating all 4 tests.
+#### [MODIFY] [`backend/app/schemas/auth.py`](file:///c:/Users/amanr/Desktop/DataPilot/backend/app/schemas/auth.py)
+- Add password complexity validation to `RegisterRequest` and `ResetPasswordRequest` (min 8 chars, 1 uppercase, 1 lowercase, 1 digit).
+- Add `ForgotPasswordRequest`, `ResetPasswordRequest`, `VerifyResetTokenResponse`, and `GoogleAuthRequest` schemas.
+
+#### [NEW] [`backend/app/services/email_service.py`](file:///c:/Users/amanr/Desktop/DataPilot/backend/app/services/email_service.py)
+- Abstract email dispatcher with HTML email templates for Password Reset.
+- Safe logging in dev / console mode and SMTP / API provider support.
+
+#### [MODIFY] [`backend/app/api/routes/auth.py`](file:///c:/Users/amanr/Desktop/DataPilot/backend/app/api/routes/auth.py)
+- Email normalization (`email.strip().lower()`).
+- Endpoint `POST /auth/forgot-password`: Generates secure token, stores SHA-256 hash with 15-minute expiry, sends email, returns generic message.
+- Endpoint `POST /auth/reset-password`: Verifies SHA-256 token hash, updates user password, marks token as used.
+- Endpoint `GET /auth/verify-reset-token`: Validates token status for frontend.
+- Endpoint `POST /auth/google`: Verifies Google token, handles new user account creation + default workspace generation, or signs in existing user seamlessly without duplicate accounts.
+
+---
+
+### 3. Frontend Authentication UX
+#### [MODIFY] [`frontend/src/services/api.js`](file:///c:/Users/amanr/Desktop/DataPilot/frontend/src/services/api.js)
+- Add `forgotPassword(email)`, `resetPassword(token, newPassword)`, `verifyResetToken(token)`, and `googleAuth(credential)`.
+
+#### [MODIFY] [`frontend/src/stores/authStore.js`](file:///c:/Users/amanr/Desktop/DataPilot/frontend/src/stores/authStore.js)
+- Add `loginWithGoogle(credential)` method and improve error extraction.
+
+#### [MODIFY] [`frontend/src/pages/auth/Login.jsx`](file:///c:/Users/amanr/Desktop/DataPilot/frontend/src/pages/auth/Login.jsx)
+- Add "Forgot password?" link.
+- Add "Continue with Google" button with Google icon.
+- Email format validation & anti-double-click loading state.
+
+#### [MODIFY] [`frontend/src/pages/auth/Register.jsx`](file:///c:/Users/amanr/Desktop/DataPilot/frontend/src/pages/auth/Register.jsx)
+- Add "Continue with Google" button.
+- Add real-time password requirement checklist (8+ chars, uppercase, lowercase, number).
+- Email normalization and validation.
+
+#### [NEW] [`frontend/src/pages/auth/ForgotPassword.jsx`](file:///c:/Users/amanr/Desktop/DataPilot/frontend/src/pages/auth/ForgotPassword.jsx)
+- Email input form with validation.
+- Generic success state ("If an account exists, a reset link has been sent").
+- Back to login navigation.
+
+#### [NEW] [`frontend/src/pages/auth/ResetPassword.jsx`](file:///c:/Users/amanr/Desktop/DataPilot/frontend/src/pages/auth/ResetPassword.jsx)
+- Token verification from URL query param `?token=...`.
+- New password + Confirm new password inputs with show/hide toggle.
+- Password strength criteria feedback & mismatch validation.
+- Success state and redirection to login.
+
+#### [MODIFY] [`frontend/src/App.jsx`](file:///c:/Users/amanr/Desktop/DataPilot/frontend/src/App.jsx)
+- Register `/forgot-password` and `/reset-password` routes.
+
+---
+
+## Verification Plan
+
+### Automated Tests
+- Run comprehensive auth test suite covering:
+  - Email format validation & duplicate email registration rejection.
+  - Password strength rejection and acceptance.
+  - Login with correct vs incorrect credentials (generic 401).
+  - Forgot password request with existing and non-existing emails (identical response).
+  - Password reset token generation, expiration check, single-use validation, and successful reset.
+  - Google authentication (new user vs existing user mapping).
+- Execute tests against live database and local environment.
+
+### Manual & UI Verification
+- Build frontend (`npm run build`).
+- Verify `/login`, `/register`, `/forgot-password`, and `/reset-password` pages and responsiveness.
