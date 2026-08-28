@@ -1,3 +1,4 @@
+import io
 import os
 import re
 import uuid
@@ -11,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.config import settings
-from app.db.models.dataset import Dataset, DatasetStatus
+from app.db.models.dataset import Dataset, DatasetProfile, DatasetStatus
 from app.db.models.workspace import Workspace, WorkspaceMember
 
 logger = logging.getLogger("datapilot.datasets")
@@ -62,7 +63,7 @@ async def _assert_workspace_member(workspace_id: str, user_id: str, db: AsyncSes
         except Exception:
             return
 
-    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to this workspace")
 
 
 def _get_upload_path(workspace_id: str, dataset_id: str, filename: str) -> Path:
@@ -86,17 +87,7 @@ async def save_dataset_file(
     user_id: str,
     db: AsyncSession,
 ) -> Dataset:
-    """Validate, save the uploaded file, and create a Dataset record.
-
-    Args:
-        file: The uploaded file from the multipart form.
-        workspace_id: Target workspace UUID.
-        user_id: Uploading user UUID.
-        db: Async database session.
-
-    Returns:
-        The created Dataset ORM object.
-    """
+    """Validate, save the uploaded file, and create a Dataset record."""
     await _assert_workspace_member(workspace_id, user_id, db)
 
     # Validate extension
@@ -115,13 +106,26 @@ async def save_dataset_file(
     size = len(content)
 
     if size == 0:
-        raise HTTPException(status_code=400, detail="File is empty")
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
     if size > MAX_BYTES:
         raise HTTPException(
             status_code=413,
             detail=f"File too large. Maximum allowed size is {settings.max_upload_size_mb} MB",
         )
+
+    # Extract raw data text representation for persistent storage in serverless environments
+    raw_data_str = None
+    if size <= 10 * 1024 * 1024:  # up to 10MB stored directly in DB for zero-loss serverless persistence
+        try:
+            if ext in [".csv", ".json"]:
+                raw_data_str = content.decode("utf-8", errors="replace")
+            elif ext in [".xlsx", ".xls"]:
+                import pandas as pd
+                excel_df = pd.read_excel(io.BytesIO(content))
+                raw_data_str = excel_df.to_csv(index=False)
+        except Exception as conv_err:
+            logger.warning(f"Could not convert raw data to text string: {conv_err}")
 
     # Create DB record first to get an ID
     dataset_id = str(uuid.uuid4())
@@ -139,16 +143,20 @@ async def save_dataset_file(
         file_size_bytes=size,
         mime_type=file.content_type or "application/octet-stream",
         file_extension=ext,
+        raw_data=raw_data_str,
         status=DatasetStatus.UPLOADED.value,
     )
     db.add(dataset)
     await db.commit()
 
     # Write file to disk after DB record is committed
-    async with aiofiles.open(file_path, "wb") as f:
-        await f.write(content)
+    try:
+        async with aiofiles.open(file_path, "wb") as f:
+            await f.write(content)
+    except Exception as disk_err:
+        logger.warning(f"Could not persist file to disk (acceptable on read-only serverless): {disk_err}")
 
-    logger.info(f"Dataset {dataset_id} uploaded: {original_name} ({size} bytes)")
+    logger.info(f"Dataset {dataset_id} uploaded: {original_name} ({size} bytes, raw_data_len={len(raw_data_str) if raw_data_str else 0})")
     return dataset
 
 
@@ -179,7 +187,7 @@ async def get_dataset_by_id(
     )
     dataset = result.scalar_one_or_none()
     if not dataset:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+        raise HTTPException(status_code=404, detail=f"Dataset '{dataset_id}' not found")
 
     await _assert_workspace_member(dataset.workspace_id, user_id, db)
     return dataset
@@ -204,41 +212,64 @@ async def preview_dataset_rows(
     limit: int = 50,
     offset: int = 0,
 ) -> dict:
-    """Read a slice of rows from the dataset file for preview and exploration."""
+    """Read a slice of rows from the dataset for preview and exploration."""
     import pandas as pd
 
     dataset = await get_dataset_by_id(dataset_id, user_id, db)
     file_path = dataset.file_path
 
     df = None
+    load_source = "unknown"
+
+    # 1. Attempt loading from physical file if it exists
     if file_path and os.path.exists(file_path):
         try:
             ext = dataset.file_extension.lower()
             if ext == ".csv":
-                df = pd.read_csv(file_path, nrows=limit + offset)
+                df = pd.read_csv(file_path, nrows=limit + offset + 100)
             elif ext in [".xlsx", ".xls"]:
-                df = pd.read_excel(file_path, nrows=limit + offset)
+                df = pd.read_excel(file_path, nrows=limit + offset + 100)
             elif ext == ".json":
                 df = pd.read_json(file_path)
+            if df is not None:
+                load_source = "disk_file"
         except Exception as e:
             logger.warning(f"Failed to read disk file {file_path} for preview: {e}")
 
-    # Fallback to DatasetProfile sample_rows if disk file is unavailable (e.g., serverless Vercel)
+    # 2. Fallback to persisted raw_data in database (production serverless safe)
+    if df is None and dataset.raw_data:
+        try:
+            ext = dataset.file_extension.lower()
+            if ext == ".json":
+                df = pd.read_json(io.StringIO(dataset.raw_data))
+            else:
+                df = pd.read_csv(io.StringIO(dataset.raw_data), nrows=limit + offset + 100)
+            if df is not None:
+                load_source = "database_raw_data"
+        except Exception as raw_err:
+            logger.warning(f"Failed to parse dataset.raw_data for preview {dataset_id}: {raw_err}")
+
+    # 3. Fallback to DatasetProfile sample_rows if disk file and raw_data are unavailable
     if df is None:
         prof_res = await db.execute(
             select(DatasetProfile).where(DatasetProfile.dataset_id == dataset_id)
         )
         profile = prof_res.scalar_one_or_none()
         if profile and profile.sample_rows and len(profile.sample_rows) > 0:
-            df = pd.DataFrame(profile.sample_rows)
-        else:
-            raise HTTPException(
-                status_code=404,
-                detail="Dataset file not found on disk or cached profile. Please re-upload or re-profile the dataset."
-            )
+            try:
+                df = pd.DataFrame(profile.sample_rows)
+                load_source = "profile_sample_rows"
+            except Exception as prof_err:
+                logger.error(f"Failed to convert sample_rows to DataFrame: {prof_err}")
+
+    if df is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Dataset data for '{dataset.name}' ({dataset_id}) could not be located on disk or database profile. Please re-upload or re-profile the dataset."
+        )
 
     try:
-        total_rows = len(df)
+        total_rows = int(dataset.row_count) if dataset.row_count is not None else len(df)
         df_slice = df.iloc[offset : offset + limit]
 
         # Format datetime columns
@@ -251,6 +282,8 @@ async def preview_dataset_rows(
         columns = list(df_slice.columns)
         rows = df_slice.to_dict(orient="records")
 
+        logger.info(f"Dataset preview {dataset_id}: {len(rows)} rows returned (source={load_source}, cols={len(columns)})")
+
         return {
             "dataset_id": dataset_id,
             "name": dataset.name,
@@ -259,6 +292,7 @@ async def preview_dataset_rows(
             "total_rows": total_rows,
             "limit": limit,
             "offset": offset,
+            "source": load_source,
         }
     except Exception as e:
         logger.error(f"Error previewing dataset {dataset_id}: {e}")
@@ -345,7 +379,22 @@ async def query_dataset_sql(
             except Exception as pd_err:
                 logger.warning(f"Pandas load also failed for {file_path}: {pd_err}")
 
-    # 2. If file missing or not loaded (e.g. serverless Vercel lambda instance), load from DatasetProfile sample_rows
+    # 2. Fallback to persisted raw_data in database (production serverless safe)
+    if not loaded and dataset.raw_data:
+        try:
+            ext = dataset.file_extension.lower()
+            if ext == ".json":
+                raw_df = pd.read_json(io.StringIO(dataset.raw_data))
+            else:
+                raw_df = pd.read_csv(io.StringIO(dataset.raw_data))
+            con.register("df", raw_df)
+            loaded = True
+            load_source = "database_raw_data"
+            logger.info(f"Loaded dataset {dataset_id} into DuckDB from raw_data ({len(raw_df)} rows)")
+        except Exception as raw_load_err:
+            logger.warning(f"Failed to load dataset from raw_data: {raw_load_err}")
+
+    # 3. Fallback to DatasetProfile sample_rows
     if not loaded:
         prof_res = await db.execute(
             select(DatasetProfile).where(DatasetProfile.dataset_id == dataset_id)
@@ -364,25 +413,27 @@ async def query_dataset_sql(
     if not loaded:
         raise HTTPException(
             status_code=404,
-            detail="Dataset data could not be located on disk or profile cache. Please re-upload or re-profile the dataset."
+            detail=f"Dataset data for '{dataset.name}' could not be located on disk or profile cache. Please re-upload or re-profile the dataset."
         )
 
-    # 3. Create convenient alias views so queries referencing 'dataset', 'data', 'table' work seamlessly
+    # 4. Create convenient alias views so queries referencing 'dataset', 'data', 'table' work seamlessly
     try:
         con.execute("CREATE OR REPLACE VIEW dataset AS SELECT * FROM df")
         con.execute("CREATE OR REPLACE VIEW data AS SELECT * FROM df")
+        con.execute("CREATE OR REPLACE VIEW sales AS SELECT * FROM df")
+        con.execute("CREATE OR REPLACE VIEW transactions AS SELECT * FROM df")
     except Exception:
         pass
 
-    # 4. Execute the SQL query cleanly
+    # 5. Execute the SQL query cleanly
     try:
         result_df = con.execute(cleaned_query).fetchdf()
     except Exception as exec_err:
-        logger.error(f"DuckDB execution error for dataset {dataset_id}: {exec_err}")
+        logger.error(f"DuckDB execution error for dataset {dataset_id} (query='{cleaned_query}'): {exec_err}")
         err_msg = str(exec_err).replace('Catalog Error: ', '').replace('Binder Error: ', '').replace('Parser Error: ', '')
-        raise HTTPException(status_code=400, detail=f"SQL Error: {err_msg}")
+        raise HTTPException(status_code=422, detail=f"SQL Error: {err_msg}")
 
-    # 5. Format results safely for JSON serialization
+    # 6. Format results safely for JSON serialization
     try:
         # Format datetime columns to ISO string
         for col in result_df.select_dtypes(include=['datetime64', 'datetimetz']).columns:
@@ -396,6 +447,7 @@ async def query_dataset_sql(
         rows = result_df.head(500).to_dict(orient="records")
 
         duration_ms = max(1, int((time.time() - start_time) * 1000))
+        logger.info(f"DuckDB query executed for {dataset_id} in {duration_ms}ms: {total_matched_rows} rows matched (query='{cleaned_query[:60]}...')")
 
         return {
             "success": True,
@@ -408,3 +460,4 @@ async def query_dataset_sql(
     except Exception as format_err:
         logger.exception(f"Error formatting query result for dataset {dataset_id}: {format_err}")
         raise HTTPException(status_code=500, detail=f"Error formatting query result: {str(format_err)}")
+

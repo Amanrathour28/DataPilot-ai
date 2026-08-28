@@ -187,8 +187,8 @@ def profile_dataframe(df: pd.DataFrame, dataset_name: str) -> dict[str, Any]:
 
         column_profiles.append(profile)
 
-    # Sample rows (first 10, JSON-safe)
-    sample = df.head(10).replace({np.nan: None})
+    # Sample rows (first 500 rows, JSON-safe for persistent database preview)
+    sample = df.head(500).replace({np.nan: None})
     sample_rows = []
     for _, row in sample.iterrows():
         row_dict = {}
@@ -244,7 +244,33 @@ async def run_profiling(dataset_id: str) -> None:
             logger.info(f"Profiling started: {dataset.name} ({dataset_id})")
 
             # Load and profile
-            df = _load_dataframe(dataset.file_path, dataset.file_extension)
+            df = None
+            if dataset.file_path and Path(dataset.file_path).exists():
+                try:
+                    df = _load_dataframe(dataset.file_path, dataset.file_extension)
+                except Exception as file_err:
+                    logger.warning(f"Failed to load dataset file from disk: {file_err}")
+
+            if df is None and dataset.raw_data:
+                import io
+                try:
+                    if dataset.file_extension.lower() == ".json":
+                        df = pd.read_json(io.StringIO(dataset.raw_data))
+                    else:
+                        df = pd.read_csv(io.StringIO(dataset.raw_data))
+                except Exception as raw_err:
+                    logger.warning(f"Failed to load dataset from raw_data: {raw_err}")
+
+            if df is None:
+                raise ValueError("Dataset source file could not be read from disk or database raw_data.")
+
+            # If raw_data was not set on initial upload, persist it now for future serverless durability
+            if not dataset.raw_data:
+                try:
+                    dataset.raw_data = df.to_csv(index=False)
+                except Exception as conv_err:
+                    logger.warning(f"Could not convert df to raw_data CSV string: {conv_err}")
+
             profile_data = profile_dataframe(df, dataset.name)
 
             # Update dataset row/column counts
