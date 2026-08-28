@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
-import { Sparkles, Eye, EyeOff, ArrowRight } from 'lucide-react'
+import { Eye, EyeOff, ArrowRight } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { useToast } from '../../components/ui/Toast'
+import { BrandWordmark } from '../../components/ui/Logo'
 import useAuthStore from '../../stores/authStore'
 
 export default function Login() {
@@ -49,25 +50,17 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0f0f1a] flex items-center justify-center p-4">
-      {/* Background decoration */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-96 h-96 bg-brand-600/10 rounded-full blur-3xl" />
-        <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-purple-600/10 rounded-full blur-3xl" />
-      </div>
-
-      <div className="w-full max-w-md relative">
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 shadow-xl shadow-brand-500/25 mb-4">
-            <Sparkles size={22} className="text-white" />
-          </div>
-          <h1 className="text-2xl font-bold text-slate-100">Welcome back</h1>
-          <p className="text-slate-500 mt-1 text-sm">Sign in to DataPilot AI</p>
+    <div className="min-h-screen app-canvas flex items-center justify-center p-4">
+      <div className="w-full max-w-md relative z-10">
+        <div className="flex justify-center mb-8">
+          <Link to="/"><BrandWordmark /></Link>
+        </div>
+        <div className="text-center mb-6">
+          <h1 className="text-3xl font-display text-slate-50">Welcome back</h1>
+          <p className="text-slate-500 mt-2 text-sm">Sign in to continue investigating.</p>
         </div>
 
-        {/* Form card */}
-        <div className="card p-8 shadow-2xl">
+        <div className="card p-8">
           <form onSubmit={handleSubmit} className="space-y-4">
             <Input
               id="email"
@@ -120,16 +113,16 @@ export default function Login() {
               variant="outline"
               onClick={handleDemoSignIn}
               loading={isLoading}
-              className="w-full mt-3 border-brand-500/30 text-brand-300 hover:bg-brand-500/10"
+              className="w-full mt-3"
               size="lg"
             >
-              One-Click Demo Sign In
+              One-click demo
             </Button>
           </form>
 
           <p className="text-center text-sm text-slate-500 mt-6">
             Don't have an account?{' '}
-            <Link to="/register" className="text-brand-400 hover:text-brand-300 font-medium transition-colors">
+            <Link to="/register" className="text-cyan-400 hover:text-cyan-300 font-medium transition-colors">
               Create one free
             </Link>
           </p>

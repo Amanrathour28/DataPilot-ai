@@ -16,6 +16,7 @@ import EvidenceLedger from '../../components/investigations/EvidenceLedger'
 import HypothesisScorecard from '../../components/investigations/HypothesisScorecard'
 import RootCausePanel from '../../components/investigations/RootCausePanel'
 import AgentReasoningPanel from '../../components/investigations/AgentReasoningPanel'
+import { PageShell } from '../../components/layout/PageShell'
 import { clsx } from 'clsx'
 
 const STAGES = [
@@ -50,6 +51,8 @@ export default function InvestigationDetail() {
   const [streamConfBreakdown, setStreamConfBreakdown] = useState(null)
   const [streamAppliedMemories, setStreamAppliedMemories] = useState([])
   const [streamActivities, setStreamActivities] = useState([])
+  const [streamFailureReason, setStreamFailureReason] = useState(null)
+  const [streamExecutionId, setStreamExecutionId] = useState(null)
   const [connectionStatus, setConnectionStatus] = useState('connected')
   const [isPaused, setIsPaused] = useState(false)
 
@@ -73,7 +76,7 @@ export default function InvestigationDetail() {
       setStreamHypotheses(detail.hypotheses || [])
       setStreamEvidence(detail.evidence_ledger || [])
       setStreamStatus(detail.status)
-      if (detail.status) setStreamStage(detail.status)
+      if (detail.last_completed_stage || detail.status) setStreamStage(detail.last_completed_stage || detail.status)
       setStreamSummary(detail.summary)
       setStreamConfidence(detail.confidence_score)
       setStreamPlan(detail.plan || [])
@@ -82,7 +85,11 @@ export default function InvestigationDetail() {
       setStreamConfBreakdown(detail.confidence_breakdown)
       setStreamAppliedMemories(detail.applied_memories || [])
       setStreamActivities(detail.agent_activity || [])
+      setStreamFailureReason(detail.failure_reason)
+      setStreamExecutionId(detail.execution_id)
       if (['RUNNING', 'PLANNING', 'ANALYZING', 'TESTING', 'RETRIEVING', 'VERIFYING', 'REPORTING'].includes(detail.status)) {
+        setActiveTab('timeline')
+      } else if (detail.status === 'FAILED') {
         setActiveTab('timeline')
       }
     }
@@ -134,15 +141,18 @@ export default function InvestigationDetail() {
           if (data.root_causes) setStreamRootCauses(data.root_causes)
           if (data.evidence_ledger) setStreamEvidence(data.evidence_ledger)
           if (data.confidence_breakdown) setStreamConfBreakdown(data.confidence_breakdown)
+          if (data.failure_reason) setStreamFailureReason(data.failure_reason)
+          if (data.execution_id) setStreamExecutionId(data.execution_id)
 
           if (data.status === 'COMPLETED' || data.status === 'FAILED') {
-            toast?.show(data.message || 'Investigation concluded', 'info')
+            toast?.show(data.message || 'Investigation concluded', data.status === 'FAILED' ? 'error' : 'info')
             if (eventSourceRef.current) {
               eventSourceRef.current.close()
               eventSourceRef.current = null
             }
             queryClient.invalidateQueries(['investigation-detail', id])
-            setActiveTab('report')
+            if (data.status === 'COMPLETED') setActiveTab('report')
+            else setActiveTab('timeline')
           }
         } else if (data.type === 'agent_activity' && data.activity) {
           setStreamActivities(prev => {
@@ -242,19 +252,19 @@ export default function InvestigationDetail() {
 
   if (isLoading) {
     return (
-      <div className="p-8 max-w-7xl mx-auto space-y-6">
+      <PageShell className="space-y-6">
         <Skeleton className="h-8 w-48 rounded" />
         <Skeleton className="h-24 w-full rounded-2xl" />
         <Skeleton className="h-96 w-full rounded-2xl" />
-      </div>
+      </PageShell>
     )
   }
 
   if (!detail) {
     return (
-      <div className="p-8 text-center text-slate-500">
+      <PageShell className="text-center text-slate-500">
         Investigation not found.
-      </div>
+      </PageShell>
     )
   }
 
@@ -262,7 +272,7 @@ export default function InvestigationDetail() {
   const isRunning = ['PENDING', 'RUNNING', 'PLANNING', 'ANALYZING', 'TESTING', 'RETRIEVING', 'VERIFYING', 'REPORTING', 'REINVESTIGATING'].includes(currentStatus)
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6">
+    <PageShell className="space-y-6" wide>
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -343,6 +353,78 @@ export default function InvestigationDetail() {
           <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-brand-500/20 text-brand-300 font-bold">
             {streamAppliedMemories.length} rules active
           </span>
+        </div>
+      )}
+
+      {/* Diagnostic Failure Card */}
+      {currentStatus === 'FAILED' && (
+        <div className="card p-5 border border-rose-500/30 bg-rose-950/20 rounded-2xl space-y-4 shadow-xl">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400">
+                <ShieldAlert size={22} className="text-rose-400" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 font-mono">
+                    FAILED
+                  </span>
+                  <h3 className="text-sm font-bold text-slate-100">
+                    Investigation Execution Failed
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Detailed diagnostic context and stack trace captured from the autonomous worker.
+                </p>
+              </div>
+            </div>
+            <Button variant="secondary" size="sm" onClick={handleReplay}>
+              <RotateCcw size={13} /> Replay Investigation
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="p-3 rounded-xl bg-[#141424] border border-slate-800 space-y-1">
+              <span className="text-[10px] text-slate-500 uppercase font-semibold tracking-wider block">Failed Stage</span>
+              <span className="text-xs font-bold text-amber-300 font-mono">
+                {streamStage || detail.last_completed_stage || 'PLANNING'}
+              </span>
+            </div>
+
+            <div className="p-3 rounded-xl bg-[#141424] border border-slate-800 space-y-1">
+              <span className="text-[10px] text-slate-500 uppercase font-semibold tracking-wider block">Failing Agent</span>
+              <span className="text-xs font-bold text-rose-300 font-mono">
+                {streamTasks.find(t => t.status === 'FAILED')?.agent || (streamFailureReason?.match(/\[(.*?)\]/)?.[1]) || 'Supervisor Agent'}
+              </span>
+            </div>
+
+            <div className="p-3 rounded-xl bg-[#141424] border border-slate-800 space-y-1">
+              <span className="text-[10px] text-slate-500 uppercase font-semibold tracking-wider block">Retry Status</span>
+              <span className="text-xs font-bold text-slate-200 font-mono">
+                {streamTasks.find(t => t.status === 'FAILED')?.retry_count !== undefined 
+                  ? `${streamTasks.find(t => t.status === 'FAILED')?.retry_count} / ${streamTasks.find(t => t.status === 'FAILED')?.max_retries || 2} retries`
+                  : 'Exceeded max retries'}
+              </span>
+            </div>
+
+            <div className="p-3 rounded-xl bg-[#141424] border border-slate-800 space-y-1">
+              <span className="text-[10px] text-slate-500 uppercase font-semibold tracking-wider block">Execution ID</span>
+              <span className="text-xs font-mono text-slate-300 truncate block">
+                {streamExecutionId || detail.execution_id || 'exec_worker'}
+              </span>
+            </div>
+          </div>
+
+          {/* Detailed Error Box */}
+          <div className="p-3.5 rounded-xl bg-[#0c0c18] border border-rose-500/20 space-y-1.5">
+            <div className="flex items-center gap-2 text-xs font-bold text-rose-300">
+              <AlertCircle size={14} />
+              <span>Error Diagnosis:</span>
+            </div>
+            <p className="text-xs text-rose-200/90 font-mono leading-relaxed break-words">
+              {streamFailureReason || streamTasks.find(t => t.status === 'FAILED')?.error || detail.failure_reason || 'Dataset or statistical execution encountered an unhandled exception.'}
+            </p>
+          </div>
         </div>
       )}
 
@@ -540,6 +622,6 @@ export default function InvestigationDetail() {
           )}
         </div>
       )}
-    </div>
+    </PageShell>
   )
 }

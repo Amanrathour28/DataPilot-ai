@@ -11,8 +11,8 @@ const AGENTS = [
     name: 'Investigation Orchestrator',
     role: 'Central Orchestration & Dynamic Task Routing',
     icon: Sparkles,
-    color: 'from-indigo-500 to-purple-600',
-    borderColor: 'border-indigo-500/50',
+    color: 'from-cyan-500 to-purple-600',
+    borderColor: 'border-cyan-500/50',
     description: 'Understands the objective, monitors investigation graph state, dynamically creates follow-up tasks, and determines when sufficient evidence exists.',
     exampleInput: 'Objective: "Identify primary drivers of Q3 revenue decline"',
     exampleOutput: 'Delegated Task 1 -> Profiler, Task 2 -> Data Analyst, Task 3 -> RAG Agent',
@@ -24,7 +24,7 @@ const AGENTS = [
     name: 'Data Analyst Agent',
     role: 'Metrics, Segment Slicing & Anomaly Detection',
     icon: LineChart,
-    color: 'from-sky-500 to-indigo-600',
+    color: 'from-sky-500 to-cyan-600',
     borderColor: 'border-sky-500/40',
     description: 'Explores datasets, compares time periods, ranks segment contributions, and flags statistical anomalies.',
     exampleInput: 'Compare Q2 vs Q3 sales grouped by territory & channel',
@@ -72,7 +72,7 @@ const AGENTS = [
     name: 'RAG Context Agent',
     role: 'Retrieves Document Evidence & Citations',
     icon: FileSearch,
-    color: 'from-blue-500 to-indigo-600',
+    color: 'from-blue-500 to-cyan-600',
     borderColor: 'border-blue-500/40',
     description: 'Searches uploaded PDFs, strategy docs, and marketing reports to provide qualitative explanation for quantitative data.',
     exampleInput: 'Search query: "August marketing budget changes West territory"',
@@ -101,12 +101,12 @@ export default function AgentNetwork() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Section Header */}
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <span className="text-xs font-semibold px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 uppercase tracking-wider">
+          <span className="text-xs font-semibold px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 uppercase tracking-wider">
             MULTI-AGENT ORCHESTRATION
           </span>
           <h2 className="text-3xl sm:text-5xl font-extrabold text-slate-100 mt-4 tracking-tight">
             One investigation.{' '}
-            <span className="text-indigo-400">A team of specialized agents.</span>
+            <span className="text-cyan-400">A team of specialized agents.</span>
           </h2>
           <p className="mt-4 text-base sm:text-lg text-slate-400">
             DataPilot coordinates a team of autonomous AI agents that collaborate, analyze, hypothesize, search context, and verify conclusions.
@@ -130,7 +130,7 @@ export default function AgentNetwork() {
                     agent.isCentral ? 'sm:col-span-2' : ''
                   } ${
                     isSelected
-                      ? 'bg-[#151532] border-indigo-500 shadow-xl shadow-indigo-600/20 ring-1 ring-indigo-500/50'
+                      ? 'bg-[#151532] border-cyan-500 shadow-xl shadow-cyan-600/20 ring-1 ring-cyan-500/50'
                       : 'bg-[#0e0e1c] border-[#1e1e3b] hover:border-[#2f2f58]'
                   }`}
                 >
@@ -141,7 +141,7 @@ export default function AgentNetwork() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
                         <p className="text-xs font-bold text-slate-100 truncate">{agent.name}</p>
-                        {isSelected && <Check size={14} className="text-indigo-400 flex-shrink-0" />}
+                        {isSelected && <Check size={14} className="text-cyan-400 flex-shrink-0" />}
                       </div>
                       <p className="text-[11px] text-slate-400 truncate">{agent.role}</p>
                     </div>
@@ -160,7 +160,7 @@ export default function AgentNetwork() {
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -12 }}
                 transition={{ duration: 0.2 }}
-                className="p-6 rounded-2xl bg-[#0f0f24] border border-indigo-500/30 shadow-2xl space-y-5"
+                className="p-6 rounded-2xl bg-[#0f0f24] border border-cyan-500/30 shadow-2xl space-y-5"
               >
                 {/* Agent Title Header */}
                 <div className="flex items-center gap-3 border-b border-[#202042] pb-4">
@@ -169,7 +169,7 @@ export default function AgentNetwork() {
                   </div>
                   <div>
                     <h3 className="text-base font-bold text-slate-100">{selectedAgent.name}</h3>
-                    <p className="text-xs text-indigo-400 font-medium">{selectedAgent.role}</p>
+                    <p className="text-xs text-cyan-400 font-medium">{selectedAgent.role}</p>
                   </div>
                 </div>
 
@@ -186,7 +186,7 @@ export default function AgentNetwork() {
                   </div>
 
                   <div className="p-3 rounded-xl bg-[#080816] border border-[#1b1b36]">
-                    <p className="text-[10px] font-mono font-semibold text-indigo-400 uppercase">EXAMPLE AGENT OUTPUT</p>
+                    <p className="text-[10px] font-mono font-semibold text-cyan-400 uppercase">EXAMPLE AGENT OUTPUT</p>
                     <p className="text-xs font-mono text-slate-200 mt-1">{selectedAgent.exampleOutput}</p>
                   </div>
                 </div>
@@ -198,7 +198,7 @@ export default function AgentNetwork() {
                     {selectedAgent.tools.map((tool) => (
                       <span
                         key={tool}
-                        className="px-2.5 py-1 rounded-md bg-indigo-500/15 border border-indigo-500/30 text-[11px] font-mono text-indigo-300"
+                        className="px-2.5 py-1 rounded-md bg-cyan-500/15 border border-cyan-500/30 text-[11px] font-mono text-cyan-300"
                       >
                         {tool}
                       </span>

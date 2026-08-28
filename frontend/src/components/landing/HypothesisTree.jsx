@@ -82,7 +82,7 @@ export default function HypothesisTree() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <span className="text-xs font-semibold px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 uppercase tracking-wider">
+          <span className="text-xs font-semibold px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 uppercase tracking-wider">
             EXPLAINABILITY & RIGOR
           </span>
           <h2 className="text-3xl sm:text-5xl font-extrabold text-slate-100 mt-4 tracking-tight">
@@ -102,7 +102,7 @@ export default function HypothesisTree() {
               onClick={() => setSelectedNode(HYPOTHESIS_NODES[0])}
               className={`p-4 rounded-xl cursor-pointer transition-all border ${
                 selectedNode.id === 'root'
-                  ? 'bg-[#161633] border-indigo-500 shadow-xl shadow-indigo-600/20'
+                  ? 'bg-[#161633] border-cyan-500 shadow-xl shadow-cyan-600/20'
                   : 'bg-[#0e0e1c] border-[#202040] hover:border-[#303058]'
               }`}
             >
@@ -123,7 +123,7 @@ export default function HypothesisTree() {
             </div>
 
             {/* Branch lines */}
-            <div className="pl-6 space-y-3 border-l-2 border-indigo-500/30 ml-4">
+            <div className="pl-6 space-y-3 border-l-2 border-cyan-500/30 ml-4">
               {HYPOTHESIS_NODES.slice(1).map((node) => {
                 const isSelected = selectedNode.id === node.id
                 let badgeClass = ''
@@ -147,7 +147,7 @@ export default function HypothesisTree() {
                     whileHover={{ x: 4 }}
                     className={`p-4 rounded-xl cursor-pointer transition-all border ${
                       isSelected
-                        ? 'bg-[#151532] border-indigo-500 shadow-xl shadow-indigo-600/20'
+                        ? 'bg-[#151532] border-cyan-500 shadow-xl shadow-cyan-600/20'
                         : 'bg-[#0d0d1b] border-[#1e1e3b] hover:border-[#2f2f56]'
                     }`}
                   >
@@ -177,14 +177,14 @@ export default function HypothesisTree() {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                className="p-6 rounded-2xl bg-[#0e0e22] border border-indigo-500/30 shadow-2xl space-y-4"
+                className="p-6 rounded-2xl bg-[#0e0e22] border border-cyan-500/30 shadow-2xl space-y-4"
               >
                 <div className="flex items-center justify-between border-b border-[#202042] pb-3">
                   <div>
                     <p className="text-[10px] font-mono text-slate-400 uppercase">HYPOTHESIS DETAIL</p>
                     <h3 className="text-sm font-bold text-slate-100 mt-0.5">{selectedNode.title}</h3>
                   </div>
-                  <span className="text-xs font-mono font-bold text-indigo-400">
+                  <span className="text-xs font-mono font-bold text-cyan-400">
                     Confidence: {selectedNode.confidence}
                   </span>
                 </div>
@@ -208,14 +208,14 @@ export default function HypothesisTree() {
 
                 {/* Sources & Citations */}
                 <div className="p-3 rounded-xl bg-[#121226] border border-[#202044] space-y-1 text-xs">
-                  <p className="font-semibold text-indigo-300 flex items-center gap-1.5">
+                  <p className="font-semibold text-cyan-300 flex items-center gap-1.5">
                     <Database size={13} /> Source Data Citation:
                   </p>
                   <p className="font-mono text-slate-300 text-[11px]">{selectedNode.details.source}</p>
 
                   {selectedNode.details.ragContext && (
                     <div className="pt-2 border-t border-[#1e1e3b] mt-2">
-                      <p className="font-semibold text-indigo-300 flex items-center gap-1.5">
+                      <p className="font-semibold text-cyan-300 flex items-center gap-1.5">
                         <FileText size={13} /> RAG Document Citation:
                       </p>
                       <p className="font-mono text-slate-300 text-[11px]">{selectedNode.details.ragContext}</p>

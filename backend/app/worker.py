@@ -225,7 +225,7 @@ class InvestigationWorker:
         datasets_res = await db.execute(
             select(Dataset).where(
                 Dataset.workspace_id == workspace_id,
-                Dataset.status == "PROFILED",
+                Dataset.status.in_(["PROFILED", "UPLOADED"]),
                 Dataset.is_deleted == False,
             ).order_by(Dataset.updated_at.desc())
         )
@@ -235,6 +235,15 @@ class InvestigationWorker:
 
         primary_df = None
         primary_ds = datasets[0]
+
+        # 0. On-demand profiling if dataset is still in UPLOADED status
+        if primary_ds.status != "PROFILED":
+            try:
+                from app.services.profiling_service import run_profiling
+                await run_profiling(primary_ds.id)
+                await db.refresh(primary_ds)
+            except Exception as prof_err:
+                logger.warning(f"On-demand profiling for {primary_ds.id} encountered: {prof_err}")
 
         # 1. Try loading physical file from disk
         if primary_ds.file_path and os.path.exists(primary_ds.file_path):
@@ -1089,20 +1098,38 @@ The primary driver was a statistically significant contraction in the **{top_reg
                     datasets_res = await db.execute(
                         select(Dataset).where(
                             Dataset.workspace_id == inv.workspace_id,
-                            Dataset.status == "PROFILED",
+                            Dataset.status.in_(["PROFILED", "UPLOADED"]),
                             Dataset.is_deleted == False,
                         )
                     )
                     datasets = datasets_res.scalars().all()
                     if not datasets:
                         inv.status = "FAILED"
-                        inv.failure_reason = "No profiled datasets found in workspace. Upload a CSV dataset first."
+                        inv.failure_reason = "[Planning Agent] FAILED: No datasets found in workspace. Please upload a tabular dataset (CSV/XLSX) to begin analysis."
+                        inv.last_completed_stage = "PLANNING"
+                        inv.locked_by = None
+                        inv.lock_expires_at = None
                         await db.commit()
                         await self.record_event(
                             db, investigation_id, "Supervisor Agent", "FAILED",
-                            "Investigation failed: No profiled datasets available in workspace."
+                            "[Planning Agent] FAILED: No datasets found in workspace. Upload a CSV/XLSX dataset first.",
+                            {
+                                "stage": "PLANNING",
+                                "agent": "Planning Agent",
+                                "error": "No datasets found in workspace.",
+                                "execution_id": exec_id
+                            }
                         )
                         return False
+
+                    # On-demand profile if any dataset is unprofiled
+                    for ds in datasets:
+                        if ds.status != "PROFILED":
+                            try:
+                                from app.services.profiling_service import run_profiling
+                                await run_profiling(ds.id)
+                            except Exception:
+                                pass
 
                     tasks_list = [
                         {"step_number": 1, "task_id": "step_1", "name": "Empirical Period Variance Discovery", "agent": "data_analyst", "objective": "Compute baseline variance across cohorts and dimensions"},
@@ -1216,21 +1243,40 @@ The primary driver was a statistically significant contraction in the **{top_reg
                             pending_task.status = "FAILED"
                             await db.commit()
 
+                            agent_display = pending_task.agent.replace("_", " ").title()
                             await self.record_event(
-                                db, investigation_id, pending_task.agent.replace("_", " ").title(), "FAILED",
-                                f"Task transient failure (Attempt {pending_task.retry_count}/{pending_task.max_retries+1}): {task_err}. Retrying in {backoff_seconds}s.",
-                                {"error": str(task_err), "retry_count": pending_task.retry_count}
+                                db, investigation_id, agent_display, "FAILED",
+                                f"[{agent_display}] Transient failure (Attempt {pending_task.retry_count}/{pending_task.max_retries+1}): {task_err}. Retrying in {backoff_seconds}s.",
+                                {
+                                    "stage": stage_name,
+                                    "agent": agent_display,
+                                    "error": str(task_err),
+                                    "retry_count": pending_task.retry_count,
+                                    "max_retries": pending_task.max_retries,
+                                    "execution_id": exec_id,
+                                }
                             )
                         else:
                             pending_task.status = "FAILED"
+                            agent_display = pending_task.agent.replace("_", " ").title()
                             inv.status = "FAILED"
-                            inv.failure_reason = f"Task {pending_task.agent} failed after {pending_task.retry_count} retries: {task_err}"
+                            inv.last_completed_stage = stage_name
+                            inv.failure_reason = f"[{agent_display}] FAILED: Reason: {task_err} (Stage: {stage_name}, Retries: {pending_task.retry_count}/{pending_task.max_retries})"
+                            inv.locked_by = None
+                            inv.lock_expires_at = None
                             await db.commit()
 
                             await self.record_event(
-                                db, investigation_id, pending_task.agent.replace("_", " ").title(), "FAILED",
-                                f"Task permanently failed: {task_err}",
-                                {"error": str(task_err)}
+                                db, investigation_id, agent_display, "FAILED",
+                                f"[{agent_display}] FAILED: Reason: {task_err}",
+                                {
+                                    "stage": stage_name,
+                                    "agent": agent_display,
+                                    "error": str(task_err),
+                                    "retry_count": pending_task.retry_count,
+                                    "max_retries": pending_task.max_retries,
+                                    "execution_id": exec_id,
+                                }
                             )
                             return False
 

@@ -376,6 +376,11 @@ async def get_investigation(
         critic_reviews=critic_reviews,
         agent_activity=agent_activity,
         reinvestigation_count=investigation.reinvestigation_count,
+        execution_id=investigation.execution_id,
+        locked_by=investigation.locked_by,
+        last_completed_stage=investigation.last_completed_stage,
+        failure_reason=investigation.failure_reason,
+        attempt_number=investigation.attempt_number,
         created_at=investigation.created_at,
         updated_at=investigation.updated_at,
         tasks=tasks.scalars().all(),
@@ -446,10 +451,33 @@ async def stream_investigation_events(
                     yield f"id: {evt.seq}\ndata: {json.dumps(payload)}\n\n"
 
                 # Check if investigation has concluded
-                inv_res = await s_db.execute(select(Investigation.status).where(Investigation.id == investigation_id))
-                curr_status = inv_res.scalar_one_or_none()
-                if curr_status in ["COMPLETED", "FAILED", "CANCELLED"] and len(events) == 0:
-                    yield f"data: {json.dumps({'type': 'status', 'status': curr_status, 'message': f'Workflow concluded with status {curr_status}'})}\n\n"
+                inv_res = await s_db.execute(
+                    select(
+                        Investigation.status,
+                        Investigation.failure_reason,
+                        Investigation.last_completed_stage,
+                        Investigation.execution_id,
+                        Investigation.summary,
+                        Investigation.confidence_score,
+                    ).where(Investigation.id == investigation_id)
+                )
+                curr_inv = inv_res.first()
+                if curr_inv and curr_inv.status in ["COMPLETED", "FAILED", "CANCELLED"] and len(events) == 0:
+                    status_payload = {
+                        "type": "status",
+                        "status": curr_inv.status,
+                        "failure_reason": curr_inv.failure_reason,
+                        "stage": curr_inv.last_completed_stage or curr_inv.status,
+                        "execution_id": curr_inv.execution_id,
+                        "summary": curr_inv.summary,
+                        "confidence_score": curr_inv.confidence_score,
+                        "message": (
+                            f"Workflow failed: {curr_inv.failure_reason}"
+                            if curr_inv.status == "FAILED"
+                            else f"Workflow concluded with status {curr_inv.status}"
+                        ),
+                    }
+                    yield f"data: {json.dumps(status_payload)}\n\n"
                     break
 
             await asyncio.sleep(1.5)

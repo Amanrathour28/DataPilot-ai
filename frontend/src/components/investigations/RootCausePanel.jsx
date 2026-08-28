@@ -212,7 +212,7 @@ export default function RootCausePanel({
                   </div>
                   <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-gradient-to-r from-brand-500 to-indigo-500 rounded-full"
+                      className="h-full bg-gradient-to-r from-brand-500 to-cyan-500 rounded-full"
                       style={{ width: `${pct}%` }}
                     />
                   </div>

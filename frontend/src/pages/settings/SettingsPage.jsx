@@ -76,7 +76,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-8">
+    <div className="page-shell space-y-8">
       {/* Header */}
       <div>
         <div className="flex items-center gap-2 mb-1">

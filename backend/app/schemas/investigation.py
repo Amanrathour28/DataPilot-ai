@@ -48,6 +48,12 @@ class InvestigationTaskResponse(BaseModel):
     step_number: Optional[int] = None
     duration_ms: Optional[int] = None
     result: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+    retry_count: int = 0
+    max_retries: int = 2
+    execution_id: Optional[str] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
@@ -87,6 +93,11 @@ class InvestigationResponse(BaseModel):
     critic_reviews: Optional[List[Dict[str, Any]]] = None
     agent_activity: Optional[List[Dict[str, Any]]] = None
     reinvestigation_count: int = 0
+    execution_id: Optional[str] = None
+    locked_by: Optional[str] = None
+    last_completed_stage: Optional[str] = None
+    failure_reason: Optional[str] = None
+    attempt_number: int = 1
     created_at: datetime
     updated_at: datetime
 

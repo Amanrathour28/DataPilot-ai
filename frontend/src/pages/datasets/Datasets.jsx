@@ -8,6 +8,7 @@ import DatasetCard from '../../components/datasets/DatasetCard'
 import UploadDropzone from '../../components/datasets/UploadDropzone'
 import RelationshipViewer from '../../components/datasets/RelationshipViewer'
 import { useToast } from '../../components/ui/Toast'
+import { PageShell, PageHeader, EmptyState } from '../../components/layout/PageShell'
 import useWorkspaceStore from '../../stores/workspaceStore'
 import { datasetsApi } from '../../services/api'
 import { StatusBadge } from '../../components/ui/Badge'
@@ -15,18 +16,16 @@ import { clsx } from 'clsx'
 
 function EmptyDatasets({ onShowUpload }) {
   return (
-    <div className="flex flex-col items-center justify-center py-24 text-center">
-      <div className="w-16 h-16 rounded-2xl bg-[#1e1e35] flex items-center justify-center mb-5">
-        <Database size={28} className="text-slate-600" />
-      </div>
-      <h2 className="text-base font-semibold text-slate-200 mb-2">No datasets yet</h2>
-      <p className="text-sm text-slate-500 max-w-xs mb-6">
-        Upload your first dataset to begin autonomous data investigation.
-      </p>
-      <Button variant="primary" onClick={onShowUpload}>
-        <Plus size={15} /> Upload Dataset
-      </Button>
-    </div>
+    <EmptyState
+      icon={Database}
+      title="No datasets yet"
+      description="Upload your first dataset to begin autonomous data investigation."
+      action={
+        <Button variant="primary" onClick={onShowUpload}>
+          <Plus size={15} /> Upload Dataset
+        </Button>
+      }
+    />
   )
 }
 
@@ -70,38 +69,31 @@ export default function Datasets() {
 
   if (!activeWorkspace) {
     return (
-      <div className="p-8 max-w-7xl mx-auto">
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-xl font-bold text-slate-100">Datasets</h1>
-            <p className="text-sm text-slate-500 mt-0.5">Loading workspace…</p>
-          </div>
-        </div>
+      <PageShell>
+        <PageHeader eyebrow="Workspace" title="Datasets" description="Loading workspace…" />
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3].map(i => <CardSkeleton key={i} />)}
         </div>
-      </div>
+      </PageShell>
     )
   }
 
   return (
-    <div className="p-8 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-xl font-bold text-slate-100">Datasets</h1>
-          <p className="text-sm text-slate-500 mt-0.5">
-            {datasets.length} dataset{datasets.length !== 1 ? 's' : ''} in workspace &ldquo;{activeWorkspace.name}&rdquo;
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <IconButton icon={RefreshCw} label="Refresh" onClick={() => refetch()} size={15} />
-          <Button variant="primary" onClick={() => setShowUpload(!showUpload)}>
-            <Plus size={15} />
-            {showUpload ? 'Cancel' : 'Upload Dataset'}
-          </Button>
-        </div>
-      </div>
+    <PageShell>
+      <PageHeader
+        eyebrow="Workspace"
+        title="Datasets"
+        description={`${datasets.length} dataset${datasets.length !== 1 ? 's' : ''} in “${activeWorkspace.name}”`}
+        actions={
+          <div className="flex items-center gap-2">
+            <IconButton icon={RefreshCw} label="Refresh" onClick={() => refetch()} size={15} />
+            <Button variant="primary" onClick={() => setShowUpload(!showUpload)}>
+              <Plus size={15} />
+              {showUpload ? 'Cancel' : 'Upload Dataset'}
+            </Button>
+          </div>
+        }
+      />
 
       {/* Upload panel */}
       {showUpload && (
@@ -142,7 +134,7 @@ export default function Datasets() {
               className="input pl-9 text-sm"
             />
           </div>
-          <div className="flex items-center gap-1 bg-[#1e1e35] rounded-lg p-1 border border-[#2a2a4a]">
+          <div className="flex items-center gap-1 bg-white/[0.04] rounded-xl p-1 border border-white/[0.08]">
             <button
               onClick={() => setView('grid')}
               className={clsx('p-1.5 rounded transition-colors', view === 'grid' ? 'bg-[#2a2a4a] text-slate-200' : 'text-slate-500')}
@@ -215,10 +207,10 @@ export default function Datasets() {
 
       {/* Dataset Relationships Section */}
       {datasets.length >= 2 && (
-        <div className="mt-8 pt-8 border-t border-slate-800">
+        <div className="mt-8 pt-8 border-t border-white/[0.06]">
           <RelationshipViewer workspaceId={activeWorkspace.id} />
         </div>
       )}
-    </div>
+    </PageShell>
   )
 }

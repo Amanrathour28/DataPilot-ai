@@ -31,7 +31,7 @@ export default function HeroInvestigationDemo() {
   return (
     <div className="relative w-full max-w-5xl mx-auto mt-12 rounded-2xl bg-[#0e0e1c] border border-[#222244] shadow-2xl overflow-hidden backdrop-blur-xl">
       {/* Glow background behind card */}
-      <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-96 h-96 bg-indigo-600/15 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-96 h-96 bg-cyan-600/15 rounded-full blur-3xl pointer-events-none" />
 
       {/* Top Header bar */}
       <div className="flex items-center justify-between px-5 py-3.5 bg-[#14142b] border-b border-[#202040]">
@@ -42,7 +42,7 @@ export default function HeroInvestigationDemo() {
             <div className="w-3 h-3 rounded-full bg-emerald-500/80" />
           </div>
           <div className="flex items-center gap-2 bg-[#0b0b16] px-3 py-1 rounded-lg border border-[#1f1f3a] text-xs font-mono text-slate-300">
-            <Search size={13} className="text-indigo-400" />
+            <Search size={13} className="text-cyan-400" />
             <span className="text-slate-400">Question:</span>
             <span className="font-semibold text-slate-100">Why did revenue decline in Q3?</span>
           </div>
@@ -63,7 +63,7 @@ export default function HeroInvestigationDemo() {
                 onClick={() => setActiveTab(tab.id)}
                 className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-medium transition-all ${
                   isActive
-                    ? 'bg-indigo-600/90 text-white shadow-md shadow-indigo-600/30'
+                    ? 'bg-cyan-600/90 text-white shadow-md shadow-cyan-600/30'
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
@@ -84,14 +84,14 @@ export default function HeroInvestigationDemo() {
             className="space-y-4"
           >
             {/* Top alert bar */}
-            <div className="flex items-center justify-between p-3.5 rounded-xl bg-indigo-500/10 border border-indigo-500/25">
+            <div className="flex items-center justify-between p-3.5 rounded-xl bg-cyan-500/10 border border-cyan-500/25">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center">
-                  <Sparkles size={16} className="text-indigo-400 animate-pulse" />
+                <div className="w-8 h-8 rounded-lg bg-cyan-600/20 border border-cyan-500/40 flex items-center justify-center">
+                  <Sparkles size={16} className="text-cyan-400 animate-pulse" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-semibold text-indigo-300">SUPERVISOR ORCHESTRATOR</span>
+                    <span className="text-xs font-semibold text-cyan-300">SUPERVISOR ORCHESTRATOR</span>
                     <span className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
                       5 Specialized Agents Active
@@ -113,7 +113,7 @@ export default function HeroInvestigationDemo() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2 bg-[#090914] p-4 rounded-xl border border-[#1b1b36]">
                 <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <Terminal size={12} className="text-indigo-400" />
+                  <Terminal size={12} className="text-cyan-400" />
                   Agent Execution Log
                 </p>
 
@@ -125,7 +125,7 @@ export default function HeroInvestigationDemo() {
                       key={step.id}
                       className={`flex items-start gap-2.5 p-2 rounded-lg text-xs transition-all ${
                         isActive
-                          ? 'bg-indigo-600/15 border border-indigo-500/40 text-slate-100'
+                          ? 'bg-cyan-600/15 border border-cyan-500/40 text-slate-100'
                           : isDone
                           ? 'text-slate-300'
                           : 'text-slate-500 opacity-60'
@@ -134,14 +134,14 @@ export default function HeroInvestigationDemo() {
                       {isDone ? (
                         <CheckCircle2 size={14} className="text-emerald-400 flex-shrink-0 mt-0.5" />
                       ) : isActive ? (
-                        <div className="w-3.5 h-3.5 rounded-full border-2 border-indigo-400 border-t-transparent animate-spin flex-shrink-0 mt-0.5" />
+                        <div className="w-3.5 h-3.5 rounded-full border-2 border-cyan-400 border-t-transparent animate-spin flex-shrink-0 mt-0.5" />
                       ) : (
                         <div className="w-3.5 h-3.5 rounded-full border border-slate-600 flex-shrink-0 mt-0.5" />
                       )}
 
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between">
-                          <span className="font-semibold text-[11px] text-indigo-300">{step.agent}</span>
+                          <span className="font-semibold text-[11px] text-cyan-300">{step.agent}</span>
                           <span className="text-[10px] font-mono text-slate-500">{step.time}</span>
                         </div>
                         <p className="truncate text-slate-200 mt-0.5">{step.label}</p>
@@ -172,8 +172,8 @@ export default function HeroInvestigationDemo() {
                     </div>
                   </div>
 
-                  <div className="p-3 rounded-lg bg-indigo-950/40 border border-indigo-500/30 text-xs space-y-1">
-                    <p className="font-semibold text-indigo-300 flex items-center gap-1">
+                  <div className="p-3 rounded-lg bg-cyan-950/40 border border-cyan-500/30 text-xs space-y-1">
+                    <p className="font-semibold text-cyan-300 flex items-center gap-1">
                       <Layers size={13} />
                       Root Cause Finding:
                     </p>
@@ -188,7 +188,7 @@ export default function HeroInvestigationDemo() {
                     <ShieldCheck size={14} className="text-emerald-400" />
                     Verified by Critic Agent
                   </span>
-                  <span className="text-[11px] text-indigo-400 font-mono">0 Unsupported Claims</span>
+                  <span className="text-[11px] text-cyan-400 font-mono">0 Unsupported Claims</span>
                 </div>
               </div>
             </div>
@@ -219,7 +219,7 @@ export default function HeroInvestigationDemo() {
               <div className="p-4 rounded-xl bg-[#090914] border border-[#1d1d3a] space-y-1">
                 <p className="text-[10px] text-slate-400 font-mono">CONTEXTUAL EVIDENCE</p>
                 <p className="text-sm font-bold text-slate-100">Marketing Strategy</p>
-                <p className="text-xs text-indigo-300 font-medium font-sans">Budget reduced in August</p>
+                <p className="text-xs text-cyan-300 font-medium font-sans">Budget reduced in August</p>
                 <p className="text-[11px] text-slate-500">Source: q3_report.pdf (Page 14)</p>
               </div>
             </div>
@@ -227,8 +227,8 @@ export default function HeroInvestigationDemo() {
             <div className="p-4 rounded-xl bg-[#090914] border border-[#1d1d3a] space-y-2">
               <p className="text-xs font-semibold text-slate-200">Evidence Lineage Citation</p>
               <div className="text-xs text-slate-300 font-mono bg-[#121226] p-3 rounded-lg border border-[#202042] space-y-1">
-                <p><span className="text-indigo-400">[1] sales_q3.csv</span>: `SELECT SUM(revenue), region FROM sales GROUP BY quarter, region`</p>
-                <p><span className="text-indigo-400">[2] q3_marketing_report.pdf</span>: &quot;West territory digital campaigns paused on Aug 15th due to re-allocation.&quot;</p>
+                <p><span className="text-cyan-400">[1] sales_q3.csv</span>: `SELECT SUM(revenue), region FROM sales GROUP BY quarter, region`</p>
+                <p><span className="text-cyan-400">[2] q3_marketing_report.pdf</span>: &quot;West territory digital campaigns paused on Aug 15th due to re-allocation.&quot;</p>
               </div>
             </div>
           </motion.div>
@@ -242,7 +242,7 @@ export default function HeroInvestigationDemo() {
           >
             <div className="flex items-center justify-between text-xs font-semibold text-slate-300 border-b border-[#1c1c38] pb-2">
               <span>Hypothesis Investigation Graph</span>
-              <span className="text-[11px] text-indigo-400 font-mono">3 Hypotheses Evaluated</span>
+              <span className="text-[11px] text-cyan-400 font-mono">3 Hypotheses Evaluated</span>
             </div>
 
             <div className="space-y-2 text-xs">
@@ -280,7 +280,7 @@ export default function HeroInvestigationDemo() {
           <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
           <span>Real-time Multi-Agent Trace</span>
         </div>
-        <span className="font-mono text-indigo-400 hover:text-indigo-300 cursor-pointer flex items-center gap-1">
+        <span className="font-mono text-cyan-400 hover:text-cyan-300 cursor-pointer flex items-center gap-1">
           Explore Live Execution Demo →
         </span>
       </div>

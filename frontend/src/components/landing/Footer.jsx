@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Sparkles } from 'lucide-react'
+import { BrandWordmark } from '../ui/Logo'
 
 export default function Footer() {
   const handleScrollTo = (id) => {
@@ -10,21 +10,13 @@ export default function Footer() {
   }
 
   return (
-    <footer className="bg-[#06060c] border-t border-[#181830] py-16 text-slate-400 relative overflow-hidden">
+    <footer className="border-t border-white/[0.06] py-16 text-slate-400 relative overflow-hidden">
       {/* Footer Grid */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 grid grid-cols-2 md:grid-cols-5 gap-8">
         {/* Column 1: Brand & Logo */}
         <div className="col-span-2 space-y-4">
           <div className="flex items-center gap-2 group cursor-pointer" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
-            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 shadow-md">
-              <Sparkles size={16} className="text-white" />
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="font-extrabold text-slate-100 tracking-tight">DataPilot</span>
-              <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-indigo-400">
-                AI
-              </span>
-            </div>
+            <BrandWordmark compact />
           </div>
           <p className="text-xs text-slate-500 leading-relaxed max-w-sm">
             Autonomous multi-agent investigation platform that goes beyond simple dashboards to test hypotheses and pinpoint root causes.
@@ -111,7 +103,7 @@ export default function Footer() {
       </div>
 
       {/* Bottom Bar */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-16 pt-8 border-t border-[#181830] flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-600 font-mono">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-16 pt-8 border-t border-white/[0.06] flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-600 font-mono">
         <span>© 2026 DataPilot AI. All rights reserved.</span>
         <span>Autonomously investigating Q3 since 2026.</span>
       </div>

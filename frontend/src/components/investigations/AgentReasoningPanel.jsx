@@ -11,7 +11,7 @@ const AGENT_COLORS = {
   'Data Analyst': 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
   'Hypothesis Agent': 'bg-amber-500/10 text-amber-400 border-amber-500/20',
   'Hypothesis Tester': 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
-  'RAG Search Agent': 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
+  'RAG Search Agent': 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
   'Critic Agent': 'bg-rose-500/10 text-rose-400 border-rose-500/20',
   'Report Agent': 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
   'System': 'bg-slate-800 text-slate-300 border-slate-700'

@@ -17,6 +17,7 @@ export function Button({
     secondary: 'btn-secondary',
     ghost:     'btn-ghost',
     danger:    'btn-danger',
+    outline:   'btn-outline',
   }
 
   const sizes = {
@@ -30,7 +31,7 @@ export function Button({
       type={type}
       onClick={onClick}
       disabled={disabled || loading}
-      className={clsx(variants[variant], sizes[size], className)}
+      className={clsx(variants[variant] || variants.primary, sizes[size], className)}
       {...props}
     >
       {loading && <Loader2 size={14} className="animate-spin" />}
@@ -46,8 +47,8 @@ export function IconButton({ icon: Icon, label, onClick, className = '', variant
       aria-label={label}
       onClick={onClick}
       className={clsx(
-        'inline-flex items-center justify-center w-8 h-8 rounded-lg transition-colors',
-        variant === 'ghost' && 'hover:bg-[#1e1e35] text-slate-400 hover:text-slate-200',
+        'inline-flex items-center justify-center w-9 h-9 rounded-xl transition-colors border border-transparent',
+        variant === 'ghost' && 'hover:bg-white/[0.05] text-slate-400 hover:text-slate-100 hover:border-white/[0.06]',
         variant === 'danger' && 'hover:bg-red-600/20 text-slate-400 hover:text-red-400',
         className
       )}

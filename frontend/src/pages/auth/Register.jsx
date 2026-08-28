@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
-import { Sparkles, Eye, EyeOff, ArrowRight, Check } from 'lucide-react'
+import { Eye, EyeOff, ArrowRight, Check } from 'lucide-react'
 import { Button } from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
 import { useToast } from '../../components/ui/Toast'
+import { BrandWordmark } from '../../components/ui/Logo'
 import useAuthStore from '../../stores/authStore'
 
 const FEATURES = [
@@ -48,21 +49,13 @@ export default function Register() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0f0f1a] flex items-center justify-center p-4">
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-96 h-96 bg-brand-600/10 rounded-full blur-3xl" />
-        <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-purple-600/10 rounded-full blur-3xl" />
-      </div>
-
-      <div className="w-full max-w-4xl relative flex gap-12 items-center">
-        {/* Left — feature list */}
+    <div className="min-h-screen app-canvas flex items-center justify-center p-4">
+      <div className="w-full max-w-4xl relative z-10 flex gap-12 items-center">
         <div className="hidden lg:flex flex-col gap-6 flex-1">
           <div>
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 shadow-xl shadow-brand-500/25 mb-4">
-              <Sparkles size={22} className="text-white" />
-            </div>
-            <h1 className="text-3xl font-bold text-slate-100 leading-tight">
-              DataPilot <span className="text-gradient">AI</span>
+            <BrandWordmark />
+            <h1 className="text-4xl font-display text-slate-50 leading-tight mt-8">
+              Evidence, not dashboards.
             </h1>
             <p className="text-slate-400 mt-3 text-base leading-relaxed">
               An autonomous multi-agent platform that investigates your data, generates hypotheses, and delivers evidence-backed root cause analysis.
@@ -72,8 +65,8 @@ export default function Register() {
           <div className="space-y-3">
             {FEATURES.map((f) => (
               <div key={f} className="flex items-center gap-3">
-                <div className="w-5 h-5 rounded-full bg-brand-500/20 border border-brand-500/40 flex items-center justify-center flex-shrink-0">
-                  <Check size={11} className="text-brand-400" />
+                <div className="w-5 h-5 rounded-full bg-cyan-500/15 border border-cyan-400/30 flex items-center justify-center flex-shrink-0">
+                  <Check size={11} className="text-cyan-300" />
                 </div>
                 <span className="text-sm text-slate-300">{f}</span>
               </div>
@@ -81,13 +74,10 @@ export default function Register() {
           </div>
         </div>
 
-        {/* Right — form */}
         <div className="w-full max-w-md">
           <div className="text-center mb-6 lg:hidden">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 shadow-xl mb-3">
-              <Sparkles size={22} className="text-white" />
-            </div>
-            <h1 className="text-2xl font-bold text-slate-100">Create your account</h1>
+            <div className="flex justify-center mb-4"><BrandWordmark compact /></div>
+            <h1 className="text-2xl font-display text-slate-50">Create your account</h1>
           </div>
           <div className="hidden lg:block mb-6">
             <h2 className="text-xl font-bold text-slate-100">Create your account</h2>
@@ -156,7 +146,7 @@ export default function Register() {
 
             <p className="text-center text-sm text-slate-500 mt-6">
               Already have an account?{' '}
-              <Link to="/login" className="text-brand-400 hover:text-brand-300 font-medium transition-colors">
+              <Link to="/login" className="text-cyan-400 hover:text-cyan-300 font-medium transition-colors">
                 Sign in
               </Link>
             </p>

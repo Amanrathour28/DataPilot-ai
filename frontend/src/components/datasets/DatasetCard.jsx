@@ -31,7 +31,7 @@ export default function DatasetCard({ dataset }) {
   return (
     <div
       onClick={() => navigate(`/datasets/${dataset.id}`)}
-      className="card p-5 cursor-pointer hover:border-brand-600/40 transition-all group"
+      className="card p-5 cursor-pointer hover:border-cyan-400/30 hover:-translate-y-0.5 transition-all group"
     >
       <div className="flex items-start gap-4">
         {/* Icon */}

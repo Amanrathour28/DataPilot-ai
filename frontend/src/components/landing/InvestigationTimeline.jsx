@@ -9,7 +9,7 @@ const TIMELINE_EVENTS = [
   { timeOffset: '0.0s', timeText: '10:32:04', desc: 'Dataset profiling completed', detail: 'Identified schema in sales_q3.csv (124k rows) and customer_signups.json.', icon: Search, color: 'text-sky-400 bg-sky-500/10' },
   { timeOffset: '3.1s', timeText: '10:32:07', desc: 'Revenue anomaly detected', detail: 'Isolated outlier drop of -23.4% in overall Q3 revenue.', icon: Activity, color: 'text-red-400 bg-red-500/10' },
   { timeOffset: '6.4s', timeText: '10:32:10', desc: 'Regional analysis started', detail: 'Python Agent executing geographic metric slice in sandboxed environment.', icon: Terminal, color: 'text-emerald-400 bg-emerald-500/10' },
-  { timeOffset: '9.8s', timeText: '10:32:14', desc: 'West region identified', detail: 'West region identified as source of 78% of the sales decrease.', icon: Search, color: 'text-indigo-400 bg-indigo-500/10' },
+  { timeOffset: '9.8s', timeText: '10:32:14', desc: 'West region identified', detail: 'West region identified as source of 78% of the sales decrease.', icon: Search, color: 'text-cyan-400 bg-cyan-500/10' },
   { timeOffset: '13.2s', timeText: '10:32:18', desc: '4 hypotheses generated', detail: 'Formulated explanations including churn, acquisition drop, and AOV shift.', icon: GitBranch, color: 'text-amber-400 bg-amber-500/10' },
   { timeOffset: '16.5s', timeText: '10:32:22', desc: 'Testing customer acquisition hypothesis', detail: 'Calculated signup velocity Q2 vs Q3. Observed a 42.8% drop.', icon: Terminal, color: 'text-emerald-400 bg-emerald-500/10' },
   { timeOffset: '20.2s', timeText: '10:32:28', desc: 'Supporting evidence discovered', detail: 'RAG Agent matched August marketing pause details in q3_marketing_report.pdf.', icon: Search, color: 'text-purple-400 bg-purple-500/10' },
@@ -44,13 +44,13 @@ export default function InvestigationTimeline() {
   return (
     <section className="py-24 bg-[#080812] relative overflow-hidden border-t border-[#181830]">
       {/* Background graphic nodes */}
-      <div className="absolute right-0 top-1/4 w-[500px] h-[500px] bg-indigo-600/5 rounded-full blur-[140px] pointer-events-none" />
+      <div className="absolute right-0 top-1/4 w-[500px] h-[500px] bg-cyan-600/5 rounded-full blur-[140px] pointer-events-none" />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center mb-16">
           <div className="lg:col-span-6">
-            <span className="text-xs font-semibold px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 uppercase tracking-wider">
+            <span className="text-xs font-semibold px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 uppercase tracking-wider">
               REAL-TIME EXECUTION TRACE
             </span>
             <h2 className="text-3xl sm:text-5xl font-extrabold text-slate-100 mt-4 tracking-tight">
@@ -75,8 +75,8 @@ export default function InvestigationTimeline() {
                 </span>
               )}
               {isPlaying && (
-                <span className="text-xs text-indigo-400 font-medium flex items-center gap-1.5 animate-pulse">
-                  <span className="w-2 h-2 rounded-full bg-indigo-400" />
+                <span className="text-xs text-cyan-400 font-medium flex items-center gap-1.5 animate-pulse">
+                  <span className="w-2 h-2 rounded-full bg-cyan-400" />
                   Agents executing...
                 </span>
               )}
@@ -95,7 +95,7 @@ export default function InvestigationTimeline() {
                 </div>
                 <span className="text-xs font-mono text-slate-400 ml-1">datapilot-trace-session</span>
               </div>
-              <span className="text-[10px] font-mono bg-[#090914] px-2 py-0.5 rounded text-indigo-400 border border-[#1d1d36]">
+              <span className="text-[10px] font-mono bg-[#090914] px-2 py-0.5 rounded text-cyan-400 border border-[#1d1d36]">
                 ACTIVE AGENT: {TIMELINE_EVENTS[currentIdx]?.desc.split(' ').slice(-1)[0]}
               </span>
             </div>
@@ -115,7 +115,7 @@ export default function InvestigationTimeline() {
                       key={event.timeOffset}
                       initial={{ opacity: 0, x: -10 }}
                       animate={{ opacity: 1, x: 0 }}
-                      className={`flex gap-4 items-start ${isActive ? 'p-2 rounded-xl bg-indigo-600/10 border border-indigo-500/30' : ''}`}
+                      className={`flex gap-4 items-start ${isActive ? 'p-2 rounded-xl bg-cyan-600/10 border border-cyan-500/30' : ''}`}
                     >
                       {/* Timestamp */}
                       <span className="font-mono text-xs text-slate-500 mt-1 flex-shrink-0 w-14">
@@ -150,7 +150,7 @@ export default function InvestigationTimeline() {
             {/* Footer console status */}
             <div className="px-5 py-3 bg-[#0a0a14] border-t border-[#1a1a36] flex items-center justify-between text-[11px] text-slate-500 font-mono">
               <div className="flex items-center gap-1.5">
-                <span className={`w-1.5 h-1.5 rounded-full ${isPlaying ? 'bg-indigo-400 animate-ping' : 'bg-slate-600'}`} />
+                <span className={`w-1.5 h-1.5 rounded-full ${isPlaying ? 'bg-cyan-400 animate-ping' : 'bg-slate-600'}`} />
                 <span>Status: {isPlaying ? 'Streaming Trace' : 'Idle'}</span>
               </div>
               <span>Timeline Speed: 1.0x</span>

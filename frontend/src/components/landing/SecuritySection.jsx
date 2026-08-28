@@ -32,12 +32,12 @@ export default function SecuritySection() {
   return (
     <section id="security" className="py-24 bg-[#080812] relative overflow-hidden border-t border-[#181830]">
       {/* Background visual graphics */}
-      <div className="absolute left-1/2 bottom-0 -translate-x-1/2 w-[800px] h-[300px] bg-indigo-500/5 rounded-full blur-[140px] pointer-events-none" />
+      <div className="absolute left-1/2 bottom-0 -translate-x-1/2 w-[800px] h-[300px] bg-cyan-500/5 rounded-full blur-[140px] pointer-events-none" />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         {/* Section Header */}
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <span className="text-xs font-semibold px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 uppercase tracking-wider">
+          <span className="text-xs font-semibold px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 uppercase tracking-wider">
             SECURITY & GOVERNANCE
           </span>
           <h2 className="text-3xl sm:text-5xl font-extrabold text-slate-100 mt-4 tracking-tight">
@@ -57,10 +57,10 @@ export default function SecuritySection() {
             return (
               <div
                 key={card.title}
-                className={`p-6 rounded-2xl bg-[#0e0e1c]/80 border border-[#1e1e3b] hover:border-indigo-500/40 hover:bg-[#121226]/90 transition-all duration-300 group flex flex-col justify-between shadow-lg ${spanClass}`}
+                className={`p-6 rounded-2xl bg-[#0e0e1c]/80 border border-[#1e1e3b] hover:border-cyan-500/40 hover:bg-[#121226]/90 transition-all duration-300 group flex flex-col justify-between shadow-lg ${spanClass}`}
               >
                 <div>
-                  <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400 group-hover:scale-105 transition-transform duration-300">
+                  <div className="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 group-hover:scale-105 transition-transform duration-300">
                     <Icon size={20} />
                   </div>
                   <h3 className="text-base font-bold text-slate-100 mt-5 tracking-wide">{card.title}</h3>
@@ -69,7 +69,7 @@ export default function SecuritySection() {
                 
                 <div className="mt-6 pt-3 border-t border-[#1b1b36] flex items-center justify-between text-[10px] font-mono text-slate-500">
                   <span>DataPilot Core Spec</span>
-                  <span className="text-indigo-400 group-hover:underline">Active Policy</span>
+                  <span className="text-cyan-400 group-hover:underline">Active Policy</span>
                 </div>
               </div>
             )

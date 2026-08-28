@@ -7,12 +7,12 @@ export default function RagDataSection() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Section Header */}
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <span className="text-xs font-semibold px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 uppercase tracking-wider">
+          <span className="text-xs font-semibold px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 uppercase tracking-wider">
             QUANTITATIVE + QUALITATIVE FUSION
           </span>
           <h2 className="text-3xl sm:text-5xl font-extrabold text-slate-100 mt-4 tracking-tight">
             Numbers tell you what changed.{' '}
-            <span className="text-indigo-400">Context helps explain why.</span>
+            <span className="text-cyan-400">Context helps explain why.</span>
           </h2>
           <p className="mt-4 text-base sm:text-lg text-slate-400">
             Pure CSV analysis only discovers anomalies. DataPilot combines structured dataset queries with RAG search across uploaded business documents to reveal true business causes.
@@ -54,8 +54,8 @@ export default function RagDataSection() {
 
           {/* Center Fusion Connector */}
           <div className="lg:col-span-3 text-center flex flex-col items-center justify-center p-4">
-            <div className="w-12 h-12 rounded-2xl bg-indigo-600/20 border border-indigo-500/50 flex items-center justify-center shadow-xl shadow-indigo-600/30 animate-pulse mb-3">
-              <Sparkles size={22} className="text-indigo-400" />
+            <div className="w-12 h-12 rounded-2xl bg-cyan-600/20 border border-cyan-500/50 flex items-center justify-center shadow-xl shadow-cyan-600/30 animate-pulse mb-3">
+              <Sparkles size={22} className="text-cyan-400" />
             </div>
             <p className="text-xs font-bold text-slate-200 uppercase tracking-wider">RAG + DATA FUSION</p>
             <p className="text-[11px] text-slate-500 mt-1 max-w-[200px]">Cross-references metrics with business document text</p>
@@ -67,8 +67,8 @@ export default function RagDataSection() {
             className="lg:col-span-4 p-6 rounded-2xl bg-[#0e0e1e] border border-[#202042] space-y-4 shadow-xl"
           >
             <div className="flex items-center gap-3 border-b border-[#1c1c38] pb-3">
-              <div className="w-9 h-9 rounded-xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center">
-                <FileText size={18} className="text-indigo-400" />
+              <div className="w-9 h-9 rounded-xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center">
+                <FileText size={18} className="text-cyan-400" />
               </div>
               <div>
                 <h3 className="text-sm font-bold text-slate-100">Business Documents</h3>
@@ -78,11 +78,11 @@ export default function RagDataSection() {
 
             <div className="space-y-2 text-xs">
               <div className="p-3 rounded-lg bg-[#14142a] border border-[#222246]">
-                <p className="font-semibold text-indigo-300">q3_marketing_report.pdf</p>
+                <p className="font-semibold text-cyan-300">q3_marketing_report.pdf</p>
                 <p className="text-slate-400 text-[11px] mt-0.5">&quot;Digital marketing budget reduced by 35% in August.&quot;</p>
               </div>
               <div className="p-3 rounded-lg bg-[#14142a] border border-[#222246]">
-                <p className="font-semibold text-indigo-300">regional_notes.docx</p>
+                <p className="font-semibold text-cyan-300">regional_notes.docx</p>
                 <p className="text-slate-400 text-[11px] mt-0.5">&quot;West region sales campaign paused mid-quarter.&quot;</p>
               </div>
             </div>
@@ -90,15 +90,15 @@ export default function RagDataSection() {
         </div>
 
         {/* Bottom Merged Finding Result */}
-        <div className="mt-8 p-6 rounded-2xl bg-gradient-to-r from-[#111126] via-[#151532] to-[#111126] border border-indigo-500/40 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="mt-8 p-6 rounded-2xl bg-gradient-to-r from-[#111126] via-[#151532] to-[#111126] border border-cyan-500/40 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center flex-shrink-0">
               <FileCheck size={20} className="text-emerald-400" />
             </div>
             <div>
-              <p className="text-xs font-semibold text-indigo-300 uppercase tracking-wider">UNIFIED EVIDENCE FINDING</p>
+              <p className="text-xs font-semibold text-cyan-300 uppercase tracking-wider">UNIFIED EVIDENCE FINDING</p>
               <p className="text-sm font-bold text-slate-100 mt-0.5">
-                West territory customer signups dropped 42.8% following the August marketing budget cuts documented in <span className="underline decoration-indigo-400 font-mono">q3_marketing_report.pdf (Page 14)</span>.
+                West territory customer signups dropped 42.8% following the August marketing budget cuts documented in <span className="underline decoration-cyan-400 font-mono">q3_marketing_report.pdf (Page 14)</span>.
               </p>
             </div>
           </div>

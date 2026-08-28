@@ -14,7 +14,7 @@ const CAPABILITIES = [
 
 export default function CapabilityStrip() {
   return (
-    <div className="w-full bg-[#080812] border-y border-[#181830] py-6 overflow-hidden">
+    <div className="w-full border-y border-white/[0.06] py-6 overflow-hidden">
       <div className="max-w-7xl mx-auto px-4 mb-3 text-center">
         <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest">
           AUTONOMOUS INVESTIGATION ENGINE CAPABILITIES
@@ -32,9 +32,9 @@ export default function CapabilityStrip() {
             return (
               <div
                 key={idx}
-                className="flex items-center gap-2.5 px-4 py-2 rounded-xl bg-[#121226]/80 border border-[#202042] text-xs font-semibold text-slate-300 shadow-sm"
+                className="flex items-center gap-2.5 px-4 py-2 rounded-xl bg-white/[0.03] border border-white/[0.08] text-xs font-semibold text-slate-300 shadow-sm"
               >
-                <Icon size={14} className="text-indigo-400" />
+                <Icon size={14} className="text-cyan-400" />
                 <span>{item.label}</span>
               </div>
             )

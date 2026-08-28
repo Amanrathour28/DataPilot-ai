@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Play, AlertTriangle, Sparkles, Database, FileText } from 'lucide-react'
 import { Button, IconButton } from '../../components/ui/Button'
 import { CardSkeleton } from '../../components/ui/Skeleton'
+import { PageShell } from '../../components/layout/PageShell'
 import useWorkspaceStore from '../../stores/workspaceStore'
 import { datasetsApi, investigationsApi } from '../../services/api'
 import { useToast } from '../../components/ui/Toast'
@@ -93,14 +94,14 @@ export default function NewInvestigation() {
 
   if (!activeWorkspace) {
     return (
-      <div className="p-8 flex items-center justify-center min-h-[60vh]">
+      <PageShell>
         <p className="text-slate-500 text-sm">Select a workspace to start an investigation.</p>
-      </div>
+      </PageShell>
     )
   }
 
   return (
-    <div className="p-8 max-w-3xl mx-auto">
+    <PageShell className="max-w-3xl">
       {/* Back Header */}
       <div className="flex items-center gap-3 mb-8">
         <IconButton icon={ArrowLeft} label="Back" onClick={() => navigate('/investigations')} />
@@ -190,7 +191,7 @@ export default function NewInvestigation() {
                 variant="primary"
                 type="submit"
                 loading={loading}
-                className="w-full justify-center text-sm py-2.5 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500"
+                className="w-full justify-center text-sm py-2.5"
               >
                 <Sparkles size={14} className="animate-pulse" /> Launch AI Investigation Team
               </Button>
@@ -198,6 +199,6 @@ export default function NewInvestigation() {
           </form>
         </div>
       )}
-    </div>
+    </PageShell>
   )
 }

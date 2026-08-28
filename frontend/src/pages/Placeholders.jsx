@@ -2,7 +2,7 @@ import { Construction } from 'lucide-react'
 
 function ComingSoon({ title, phase, description }) {
   return (
-    <div className="p-8 max-w-7xl mx-auto">
+    <div className="page-shell">
       <div className="flex flex-col items-center justify-center py-24 text-center">
         <div className="w-14 h-14 rounded-2xl bg-[#1e1e35] flex items-center justify-center mb-4">
           <Construction size={24} className="text-slate-500" />

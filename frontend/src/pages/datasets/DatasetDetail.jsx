@@ -11,6 +11,7 @@ import ProfileView from '../../components/datasets/ProfileView'
 import DataExplorer from '../../components/datasets/DataExplorer'
 import { useToast } from '../../components/ui/Toast'
 import { datasetsApi } from '../../services/api'
+import { PageShell } from '../../components/layout/PageShell'
 import { useState } from 'react'
 import { clsx } from 'clsx'
 
@@ -96,27 +97,27 @@ export default function DatasetDetail() {
 
   if (loadingDs) {
     return (
-      <div className="p-8 max-w-7xl mx-auto">
+      <PageShell>
         <Skeleton className="h-8 w-48 rounded mb-6" />
         <Skeleton className="h-24 w-full rounded-xl mb-4" />
         <Skeleton className="h-64 w-full rounded-xl" />
-      </div>
+      </PageShell>
     )
   }
 
   if (!dataset) {
     return (
-      <div className="p-8 text-center">
+      <PageShell className="text-center">
         <p className="text-slate-500">Dataset not found.</p>
         <Button variant="ghost" onClick={() => navigate('/datasets')} className="mt-3">
           <ArrowLeft size={14} /> Back
         </Button>
-      </div>
+      </PageShell>
     )
   }
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-6">
+    <PageShell className="space-y-6">
       {/* Header */}
       <div className="flex items-start gap-4">
         <IconButton icon={ArrowLeft} label="Back" onClick={() => navigate('/datasets')} />
@@ -200,7 +201,7 @@ export default function DatasetDetail() {
       {dataset.status === 'PROFILED' && activeTab === 'explorer' && (
         <DataExplorer datasetId={id} />
       )}
-    </div>
+    </PageShell>
   )
 }
 

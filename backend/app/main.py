@@ -92,7 +92,7 @@ async def lifespan(app: FastAPI):
                     "ALTER TABLE investigation_tasks ADD COLUMN IF NOT EXISTS retry_count INTEGER DEFAULT 0;",
                     "ALTER TABLE investigation_tasks ADD COLUMN IF NOT EXISTS max_retries INTEGER DEFAULT 2;",
                     "ALTER TABLE investigation_tasks ADD COLUMN IF NOT EXISTS next_retry_at TIMESTAMP WITH TIME ZONE;",
-                    "SELECT setval(pg_get_serial_sequence('investigation_events', 'seq'), COALESCE((SELECT MAX(seq) FROM investigation_events), 1) + 100, true);",
+                    "DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'investigation_events_seq_seq') THEN PERFORM setval('investigation_events_seq_seq', GREATEST(COALESCE((SELECT MAX(seq) FROM investigation_events), 0), 1000) + 100, true); END IF; END $$;",
                 ]
                 for stmt in migrations:
                     try:

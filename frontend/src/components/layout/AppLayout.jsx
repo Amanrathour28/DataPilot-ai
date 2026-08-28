@@ -8,20 +8,18 @@ export default function AppLayout() {
   const { user, token } = useAuthStore()
   const { fetchWorkspaces } = useWorkspaceStore()
 
-  // Redirect to login if not authenticated
   if (!token || !user) {
     return <Navigate to="/login" replace />
   }
 
-  // Fetch workspaces on mount
   useEffect(() => {
     fetchWorkspaces()
   }, [])
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#0f0f1a]">
+    <div className="flex h-screen overflow-hidden app-canvas">
       <Sidebar />
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-y-auto relative z-10">
         <div className="h-full animate-fade-in">
           <Outlet />
         </div>

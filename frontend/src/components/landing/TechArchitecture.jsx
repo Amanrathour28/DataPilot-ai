@@ -62,16 +62,16 @@ export default function TechArchitecture() {
   return (
     <section id="architecture" className="py-24 bg-[#0a0a14] relative overflow-hidden border-t border-[#181830]">
       {/* Background visual grids */}
-      <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[600px] h-[400px] bg-indigo-600/5 rounded-full blur-[140px] pointer-events-none" />
+      <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[600px] h-[400px] bg-cyan-600/5 rounded-full blur-[140px] pointer-events-none" />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Section Header */}
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <span className="text-xs font-semibold px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 uppercase tracking-wider">
+          <span className="text-xs font-semibold px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 uppercase tracking-wider">
             SYSTEM ARCHITECTURE
           </span>
           <h2 className="text-3xl sm:text-5xl font-extrabold text-slate-100 mt-4 tracking-tight">
-            Designed as a real AI system, <span className="text-indigo-400">not a demo.</span>
+            Designed as a real AI system, <span className="text-cyan-400">not a demo.</span>
           </h2>
           <p className="mt-4 text-base sm:text-lg text-slate-400">
             A production-ready stack designed for execution containment, high-speed structured analytical queries, and full audit lineage.
@@ -94,13 +94,13 @@ export default function TechArchitecture() {
                   onClick={() => setActiveLayer(layer.id)}
                   className={`p-4 rounded-xl cursor-pointer border transition-all flex items-center justify-between group ${
                     isActive
-                      ? 'bg-[#14142c] border-indigo-500 shadow-md shadow-indigo-600/10'
+                      ? 'bg-[#14142c] border-cyan-500 shadow-md shadow-cyan-600/10'
                       : 'bg-[#0e0e1c] border-[#1e1e3b] hover:border-[#2a2a4c]'
                   }`}
                 >
                   <div className="flex items-center gap-3">
                     <div className={`w-9 h-9 rounded-lg flex items-center justify-center border transition-colors ${
-                      isActive ? 'bg-indigo-600/25 border-indigo-500/40 text-indigo-300' : 'bg-[#15152a] border-[#222244] text-slate-400'
+                      isActive ? 'bg-cyan-600/25 border-cyan-500/40 text-cyan-300' : 'bg-[#15152a] border-[#222244] text-slate-400'
                     }`}>
                       <Icon size={16} />
                     </div>
@@ -111,7 +111,7 @@ export default function TechArchitecture() {
                   </div>
                   <ChevronDown
                     size={14}
-                    className={`text-slate-500 transition-transform ${isActive ? 'rotate-90 text-indigo-400' : 'group-hover:text-slate-300'}`}
+                    className={`text-slate-500 transition-transform ${isActive ? 'rotate-90 text-cyan-400' : 'group-hover:text-slate-300'}`}
                   />
                 </div>
               )
@@ -121,7 +121,7 @@ export default function TechArchitecture() {
           {/* Right: Active Layer Inspector */}
           <div className="lg:col-span-6 lg:sticky lg:top-28">
             <div className="bg-[#0e0e1c] border border-[#202042] rounded-2xl p-6 shadow-2xl relative min-h-[320px] flex flex-col justify-between">
-              <div className="absolute top-0 right-0 w-48 h-48 bg-indigo-600/5 rounded-full blur-3xl pointer-events-none" />
+              <div className="absolute top-0 right-0 w-48 h-48 bg-cyan-600/5 rounded-full blur-3xl pointer-events-none" />
 
               <AnimatePresence mode="wait">
                 {ARCHITECTURE_LAYERS.map((layer) => {
@@ -137,11 +137,11 @@ export default function TechArchitecture() {
                       className="space-y-5 my-auto"
                     >
                       <div className="flex items-center gap-3 border-b border-[#1e1e3b] pb-4">
-                        <div className="w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                        <div className="w-10 h-10 rounded-xl bg-cyan-600/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
                           <Icon size={20} />
                         </div>
                         <div>
-                          <span className="text-[9px] font-mono text-indigo-400 uppercase tracking-widest">LAYER DETAIL</span>
+                          <span className="text-[9px] font-mono text-cyan-400 uppercase tracking-widest">LAYER DETAIL</span>
                           <h4 className="text-sm font-bold text-slate-100 mt-0.5">{layer.title}</h4>
                         </div>
                       </div>
@@ -173,7 +173,7 @@ export default function TechArchitecture() {
 
               <div className="mt-6 pt-4 border-t border-[#1e1e3b] flex items-center justify-between text-[11px] text-slate-500 font-mono">
                 <span>DataPilot Platform Stack</span>
-                <span className="text-indigo-400">Developer Docs Available</span>
+                <span className="text-cyan-400">Developer Docs Available</span>
               </div>
             </div>
           </div>

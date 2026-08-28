@@ -27,7 +27,7 @@ const SIMULATED_FINDINGS = [
         name: 'customers.csv',
         desc: 'New customer acquisition ↓ 42.8%',
         badge: 'Statistical Association',
-        badgeColor: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/30'
+        badgeColor: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30'
       },
       {
         type: 'document',
@@ -45,7 +45,7 @@ const SIMULATED_FINDINGS = [
     title: 'Enterprise customer churn rose to 4.2% in October.',
     confidence: '88%',
     confidenceStatus: 'Moderate-High',
-    confidenceColor: 'text-indigo-400 border-indigo-500/30 bg-indigo-500/10',
+    confidenceColor: 'text-cyan-400 border-cyan-500/30 bg-cyan-500/10',
     summary: 'Churn spiked among customers utilizing API v1 integrations following the deprecation notice issued in late July.',
     evidenceItems: [
       {
@@ -60,7 +60,7 @@ const SIMULATED_FINDINGS = [
         name: 'api_gateway_logs.json',
         desc: '5.2M API requests analyzed showing high latency on v1 endpoints',
         badge: 'Statistical Association',
-        badgeColor: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/30'
+        badgeColor: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30'
       },
       {
         type: 'document',
@@ -93,7 +93,7 @@ const SIMULATED_FINDINGS = [
         name: 'web_analytics_conversions.json',
         desc: 'Sign-up funnel drop-off at Step 2 (+12% drop)',
         badge: 'Statistical Association',
-        badgeColor: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/30'
+        badgeColor: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30'
       },
       {
         type: 'document',
@@ -114,16 +114,16 @@ export default function EvidenceExplorer() {
   return (
     <section id="evidence" className="py-24 bg-[#080812] relative overflow-hidden border-t border-[#181830]">
       {/* Background radial highlight */}
-      <div className="absolute top-1/2 left-1/4 -translate-y-1/2 w-[600px] h-[300px] bg-indigo-500/5 rounded-full blur-[120px] pointer-events-none" />
+      <div className="absolute top-1/2 left-1/4 -translate-y-1/2 w-[600px] h-[300px] bg-cyan-500/5 rounded-full blur-[120px] pointer-events-none" />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Section Header */}
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <span className="text-xs font-semibold px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 uppercase tracking-wider">
+          <span className="text-xs font-semibold px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 uppercase tracking-wider">
             EVIDENCE-BACKED PROOF
           </span>
           <h2 className="text-3xl sm:text-5xl font-extrabold text-slate-100 mt-4 tracking-tight">
-            Don&apos;t just get an answer. <span className="text-indigo-400">Inspect the evidence.</span>
+            Don&apos;t just get an answer. <span className="text-cyan-400">Inspect the evidence.</span>
           </h2>
           <p className="mt-4 text-base sm:text-lg text-slate-400">
             DataPilot does not fabricate text or summarize assumptions. Every finding is mapped directly to source metrics and document citations with full confidence levels and explicit boundaries of uncertainty.
@@ -142,13 +142,13 @@ export default function EvidenceExplorer() {
                   onClick={() => setActiveIdx(idx)}
                   className={`w-full text-left p-4 rounded-xl border transition-all flex-shrink-0 lg:flex-shrink flex items-center justify-between group ${
                     isActive
-                      ? 'bg-[#14142c] border-indigo-500 shadow-lg shadow-indigo-500/10'
+                      ? 'bg-[#14142c] border-cyan-500 shadow-lg shadow-cyan-500/10'
                       : 'bg-[#0e0e1a]/60 border-[#1f1f3a] hover:border-[#2b2b54] hover:bg-[#0e0e1c]'
                   }`}
                 >
                   <div>
                     <span className={`text-[10px] font-mono font-bold tracking-wider uppercase ${
-                      isActive ? 'text-indigo-400' : 'text-slate-500'
+                      isActive ? 'text-cyan-400' : 'text-slate-500'
                     }`}>
                       Finding {idx + 1}
                     </span>
@@ -157,16 +157,16 @@ export default function EvidenceExplorer() {
                   <ChevronRight
                     size={16}
                     className={`transition-transform hidden lg:block ${
-                      isActive ? 'text-indigo-400 translate-x-1' : 'text-slate-500 group-hover:text-slate-300'
+                      isActive ? 'text-cyan-400 translate-x-1' : 'text-slate-500 group-hover:text-slate-300'
                     }`}
                   />
                 </button>
               )
             })}
 
-            <div className="hidden lg:block p-4 rounded-xl bg-indigo-950/15 border border-indigo-500/20 mt-4 text-[11px] text-slate-400 leading-relaxed">
+            <div className="hidden lg:block p-4 rounded-xl bg-cyan-950/15 border border-cyan-500/20 mt-4 text-[11px] text-slate-400 leading-relaxed">
               <p className="font-semibold text-slate-300 flex items-center gap-1 mb-1">
-                <Info size={12} className="text-indigo-400" />
+                <Info size={12} className="text-cyan-400" />
                 Analytical Integrity
               </p>
               DataPilot distinguishes observed facts, statistical relationships, supported hypotheses, and unresolved uncertainty.
@@ -182,9 +182,9 @@ export default function EvidenceExplorer() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -12 }}
                 transition={{ duration: 0.25 }}
-                className="h-full rounded-2xl bg-[#0e0e1c] border border-indigo-500/30 p-6 sm:p-8 flex flex-col justify-between shadow-2xl shadow-indigo-600/5 relative overflow-hidden"
+                className="h-full rounded-2xl bg-[#0e0e1c] border border-cyan-500/30 p-6 sm:p-8 flex flex-col justify-between shadow-2xl shadow-cyan-600/5 relative overflow-hidden"
               >
-                <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600/5 rounded-full blur-3xl pointer-events-none" />
+                <div className="absolute top-0 right-0 w-64 h-64 bg-cyan-600/5 rounded-full blur-3xl pointer-events-none" />
 
                 <div className="space-y-6">
                   {/* Top Stats: Finding & Confidence */}
@@ -253,7 +253,7 @@ export default function EvidenceExplorer() {
                 {/* Bottom Link */}
                 <div className="mt-8 pt-5 border-t border-[#1f1f3a] flex items-center justify-between">
                   <span className="text-[11px] text-slate-500 font-mono">ID: dp-report-v1.43</span>
-                  <button className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition-colors">
+                  <button className="inline-flex items-center gap-1.5 text-xs font-semibold text-cyan-400 hover:text-cyan-300 transition-colors">
                     <span>View Full Investigation Report</span>
                     <ExternalLink size={13} />
                   </button>

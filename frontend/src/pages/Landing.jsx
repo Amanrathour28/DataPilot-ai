@@ -17,7 +17,7 @@ import Footer from '../components/landing/Footer'
 
 export default function Landing() {
   return (
-    <div className="bg-[#0f0f1a] text-slate-100 min-h-screen font-sans antialiased selection:bg-indigo-500/30 selection:text-white">
+    <div className="app-canvas text-slate-100 min-h-screen font-sans antialiased selection:bg-cyan-500/30 selection:text-white">
       {/* Premium Sticky Navigation Bar */}
       <Navbar />
 

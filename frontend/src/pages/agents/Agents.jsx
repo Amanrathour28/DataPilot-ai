@@ -17,7 +17,7 @@ const AGENT_ROLES = [
     name: 'Supervisor / Orchestrator Agent',
     description: 'Generates structured investigation plans, breaks objectives into step-by-step tasks, and coordinates multi-agent execution.',
     icon: Cpu,
-    color: 'from-purple-500 to-indigo-600',
+    color: 'from-purple-500 to-cyan-600',
     capabilities: ['Dynamic Planning', 'Execution Leases', 'Task Allocation']
   },
   {
@@ -78,7 +78,7 @@ export default function Agents() {
 
   if (!activeWorkspace) {
     return (
-      <div className="p-8 max-w-7xl mx-auto space-y-6">
+      <div className="page-shell space-y-6">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-slate-100">Autonomous Agent Swarm</h1>
@@ -93,7 +93,7 @@ export default function Agents() {
   }
 
   return (
-    <div className="p-8 max-w-7xl mx-auto space-y-8">
+    <div className="page-shell space-y-8">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>

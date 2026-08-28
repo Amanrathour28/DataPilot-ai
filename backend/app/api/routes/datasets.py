@@ -30,7 +30,12 @@ async def upload_dataset(
         user_id=current_user.id,
         db=db,
     )
-    background_tasks.add_task(run_profiling, dataset.id)
+    try:
+        await run_profiling(dataset.id)
+        await db.refresh(dataset)
+    except Exception as prof_err:
+        logger.warning(f"Inline dataset profiling exception: {prof_err}, scheduling background fallback")
+        background_tasks.add_task(run_profiling, dataset.id)
     return dataset
 
 

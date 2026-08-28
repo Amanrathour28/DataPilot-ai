@@ -51,12 +51,12 @@ export default function CorrelationSection() {
   return (
     <section className="py-24 bg-[#0a0a14] relative overflow-hidden border-t border-[#181830]">
       {/* Subtle background glow */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[300px] bg-indigo-500/5 rounded-full blur-[140px] pointer-events-none" />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[300px] bg-cyan-500/5 rounded-full blur-[140px] pointer-events-none" />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Section Header */}
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <span className="text-xs font-semibold px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 uppercase tracking-wider">
+          <span className="text-xs font-semibold px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 uppercase tracking-wider">
             ANALYTICAL RIGOR
           </span>
           <h2 className="text-3xl sm:text-5xl font-extrabold text-slate-100 mt-4 tracking-tight">
@@ -77,7 +77,7 @@ export default function CorrelationSection() {
                 onClick={() => selectStep(step.id)}
                 className={`flex-1 text-center py-2 px-3 rounded-lg text-xs font-semibold transition-all ${
                   isActive
-                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20'
+                    ? 'bg-cyan-600 text-white shadow-lg shadow-cyan-600/20'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-[#15152a]'
                 }`}
               >
@@ -92,7 +92,7 @@ export default function CorrelationSection() {
           {/* Left panel: Interactive visual simulation */}
           <div className="lg:col-span-7 bg-[#0e0e1c] border border-[#202042] rounded-2xl p-6 min-h-[340px] flex flex-col justify-between shadow-2xl relative">
             <div className="absolute top-3 right-3 flex items-center gap-1 text-[10px] text-slate-500 font-mono">
-              <RefreshCw size={10} className={`text-indigo-400 ${autoRotate ? 'animate-spin' : ''}`} />
+              <RefreshCw size={10} className={`text-cyan-400 ${autoRotate ? 'animate-spin' : ''}`} />
               <span>{autoRotate ? 'Auto-cycling' : 'Interactive Mode'}</span>
             </div>
 
@@ -144,7 +144,7 @@ export default function CorrelationSection() {
                   transition={{ duration: 0.2 }}
                   className="space-y-4 my-auto"
                 >
-                  <p className="text-[10px] font-mono text-indigo-400 font-bold uppercase tracking-wider">STEP 2: DATAPILOT INVESTIGATION TRACE</p>
+                  <p className="text-[10px] font-mono text-cyan-400 font-bold uppercase tracking-wider">STEP 2: DATAPILOT INVESTIGATION TRACE</p>
                   
                   <div className="space-y-2">
                     {[
@@ -176,8 +176,8 @@ export default function CorrelationSection() {
                 >
                   <p className="text-[10px] font-mono text-emerald-400 font-bold uppercase tracking-wider">STEP 3: INVESTIGATION VERDICT</p>
 
-                  <div className="p-4 rounded-xl bg-indigo-950/20 border border-indigo-500/40 space-y-3">
-                    <div className="flex items-center justify-between border-b border-indigo-500/20 pb-2">
+                  <div className="p-4 rounded-xl bg-cyan-950/20 border border-cyan-500/40 space-y-3">
+                    <div className="flex items-center justify-between border-b border-cyan-500/20 pb-2">
                       <span className="text-xs font-bold text-slate-200">CAUSAL RELATIONSHIP</span>
                       <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                         Causal Link Supported
@@ -207,7 +207,7 @@ export default function CorrelationSection() {
           {/* Right panel: Static explanatory copy */}
           <div className="lg:col-span-5 space-y-6">
             <div className="flex items-start gap-3">
-              <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center flex-shrink-0 text-indigo-400">
+              <div className="w-8 h-8 rounded-lg bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center flex-shrink-0 text-cyan-400">
                 <Sparkles size={16} />
               </div>
               <div>
@@ -226,7 +226,7 @@ export default function CorrelationSection() {
                   onClick={() => selectStep(step.id)}
                   className={`p-4 rounded-xl cursor-pointer border transition-all ${
                     isActive
-                      ? 'bg-[#121226] border-indigo-500 shadow-md shadow-indigo-600/10'
+                      ? 'bg-[#121226] border-cyan-500 shadow-md shadow-cyan-600/10'
                       : 'bg-transparent border-[#1f1f3a] hover:border-[#2b2b52]'
                   }`}
                 >

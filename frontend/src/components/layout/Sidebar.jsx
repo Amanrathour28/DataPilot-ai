@@ -5,7 +5,6 @@ import {
   Database,
   FileText,
   Search,
-  Activity,
   Settings,
   LogOut,
   ChevronDown,
@@ -13,18 +12,18 @@ import {
   Bot,
   BarChart3,
   Brain,
-  Sparkles,
 } from 'lucide-react'
 import useAuthStore from '../../stores/authStore'
 import useWorkspaceStore from '../../stores/workspaceStore'
 import { useState } from 'react'
+import { BrandWordmark } from '../ui/Logo'
 
 const NAV_ITEMS = [
-  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { to: '/investigations', label: 'Investigations', icon: Search },
   { to: '/datasets',       label: 'Datasets',        icon: Database },
-  { to: '/knowledge',      label: 'Knowledge Base',  icon: FileText },
-  { to: '/agents',         label: 'Agent Activity',  icon: Bot },
+  { to: '/knowledge',      label: 'Knowledge',  icon: FileText },
+  { to: '/agents',         label: 'Agents',  icon: Bot },
   { to: '/analytics',      label: 'Analytics',       icon: BarChart3 },
   { to: '/memory',         label: 'Memory',          icon: Brain },
 ]
@@ -39,33 +38,33 @@ function WorkspaceSwitcher() {
     <div className="relative">
       <button
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-[#1e1e35] transition-colors text-left"
+        className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl hover:bg-white/[0.04] transition-colors text-left border border-transparent hover:border-white/[0.06]"
       >
-        <div className="w-7 h-7 rounded-lg bg-brand-600/30 border border-brand-600/40 flex items-center justify-center flex-shrink-0">
-          <span className="text-brand-400 text-xs font-bold">
+        <div className="w-8 h-8 rounded-lg bg-cyan-500/15 border border-cyan-400/25 flex items-center justify-center flex-shrink-0">
+          <span className="text-cyan-300 text-xs font-bold">
             {activeWorkspace.name.charAt(0).toUpperCase()}
           </span>
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-slate-200 truncate">{activeWorkspace.name}</p>
-          <p className="text-xs text-slate-500 truncate">Workspace</p>
+          <p className="text-sm font-semibold text-slate-100 truncate">{activeWorkspace.name}</p>
+          <p className="text-[11px] text-slate-500 truncate">Workspace</p>
         </div>
-        <ChevronDown size={14} className={clsx('text-slate-400 transition-transform', open && 'rotate-180')} />
+        <ChevronDown size={14} className={clsx('text-slate-500 transition-transform', open && 'rotate-180')} />
       </button>
 
       {open && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-[#1c1c32] border border-[#2a2a4a] rounded-xl shadow-xl z-50 py-1">
+        <div className="absolute top-full left-0 right-0 mt-1 glass rounded-xl shadow-2xl z-50 py-1 overflow-hidden">
           {workspaces.map(ws => (
             <button
               key={ws.id}
               onClick={() => { setActiveWorkspace(ws); setOpen(false) }}
               className={clsx(
-                'w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-[#252542] transition-colors',
-                activeWorkspace.id === ws.id ? 'text-brand-400' : 'text-slate-300'
+                'w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-white/[0.05] transition-colors',
+                activeWorkspace.id === ws.id ? 'text-cyan-300' : 'text-slate-300'
               )}
             >
-              <div className="w-5 h-5 rounded bg-brand-600/20 flex items-center justify-center flex-shrink-0">
-                <span className="text-brand-400 text-xs font-bold">{ws.name.charAt(0)}</span>
+              <div className="w-5 h-5 rounded bg-cyan-500/15 flex items-center justify-center flex-shrink-0">
+                <span className="text-cyan-300 text-[10px] font-bold">{ws.name.charAt(0)}</span>
               </div>
               <span className="truncate">{ws.name}</span>
             </button>
@@ -86,41 +85,29 @@ export default function Sidebar() {
   }
 
   return (
-    <aside className="w-64 flex-shrink-0 flex flex-col h-full bg-[#0d0d1f] border-r border-[#1e1e35]">
-      {/* Logo */}
-      <div className="px-5 py-5 border-b border-[#1e1e35]">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center shadow-lg shadow-brand-500/20">
-            <Sparkles size={16} className="text-white" />
-          </div>
-          <div>
-            <span className="font-bold text-slate-100 text-sm tracking-tight">DataPilot</span>
-            <span className="text-brand-400 text-xs font-medium ml-1">AI</span>
-          </div>
-        </div>
+    <aside className="w-[260px] flex-shrink-0 flex flex-col h-full relative z-20 border-r border-white/[0.06] bg-[#07090e]/80 backdrop-blur-xl">
+      <div className="px-4 py-5">
+        <BrandWordmark />
       </div>
 
-      {/* Workspace Switcher */}
-      <div className="px-3 py-3 border-b border-[#1e1e35]">
+      <div className="px-3 pb-3">
         <WorkspaceSwitcher />
       </div>
 
-      {/* New Investigation CTA */}
-      <div className="px-3 pt-3">
+      <div className="px-3 pb-3">
         <button
           onClick={() => navigate('/investigations/new')}
-          className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg
-                     bg-brand-600 hover:bg-brand-500 text-white text-sm font-medium
-                     transition-colors shadow-lg shadow-brand-600/20"
+          className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl
+                     bg-gradient-to-b from-cyan-300 to-cyan-600 text-cyan-950 text-sm font-semibold
+                     transition-all shadow-lg shadow-cyan-500/15 hover:brightness-110"
         >
           <Plus size={15} />
           New Investigation
         </button>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 px-3 py-3 space-y-0.5 overflow-y-auto">
-        <p className="section-title mt-2">Navigation</p>
+      <nav className="flex-1 px-3 py-1 space-y-0.5 overflow-y-auto">
+        <p className="section-title mt-2">Workspace</p>
 
         {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
           <NavLink
@@ -147,22 +134,21 @@ export default function Sidebar() {
         </NavLink>
       </nav>
 
-      {/* User Profile */}
-      <div className="border-t border-[#1e1e35] px-3 py-3">
-        <div className="flex items-center gap-2.5 px-2">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-purple-600 flex items-center justify-center flex-shrink-0">
+      <div className="border-t border-white/[0.06] px-3 py-3">
+        <div className="flex items-center gap-2.5 px-1.5">
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-400 to-violet-600 flex items-center justify-center flex-shrink-0">
             <span className="text-white text-xs font-bold">
               {user?.name?.charAt(0)?.toUpperCase() || 'U'}
             </span>
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-slate-200 truncate">{user?.name}</p>
-            <p className="text-xs text-slate-500 truncate">{user?.email}</p>
+            <p className="text-[11px] text-slate-500 truncate">{user?.email}</p>
           </div>
           <button
             onClick={handleLogout}
             title="Sign out"
-            className="text-slate-500 hover:text-red-400 transition-colors"
+            className="text-slate-500 hover:text-red-400 transition-colors p-1.5 rounded-lg hover:bg-white/[0.04]"
           >
             <LogOut size={15} />
           </button>

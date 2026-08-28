@@ -7,7 +7,7 @@ export default function ProblemComparison() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Section Header */}
         <div className="text-center max-w-3xl mx-auto mb-16">
-          <span className="text-xs font-semibold px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 uppercase tracking-wider">
+          <span className="text-xs font-semibold px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 uppercase tracking-wider">
             THE PARADIGM SHIFT
           </span>
           <h2 className="text-3xl sm:text-5xl font-extrabold text-slate-100 mt-4 tracking-tight">
@@ -69,17 +69,17 @@ export default function ProblemComparison() {
           {/* DataPilot Autonomous Workflow */}
           <motion.div
             whileHover={{ y: -4 }}
-            className="p-8 rounded-2xl bg-gradient-to-b from-[#121228] to-[#0e0e1c] border border-indigo-500/40 shadow-2xl shadow-indigo-600/10 relative overflow-hidden group"
+            className="p-8 rounded-2xl bg-gradient-to-b from-[#121228] to-[#0e0e1c] border border-cyan-500/40 shadow-2xl shadow-cyan-600/10 relative overflow-hidden group"
           >
-            <div className="absolute top-0 right-0 w-48 h-48 bg-indigo-600/15 rounded-full blur-3xl pointer-events-none" />
+            <div className="absolute top-0 right-0 w-48 h-48 bg-cyan-600/15 rounded-full blur-3xl pointer-events-none" />
 
             <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 rounded-xl bg-indigo-600/25 border border-indigo-500/40 flex items-center justify-center">
-                <CheckCircle2 size={20} className="text-indigo-400" />
+              <div className="w-10 h-10 rounded-xl bg-cyan-600/25 border border-cyan-500/40 flex items-center justify-center">
+                <CheckCircle2 size={20} className="text-cyan-400" />
               </div>
               <div>
                 <h3 className="text-lg font-bold text-slate-100">DataPilot Autonomous Investigation</h3>
-                <p className="text-xs text-indigo-300 font-medium">Autonomous multi-agent orchestration</p>
+                <p className="text-xs text-cyan-300 font-medium">Autonomous multi-agent orchestration</p>
               </div>
             </div>
 
@@ -91,8 +91,8 @@ export default function ProblemComparison() {
                 { step: '04', title: 'RAG Context Cross-Referencing', desc: 'RAG agent searches strategy docs & connects context.' },
                 { step: '05', title: 'Verified Root Cause Report', desc: 'Critic Agent verifies claims; output delivered with confidence score.' },
               ].map((item) => (
-                <div key={item.step} className="flex items-start gap-3 p-3.5 rounded-xl bg-indigo-950/20 border border-indigo-500/30">
-                  <span className="text-xs font-mono font-bold text-indigo-400 px-2 py-0.5 rounded bg-indigo-900/40 border border-indigo-500/30">
+                <div key={item.step} className="flex items-start gap-3 p-3.5 rounded-xl bg-cyan-950/20 border border-cyan-500/30">
+                  <span className="text-xs font-mono font-bold text-cyan-400 px-2 py-0.5 rounded bg-cyan-900/40 border border-cyan-500/30">
                     {item.step}
                   </span>
                   <div>
@@ -103,7 +103,7 @@ export default function ProblemComparison() {
               ))}
             </div>
 
-            <div className="mt-6 pt-4 border-t border-indigo-500/30 flex items-center justify-between text-xs text-emerald-400">
+            <div className="mt-6 pt-4 border-t border-cyan-500/30 flex items-center justify-between text-xs text-emerald-400">
               <span className="flex items-center gap-1.5 font-medium">
                 <Zap size={14} className="text-emerald-400" /> Average investigation time: ~30 Seconds
               </span>

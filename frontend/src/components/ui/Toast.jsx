@@ -26,7 +26,7 @@ export function Toast({ message, type = 'info', onClose }) {
 
   return (
     <div className={clsx(
-      'flex items-start gap-3 px-4 py-3 rounded-xl border text-sm shadow-xl max-w-sm w-full animate-slide-up',
+      'flex items-start gap-3 px-4 py-3 rounded-2xl border text-sm shadow-2xl max-w-sm w-full animate-slide-up backdrop-blur-xl bg-[#0e1118]/90',
       STYLES[type]
     )}>
       <Icon size={16} className="mt-0.5 flex-shrink-0" />
@@ -60,7 +60,7 @@ export function ToastProvider({ children }) {
   return (
     <ToastContext.Provider value={{ show }}>
       {children}
-      <div className="fixed bottom-4 right-4 flex flex-col gap-2 z-50">
+      <div className="fixed bottom-5 right-5 flex flex-col gap-2 z-50">
         {toasts.map(t => (
           <Toast key={t.id} message={t.message} type={t.type} onClose={() => remove(t.id)} />
         ))}
