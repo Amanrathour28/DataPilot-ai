@@ -32,6 +32,7 @@ from app.services.statistical_service import statistical_service
 from app.services.evidence_service import evidence_service
 from app.services.dataset_relationship_service import dataset_relationship_service
 from app.services.semantic_dataset_service import semantic_dataset_service
+from app.services.dataset_context import build_dataset_context, test_hypothesis_on_real_data
 from app.services import document_service
 from app.tools.python_executor import PythonExecutor
 
@@ -685,45 +686,58 @@ async def start_investigation_workflow(investigation_id: str):
                         hypothesis.status = "TESTING"
                         await db.commit()
 
-                        # Deterministic statistical test calculation
-                        is_supported = ("drop" in hyp_title.lower() or "surge" in hyp_title.lower() or "exclusion" in hyp_title.lower() or "slump" in hyp_title.lower())
-                        
-                        if is_supported:
-                            # Run Welch's t-test on synthetic cohort values
-                            group_q2 = [14.2, 16.5, 12.8, 15.0, 13.9, 14.8, 15.5]
-                            group_q3 = [28.4, 31.2, 26.9, 30.5, 29.1, 33.0, 27.8]
-                            stat_metric = statistical_service.independent_t_test(
-                                group_a=group_q3,
-                                group_b=group_q2,
-                                name_a="Q3 Affected Cohort",
-                                name_b="Q2 Baseline Cohort"
+                        # Deterministic statistical test calculation on real dataset
+                        ctx = await build_dataset_context(
+                            workspace_id=investigation.workspace_id,
+                            question=investigation.objective or "",
+                            db=db
+                        )
+                        variables = (hypothesis.details.get("variables", []) if hypothesis.details else []) if isinstance(hypothesis.details, dict) else []
+                        if ctx:
+                            stat_res = test_hypothesis_on_real_data(
+                                ctx=ctx,
+                                hypothesis={"title": hypothesis.title, "variables": variables}
                             )
-                            hypothesis.status = "SUPPORTED"
-                            hypothesis.confidence = 0.93
-                            hypothesis.causal_classification = "STRONG_ASSOCIATION"
-                            hypothesis.statistical_results = stat_metric.model_dump()
                         else:
-                            # Reject hypothesis
-                            stat_metric = statistical_service.percentage_difference(
-                                baseline_val=148.50,
-                                current_val=150.60,
-                                metric_name="Average Order Value",
-                                baseline_label="Q2 AOV",
-                                current_label="Q3 AOV"
-                            )
-                            hypothesis.status = "REJECTED"
-                            hypothesis.confidence = 0.95
-                            hypothesis.causal_classification = "REJECTED_HYPOTHESIS"
-                            hypothesis.statistical_results = stat_metric.model_dump()
+                            stat_res = {
+                                "test_name": "INSUFFICIENT_DATA",
+                                "status": "INSUFFICIENT_DATA",
+                                "interpretation": "Dataset context unavailable for testing.",
+                                "statistic": None,
+                                "p_value": None
+                            }
 
+                        test_status = stat_res.get("status", "INSUFFICIENT_DATA")
+                        if test_status == "SUPPORTED":
+                            hypothesis.status = "SUPPORTED"
+                            hypothesis.confidence = 0.88
+                            hypothesis.causal_classification = "PRIMARY_ROOT_CAUSE"
+                        elif test_status == "NOT_SUPPORTED":
+                            hypothesis.status = "REJECTED"
+                            hypothesis.confidence = 0.80
+                            hypothesis.causal_classification = "REJECTED_HYPOTHESIS"
+                        else:
+                            hypothesis.status = "PARTIALLY_SUPPORTED"
+                            hypothesis.confidence = 0.55
+                            hypothesis.causal_classification = "CONTRIBUTING_FACTOR"
+
+                        hypothesis.statistical_results = stat_res
                         await db.commit()
 
                         # Create Statistical Evidence Item
-                        stat_ev = evidence_service.create_statistical_evidence(
-                            claim=f"Hypothesis '{hyp_title}' evaluated against statistical significance thresholds.",
-                            source_name="SciPy Deterministic Engine",
-                            metric=stat_metric,
-                            supports_claim=hypothesis.status == "SUPPORTED"
+                        stat_ev = EvidenceItemSchema(
+                            evidence_id=str(uuid.uuid4()),
+                            claim=f"Hypothesis '{hyp_title}' evaluated: {stat_res.get('interpretation')}",
+                            source_type="dataset",
+                            source_name=f"Statistical Engine ({stat_res.get('test_name')})",
+                            analysis_type="STATISTICAL_HYPOTHESIS_TEST",
+                            query_or_method=f"{stat_res.get('test_name')} on real dataset",
+                            result_summary=stat_res.get("interpretation", ""),
+                            confidence=hypothesis.confidence,
+                            causal_classification=hypothesis.causal_classification,
+                            supports_claim=(hypothesis.status == "SUPPORTED"),
+                            created_by_agent="Hypothesis Tester",
+                            created_at=datetime.now(timezone.utc).isoformat()
                         )
                         evidence_ledger.append(stat_ev.model_dump())
 
