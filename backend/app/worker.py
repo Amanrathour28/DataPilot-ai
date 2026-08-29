@@ -271,12 +271,19 @@ class InvestigationWorker:
         source_name = ctx.dataset_name
 
         # 1. Add all data-grounded findings derived from actual calculations
+        # Confidence is evidence-calibrated: based on data completeness, sample size, and analysis type
+        total_records = analytics.get("total_records", len(df) if df is not None else 0)
+        null_ratio = sum(ctx.null_counts.values()) / max(total_records * len(ctx.all_columns), 1)
+        base_confidence = 0.90 if total_records >= 100 else (0.75 if total_records >= 30 else 0.55)
+        data_quality_penalty = min(0.15, null_ratio * 0.5)  # Up to 15% penalty for nulls
+        calibrated_confidence = round(max(0.30, base_confidence - data_quality_penalty), 2)
+
         for f_stmt in analytics.get("findings", []):
             findings_to_persist.append({
                 "statement": f_stmt,
-                "confidence": 0.96,
+                "confidence": calibrated_confidence,
                 "causal_classification": "OBSERVATION",
-                "impact": "HIGH",
+                "impact": "HIGH" if total_records >= 30 else "MEDIUM",
                 "source": source_name,
                 "evidence": analytics.get("aggregations", {})
             })
@@ -404,18 +411,44 @@ class InvestigationWorker:
             )
 
             test_status = stat_res.get("status", "INSUFFICIENT_DATA")
-            if test_status == "SUPPORTED":
+            p_val = stat_res.get("p_value")
+            effect = abs(stat_res.get("effect_size") or 0)
+            rows_used = stat_res.get("rows_used", stat_res.get("data_rows_used", total_n))
+
+            # Evidence-calibrated confidence from actual statistical results
+            if test_status == "SUPPORTED" and p_val is not None:
+                # Base confidence from p-value strength
+                if p_val < 0.001:
+                    stat_conf = 0.92
+                elif p_val < 0.01:
+                    stat_conf = 0.85
+                elif p_val < 0.05:
+                    stat_conf = 0.75
+                else:
+                    stat_conf = 0.60
+                # Sample size adjustment
+                if rows_used and rows_used < 30:
+                    stat_conf = min(stat_conf, 0.65)  # Cap for small samples
+                elif rows_used and rows_used < 10:
+                    stat_conf = min(stat_conf, 0.50)
+                # Effect size bonus
+                if effect > 0.8:
+                    stat_conf = min(0.95, stat_conf + 0.05)
                 h.status = "SUPPORTED"
-                h.confidence = round(0.70 if is_small_sample else 0.88, 2)
-                h.causal_classification = "PRIMARY_ROOT_CAUSE"
+                h.confidence = round(stat_conf, 2)
+                h.causal_classification = "PRIMARY_ROOT_CAUSE" if stat_conf >= 0.80 else "STRONG_ASSOCIATION"
             elif test_status == "NOT_SUPPORTED":
+                # Confidence in the rejection (high confidence = we're sure it's not a factor)
+                reject_conf = 0.85 if (p_val and p_val > 0.20) else 0.70
+                if rows_used and rows_used < 30:
+                    reject_conf = min(reject_conf, 0.60)
                 h.status = "REJECTED"
-                h.confidence = 0.80
+                h.confidence = round(reject_conf, 2)
                 h.causal_classification = "REJECTED_HYPOTHESIS"
             else:
-                h.status = "PARTIALLY_SUPPORTED" if is_small_sample else "INSUFFICIENT_DATA"
-                h.confidence = 0.50
-                h.causal_classification = "CONTRIBUTING_FACTOR"
+                h.status = "INSUFFICIENT_DATA"
+                h.confidence = 0.30  # Honest low confidence when test couldn't run
+                h.causal_classification = "INSUFFICIENT_EVIDENCE"
 
             h.statistical_results = stat_res
             h.details = {
@@ -548,30 +581,142 @@ class InvestigationWorker:
     async def _execute_critic_task(
         self, db: AsyncSession, inv: Investigation, task: InvestigationTask
     ) -> Dict[str, Any]:
-        """Strictly audits evidence ledger consistency, correlation vs causation, and data grounding."""
+        """Genuine adversarial critic that validates evidence integrity, column references, and statistical claims."""
         f_res = await db.execute(select(Finding).where(Finding.investigation_id == inv.id))
         findings = f_res.scalars().all()
         h_res = await db.execute(select(Hypothesis).where(Hypothesis.investigation_id == inv.id))
         hyps = h_res.scalars().all()
+        e_res = await db.execute(select(EvidenceItem).where(EvidenceItem.investigation_id == inv.id))
+        evidence_items = e_res.scalars().all()
 
-        supported_claims = [h.description for h in hyps if h.status == "SUPPORTED"]
-        rejected_claims = [h.description for h in hyps if h.status == "REJECTED"]
+        # Load dataset context for column validation
+        _, _, _, ctx = await self._analyze_workspace_data(db, inv.workspace_id, inv.objective)
+        available_columns = set(ctx.all_columns) if ctx else set()
 
-        limitations = [
-            "Analysis scoped strictly to uploaded tabular records.",
-            "Descriptive aggregations were verified against raw row values.",
-            "Hypotheses were tested against empirical dataset columns without domain assumptions."
-        ]
+        issues = []
+        supported_claims = [h for h in hyps if h.status == "SUPPORTED"]
+        rejected_claims = [h for h in hyps if h.status == "REJECTED"]
+        insufficient_claims = [h for h in hyps if h.status == "INSUFFICIENT_DATA"]
 
-        verdict = "PASS" if len(findings) >= 1 else "REQUEST_MORE_EVIDENCE"
-        critique_notes = f"Verified {len(findings)} quantitative findings. {len(supported_claims)} supported hypotheses. Data grounding check passed."
+        # ── Check 1: Are there any findings at all? ──
+        if not findings:
+            issues.append({
+                "severity": "critical",
+                "claim": "No findings produced",
+                "reason": "The data analyst agent produced zero findings from the dataset.",
+                "recommended_action": "Verify dataset was loaded and analysis executed correctly."
+            })
+
+        # ── Check 2: Do hypothesis variables reference actual columns? ──
+        if ctx:
+            for h in hyps:
+                variables = (h.details.get("variables", []) if isinstance(h.details, dict) else []) if h.details else []
+                for var in variables:
+                    if var and var not in available_columns:
+                        issues.append({
+                            "severity": "high",
+                            "claim": f"Hypothesis '{h.title}' references variable '{var}'",
+                            "reason": f"Column '{var}' does not exist in dataset. Available: {', '.join(list(available_columns)[:8])}.",
+                            "recommended_action": "Re-map hypothesis variables to existing dataset columns."
+                        })
+
+        # ── Check 3: Validate statistical test results ──
+        for h in hyps:
+            stat = h.statistical_results if isinstance(h.statistical_results, dict) else {}
+            p_val = stat.get("p_value")
+            test_name = stat.get("test_name", "")
+
+            if h.status == "SUPPORTED" and p_val is not None and p_val >= 0.05:
+                issues.append({
+                    "severity": "high",
+                    "claim": f"Hypothesis '{h.title}' marked SUPPORTED",
+                    "reason": f"p-value={p_val:.4f} is not significant at alpha=0.05. Status should not be SUPPORTED.",
+                    "recommended_action": "Downgrade to PARTIALLY_SUPPORTED or re-test with different grouping."
+                })
+
+            if test_name == "INSUFFICIENT_DATA" and h.status == "SUPPORTED":
+                issues.append({
+                    "severity": "critical",
+                    "claim": f"Hypothesis '{h.title}' SUPPORTED without test",
+                    "reason": "Hypothesis is marked SUPPORTED but no statistical test could be performed.",
+                    "recommended_action": "Mark as INSUFFICIENT_DATA."
+                })
+
+            # Check sample size warnings
+            rows_used = stat.get("rows_used", stat.get("data_rows_used", 0))
+            if rows_used and rows_used < 10 and h.status == "SUPPORTED":
+                issues.append({
+                    "severity": "medium",
+                    "claim": f"Hypothesis '{h.title}' tested on n={rows_used}",
+                    "reason": f"Very small sample size ({rows_used} records). Results are exploratory only.",
+                    "recommended_action": "Flag as exploratory. Confidence should be capped at 50%."
+                })
+
+        # ── Check 4: Verify causal claims aren't overclaimed ──
+        for h in supported_claims:
+            if h.causal_classification == "PRIMARY_ROOT_CAUSE":
+                stat = h.statistical_results if isinstance(h.statistical_results, dict) else {}
+                p_val = stat.get("p_value")
+                if p_val and p_val > 0.01:
+                    issues.append({
+                        "severity": "medium",
+                        "claim": f"'{h.title}' classified as PRIMARY_ROOT_CAUSE",
+                        "reason": f"p-value={p_val:.4f} suggests association, not strong causation.",
+                        "recommended_action": "Downgrade classification to STRONG_ASSOCIATION."
+                    })
+
+        # ── Check 5: Evidence consistency ──
+        dataset_evidence = [e for e in evidence_items if e.source_type == "dataset"]
+        stat_evidence = [e for e in evidence_items if e.analysis_type == "STATISTICAL_HYPOTHESIS_TEST"]
+        if len(dataset_evidence) == 0:
+            issues.append({
+                "severity": "high",
+                "claim": "No dataset evidence in ledger",
+                "reason": "Evidence ledger contains no dataset-sourced evidence items.",
+                "recommended_action": "Ensure data analyst results are being recorded as evidence."
+            })
+
+        # ── Check 6: Unmappable concepts warning ──
+        if ctx and ctx.unmappable_concepts:
+            issues.append({
+                "severity": "medium",
+                "claim": f"Question concepts without dataset mapping: {', '.join(ctx.unmappable_concepts)}",
+                "reason": "Some concepts from the user's question could not be mapped to dataset columns.",
+                "recommended_action": "Flag these as limitations in the final report."
+            })
+
+        # ── Determine verdict ──
+        critical_issues = [i for i in issues if i["severity"] == "critical"]
+        high_issues = [i for i in issues if i["severity"] == "high"]
+
+        if critical_issues:
+            verdict = "FAIL"
+            overall_justified = False
+        elif len(high_issues) >= 2:
+            verdict = "REQUEST_MORE_EVIDENCE"
+            overall_justified = False
+        elif high_issues:
+            verdict = "PASS_WITH_WARNINGS"
+            overall_justified = True
+        elif findings:
+            verdict = "PASS"
+            overall_justified = True
+        else:
+            verdict = "REQUEST_MORE_EVIDENCE"
+            overall_justified = False
+
+        critique_notes = (
+            f"Audited {len(findings)} findings, {len(hyps)} hypotheses, {len(evidence_items)} evidence items. "
+            f"{len(supported_claims)} supported, {len(rejected_claims)} rejected, {len(insufficient_claims)} insufficient data. "
+            f"Found {len(issues)} issues ({len(critical_issues)} critical, {len(high_issues)} high severity)."
+        )
 
         c_rev = CriticReview(
             investigation_id=inv.id,
             round_number=1,
             verdict=verdict,
-            overall_confidence_justified=True,
-            issues=[],
+            overall_confidence_justified=overall_justified,
+            issues=issues,
             critique_notes=critique_notes,
             created_at=utcnow()
         )
@@ -580,16 +725,18 @@ class InvestigationWorker:
 
         await self.record_event(
             db, inv.id, "Critic Agent", "COMPLETED",
-            f"Critic audit verdict: {verdict}. Validated data grounding and evidence traceability.",
-            {"verdict": verdict, "findings_audited": len(findings)}
+            f"Critic audit verdict: {verdict}. {critique_notes}",
+            {"verdict": verdict, "findings_audited": len(findings), "issues_count": len(issues)}
         )
 
         return {
-            "supported_claims": supported_claims,
-            "rejected_claims": rejected_claims,
-            "limitations": limitations,
-            "verdict": verdict
+            "supported_claims": [h.description for h in supported_claims],
+            "rejected_claims": [h.description for h in rejected_claims],
+            "issues": issues,
+            "verdict": verdict,
+            "overall_confidence_justified": overall_justified,
         }
+
 
     async def _execute_report_agent_task(
         self, db: AsyncSession, inv: Investigation, task: InvestigationTask
@@ -647,10 +794,7 @@ class InvestigationWorker:
             stat_val = f"{stat_dict.get('statistic'):.2f}" if stat_dict.get("statistic") is not None else "N/A"
             p_val = f"{stat_dict.get('p_value'):.4f}" if stat_dict.get("p_value") is not None else "N/A"
             rows_used = str(stat_dict.get("rows_used", total_rows))
-            hyp_rows.append(
-                f"| **{h.title}** | {test_name} | {stat_val} | {p_val} | {rows_used} | {round((h.confidence or 0.7)*100)}% | **{h.status}** |"
-            )
-        hyp_table_md = "\n".join(hyp_rows) if hyp_rows else "| Schema Consistency | Data Profiling | N/A | N/A | " + str(total_rows) + " | 90% | **SUPPORTED** |"
+        hyp_table_md = "\n".join(hyp_rows) if hyp_rows else "| None Evaluated | No testable hypothesis could be matched with available columns | N/A | N/A | 0 | 0% | **INSUFFICIENT_DATA** |"
 
         # ── 4. Format Document Evidence ──
         doc_evs = [e for e in evs if e.source_type == "document" and e.document_citation and e.document_citation.get("excerpt")]
@@ -673,16 +817,33 @@ class InvestigationWorker:
                 rc_rows.append(
                     f"| **{idx+1}** | **{h.title}** | {h.description} | {round((h.confidence or 0.7)*100)}% | **{classification_label}** | Review and address concentration in this factor |"
                 )
-        rc_table_md = "\n".join(rc_rows) if rc_rows else "| 1 | Data Distribution Pattern | " + primary_finding + " | 90% | **PRIMARY DRIVER** | Address high-priority items directly |"
+        rc_table_md = "\n".join(rc_rows) if rc_rows else "| - | **No Root Causes Identified** | The available dataset does not contain sufficient dimensional or statistical evidence to establish root causes for this question. | 0% | **INSUFFICIENT_EVIDENCE** | Upload datasets with relevant dimensions or metric breakdowns |"
 
         # ── 8. Synthesize Full Markdown Report ──
+        # ── 8. Unmapped Question Concepts / Limitations ──
+        unmapped_section = ""
+        if ctx.unmappable_concepts:
+            unmapped_section = f"""
+---
+
+# 8. Question Scope & Unmapped Concepts
+
+> ⚠ **Dataset Scope Limitation**: The question referenced concepts ({', '.join(ctx.unmappable_concepts)}) that do NOT exist in dataset `{ds_name}`.
+> Analysis was conducted strictly on available columns: `{', '.join(cols)}`.
+"""
+
+        # ── 9. Synthesize Full Markdown Report ──
+        status_display = "COMPLETED"
+        if ctx.unmappable_concepts or not hyps or any(h.status == "INSUFFICIENT_DATA" for h in hyps):
+            status_display = "COMPLETED_WITH_LIMITATIONS"
+
         report_md = f"""# Investigation Summary
 
 - **Investigation Question**: {inv.objective}
 - **Dataset Analyzed**: `{ds_name}` ({total_rows} total records)
 - **Columns Available**: `{', '.join(cols[:15])}{'...' if len(cols) > 15 else ''}`
 - **Analysis Method**: `{analytics.get('analysis_type', 'DATASET_QUERY')}` ({analytics.get('pending_formula') or 'Dynamic Schema Aggregation'})
-- **Investigation Status**: COMPLETED
+- **Investigation Status**: {status_display}
 - **Data Grounding Check**: VERIFIED (All numbers extracted directly from `{ds_name}`)
 
 ---
@@ -730,10 +891,10 @@ class InvestigationWorker:
 | Rank | Potential Driver | Explanation | Confidence | Classification | Recommended Action |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 {rc_table_md}
-
+{unmapped_section}
 ---
 
-# 8. Data Quality & Coverage Summary
+# {'9' if unmapped_section else '8'}. Data Quality & Coverage Summary
 
 - **Records Analyzed**: {total_rows} rows from `{ds_name}`
 - **Columns Detected**: {len(cols)} columns ({', '.join(cols[:10])}...)
@@ -744,11 +905,11 @@ class InvestigationWorker:
 
 ---
 
-# 9. Recommended Next Actions
+# {'10' if unmapped_section else '9'}. Recommended Next Actions
 
-1. **Address Critical Items**: Prioritize fulfillment for items with the largest outstanding gaps identified in the dataset records above.
-2. **Review Dimensional Bottlenecks**: Inspect categories or sections accounting for the highest concentration of outstanding records.
-3. **Continuous Tracking**: Re-run this investigation as new indent and procurement batches are loaded to track unfulfilled progress over time.
+1. **Address Key Findings**: Focus on the specific items and categories highlighted in the extracted dataset records above.
+2. **Expand Data Coverage**: If specific business dimensions (e.g., regions, segments) were missing, upload enriched datasets containing those attributes.
+3. **Continuous Tracking**: Re-run this investigation as new operational batches are loaded to measure changes over time.
 """
 
         await self.record_event(
@@ -1117,8 +1278,21 @@ class InvestigationWorker:
 
                 has_valid_findings = len(all_findings) > 0
                 has_valid_report = report_md is not None and len(report_md.strip()) > 100
+                critic_failed = critic_rev and critic_rev.verdict == "FAIL"
 
-                final_status = "COMPLETED" if (has_valid_findings and has_valid_report) else "COMPLETED_WITH_LIMITATIONS"
+                if not has_valid_findings or critic_failed:
+                    final_status = "INSUFFICIENT_DATA"
+                elif (
+                    (critic_rev and critic_rev.verdict in ["PASS_WITH_WARNINGS", "REQUEST_MORE_EVIDENCE"])
+                    or (rep_analytics.get("data_sufficiency", {}).get("temporal_analysis") is False)
+                    or (ctx and ctx.unmappable_concepts)
+                    or any(h.status == "INSUFFICIENT_DATA" for h in all_hypotheses)
+                ):
+                    final_status = "COMPLETED_WITH_LIMITATIONS"
+                elif has_valid_findings and has_valid_report:
+                    final_status = "COMPLETED"
+                else:
+                    final_status = "COMPLETED_WITH_LIMITATIONS"
 
                 stmt = (
                     update(Investigation)

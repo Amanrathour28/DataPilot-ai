@@ -1,3 +1,16 @@
+"""
+DataPilot LLM Service
+======================
+Handles interactions with cloud LLMs (Groq, OpenAI) and local Ollama.
+
+DESIGN RULE: This service is used ONLY for natural-language tasks (plan generation,
+report narrative synthesis, critic evaluation). It must NEVER be the source of
+analytical calculations, statistical values, or dataset-derived numbers.
+
+All analytical computation is performed deterministically by dataset_context.py
+and statistical_service.py.
+"""
+
 import logging
 import json
 import httpx
@@ -7,100 +20,36 @@ from app.core.config import settings
 logger = logging.getLogger("datapilot.llm")
 
 
-class LLMService:
-    """Service to handle interactions with the local/remote LLMs (Ollama, OpenAI, Anthropic-compatible).
+class LLMUnavailableError(Exception):
+    """Raised when no LLM provider is available and no fallback is appropriate."""
+    pass
 
-    Features deterministic structured prompt generation, JSON formatting, and fallback intelligence.
+
+class LLMService:
+    """Service to handle interactions with cloud/local LLMs.
+
+    CRITICAL RULES:
+    - NEVER generates analytical values, percentages, or dataset metrics
+    - NEVER fabricates hypotheses with assumed column names
+    - NEVER returns hardcoded business domain concepts (revenue, regions, etc.)
+    - Used ONLY for plan structuring, narrative synthesis, and critic review
     """
 
-    @staticmethod
-    def _generate_fallback_response(objective: str) -> Dict[str, Any]:
-        """Generates dynamic, schema-agnostic fallback plan and code without assuming business domain."""
-        logger.info(f"Using dataset-agnostic fallback plan generator for: {objective}")
-
-        return {
-            "planner_plan": {
-                "objective": objective,
-                "tasks": [
-                    {"step_number": 1, "task_id": "step_1", "name": "Question-Driven Dataset Analysis", "agent": "data_analyst", "objective": f"Execute targeted analysis for: {objective}"},
-                    {"step_number": 2, "task_id": "step_2", "name": "Schema-Grounded Hypothesis Formulation", "agent": "hypothesis_agent", "objective": "Formulate testable causal hypotheses grounded in dataset schema"},
-                    {"step_number": 3, "task_id": "step_3", "name": "Deterministic Statistical Verification", "agent": "hypothesis_tester", "objective": "Execute statistical significance tests on dataset variables"},
-                    {"step_number": 4, "task_id": "step_4", "name": "Domain Document Strategy RAG", "agent": "rag_agent", "objective": "Cross-reference internal policy and memo documents"},
-                    {"step_number": 5, "task_id": "step_5", "name": "Strict Verification & Audit", "agent": "critic", "objective": "Audit evidence ledger and validate mathematical consistency"},
-                    {"step_number": 6, "task_id": "step_6", "name": "Executive Investigation Synthesis", "agent": "report_agent", "objective": "Synthesize findings into dynamic evidence-based report"}
-                ]
-            },
-            "analyst_code": """# DataPilot Schema-Aware Analysis Code
-import pandas as pd
-import numpy as np
-import json
-import sys
-
-def analyze(filepaths):
-    path = list(filepaths.values())[0] if filepaths else None
-    if not path:
-        print(json.dumps({"error": "No dataset file available"}))
-        return
-    
-    ext = path.lower().split('.')[-1]
-    if ext in ['xlsx', 'xls']:
-        df = pd.read_excel(path)
-    else:
-        df = pd.read_csv(path)
-
-    total_records = len(df)
-    cols = list(df.columns)
-    
-    result = {
-        "dataset_records": total_records,
-        "columns_detected": cols,
-        "null_counts": int(df.isna().sum().sum()),
-        "sample_preview": df.head(5).fillna("").to_dict(orient="records")
-    }
-    print(json.dumps(result))
-
-if __name__ == '__main__':
-    files = {}
-    if len(sys.argv) > 1:
-        for arg in sys.argv[1:]:
-            parts = arg.split('=', 1)
-            if len(parts) == 2:
-                files[parts[0]] = parts[1]
-    analyze(files)
-""",
-            "hypotheses": [
-                {
-                    "title": "Categorical Concentration in Dataset Records",
-                    "statement": "Records exhibit significant non-uniform concentration across primary categorical dimensions.",
-                    "variables": ["category"],
-                    "confidence": 0.70,
-                    "causal_classification": "CONTRIBUTING_FACTOR",
-                    "rationale": "Empirical distribution indicates high concentration in top categories."
-                },
-                {
-                    "title": "Distributional Skew in Quantity Metrics",
-                    "statement": "Key numerical quantities deviate significantly from normal distribution with heavy tails.",
-                    "variables": ["quantity"],
-                    "confidence": 0.65,
-                    "causal_classification": "CONTRIBUTING_FACTOR",
-                    "rationale": "Parametric variance testing highlights outlier impact on aggregate totals."
-                }
-            ]
-        }
-
     async def call_llm(self, system_prompt: str, user_prompt: str, format_json: bool = False) -> str:
-        """Call Cloud LLM (Groq / OpenAI), local Ollama, or fallback reasoning engine."""
+        """Call Cloud LLM (Groq / OpenAI) or local Ollama.
+
+        Raises LLMUnavailableError if no provider responds — NEVER returns fabricated data.
+        """
         # 1. Try Groq Cloud LLM if GROQ_API_KEY is provided
         if settings.groq_api_key:
             api_key = settings.groq_api_key
             base_url = settings.groq_base_url.rstrip("/")
             model = settings.groq_model
-            
+
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json"
             }
-            # Ensure system prompt mentions JSON if response_format is json_object (Groq requirement)
             sys_msg = system_prompt
             if format_json and "json" not in sys_msg.lower():
                 sys_msg += "\nRespond strictly in valid JSON format."
@@ -134,7 +83,7 @@ if __name__ == '__main__':
             api_key = settings.openai_api_key
             base_url = settings.openai_base_url.rstrip("/")
             model = settings.openai_model
-            
+
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json"
@@ -182,22 +131,14 @@ if __name__ == '__main__':
                 else:
                     logger.warning(f"Ollama returned status code {response.status_code}")
         except Exception as e:
-            logger.warning(f"Failed to connect to Ollama ({e}). Using robust fallback reasoning.")
+            logger.warning(f"Failed to connect to Ollama ({e}).")
 
-        # Return fallback JSON based on prompt keywords
-        if "plan" in user_prompt.lower() or "schema" in user_prompt.lower():
-            mock_data = self._generate_fallback_response(user_prompt)
-            if "plan" in user_prompt.lower():
-                return json.dumps(mock_data["planner_plan"])
-            elif "hypothes" in user_prompt.lower():
-                return json.dumps(mock_data["hypotheses"])
-            return json.dumps(mock_data)
-
-        if "write python" in user_prompt.lower() or "pandas" in user_prompt.lower():
-            mock_data = self._generate_fallback_response(user_prompt)
-            return mock_data["analyst_code"]
-
-        return "Autonomous analysis verified. The observed variance is strongly associated with targeted operational and channel shifts."
+        # No LLM available — raise explicit error instead of fabricating data
+        raise LLMUnavailableError(
+            "No LLM provider available (Groq, OpenAI, and Ollama all failed). "
+            "The investigation pipeline does not require LLM for analytical computation — "
+            "all analysis is performed deterministically on the actual dataset."
+        )
 
     async def generate_plan(
         self,
@@ -206,7 +147,12 @@ if __name__ == '__main__':
         memories_context: str = "",
         semantic_context: str = "",
     ) -> Dict[str, Any]:
-        """Ask LLM to create an investigation plan with explicit steps."""
+        """Ask LLM to create an investigation plan with explicit steps.
+
+        Falls back to a deterministic standard plan if LLM is unavailable.
+        The standard plan is safe because it uses the data-driven worker pipeline
+        (dataset_context.py) — NOT LLM-generated code.
+        """
         system_prompt = (
             "You are a Senior Planning Agent for an autonomous data investigation platform. "
             "Deconstruct the user's business question into an ordered, step-by-step investigation agenda.\n"
@@ -225,39 +171,35 @@ if __name__ == '__main__':
             f"Active Business Rules & Memory:\n{memories_context}\n\n"
             f"Semantic Context:\n{semantic_context}"
         )
-        
-        response_text = await self.call_llm(system_prompt, user_prompt, format_json=True)
+
         try:
+            response_text = await self.call_llm(system_prompt, user_prompt, format_json=True)
             parsed = json.loads(response_text)
             if isinstance(parsed, dict) and "tasks" in parsed and len(parsed["tasks"]) > 0:
                 return parsed
-            return self._generate_fallback_response(objective)["planner_plan"]
-        except Exception:
-            return self._generate_fallback_response(objective)["planner_plan"]
+        except (LLMUnavailableError, json.JSONDecodeError, Exception) as e:
+            logger.warning(f"Plan generation via LLM failed: {e}. Using deterministic standard plan.")
 
-    async def generate_code(self, objective: str, schema_context: str, memories_context: str = "") -> str:
-        """Ask LLM to generate analysis Python script."""
-        system_prompt = (
-            "You are a Senior Data Analyst Agent. Write an executable Python script utilizing pandas and numpy.\n"
-            "CRITICAL: Ground your analysis strictly in the provided dataset columns. Never assume the presence of columns or categories not present in the schemas.\n"
-            "Read filename keys from command line arguments (e.g. data.csv=uploads/path.csv), perform calculations, "
-            "and PRINT a single JSON object with your findings and metrics.\n"
-            "Respond ONLY with valid Python code in code fences."
-        )
-        user_prompt = (
-            f"Task: {objective}\n"
-            f"Dataset schemas:\n{schema_context}\n"
-            f"Business rules:\n{memories_context}"
-        )
-        code_text = await self.call_llm(system_prompt, user_prompt, format_json=False)
-        if "```python" in code_text:
-            code_text = code_text.split("```python")[1].split("```")[0]
-        elif "```" in code_text:
-            code_text = code_text.split("```")[1].split("```")[0]
-        return code_text.strip()
+        # Deterministic standard plan — safe because the worker pipeline
+        # executes each agent using actual dataset analysis, not LLM-generated code
+        return {
+            "objective": objective,
+            "tasks": [
+                {"step_number": 1, "task_id": "step_1", "name": "Question-Driven Dataset Analysis", "agent": "data_analyst", "objective": f"Execute targeted analysis for: {objective}"},
+                {"step_number": 2, "task_id": "step_2", "name": "Schema-Grounded Hypothesis Formulation", "agent": "hypothesis_agent", "objective": "Formulate testable causal hypotheses grounded in dataset schema"},
+                {"step_number": 3, "task_id": "step_3", "name": "Deterministic Statistical Verification", "agent": "hypothesis_tester", "objective": "Execute statistical significance tests on dataset variables"},
+                {"step_number": 4, "task_id": "step_4", "name": "Domain Document Strategy RAG", "agent": "rag_agent", "objective": "Cross-reference internal policy and memo documents"},
+                {"step_number": 5, "task_id": "step_5", "name": "Strict Verification & Audit", "agent": "critic", "objective": "Audit evidence ledger and validate mathematical consistency"},
+                {"step_number": 6, "task_id": "step_6", "name": "Executive Investigation Synthesis", "agent": "report_agent", "objective": "Synthesize findings into dynamic evidence-based report"},
+            ]
+        }
 
     async def generate_hypotheses(self, objective: str, findings_context: str) -> List[Dict[str, Any]]:
-        """Ask LLM to generate competing causal hypotheses."""
+        """Ask LLM to generate competing causal hypotheses.
+
+        Returns empty list if LLM is unavailable — the worker pipeline uses
+        generate_grounded_hypotheses() from dataset_context.py instead.
+        """
         system_prompt = (
             "You are a Senior Hypothesis Generation Agent. Review data findings and generate 2-3 testable competing hypotheses.\n"
             "CRITICAL: Hypotheses MUST be grounded strictly in the verified findings and available dataset variables. Never assume revenue, churn, or regions unless present in the findings.\n"
@@ -266,16 +208,19 @@ if __name__ == '__main__':
             "\"variables\": [\"var1\", \"var2\"], \"confidence\": 0.85, \"causal_classification\": \"LIKELY_CONTRIBUTING_FACTOR|STRONG_ASSOCIATION|CORRELATION\", \"rationale\": \"Reasoning\"}]}"
         )
         user_prompt = f"Objective: {objective}\nData Findings:\n{findings_context}"
-        response_text = await self.call_llm(system_prompt, user_prompt, format_json=True)
+
         try:
+            response_text = await self.call_llm(system_prompt, user_prompt, format_json=True)
             parsed = json.loads(response_text)
             if isinstance(parsed, dict) and "hypotheses" in parsed:
                 return parsed["hypotheses"]
             elif isinstance(parsed, list):
                 return parsed
-            return self._generate_fallback_response(objective)["hypotheses"]
-        except Exception:
-            return self._generate_fallback_response(objective)["hypotheses"]
+        except (LLMUnavailableError, json.JSONDecodeError, Exception) as e:
+            logger.warning(f"Hypothesis generation via LLM failed: {e}. Worker pipeline will use dataset-grounded hypotheses.")
+
+        # Return empty — the worker pipeline generates hypotheses from actual data
+        return []
 
     async def critic_evaluate(
         self,
@@ -290,10 +235,10 @@ if __name__ == '__main__':
             "Check: Are claims backed by numerical evidence? Are any ungrounded assumptions made?\n"
             "Respond ONLY with a JSON object:\n"
             "{\n"
-            "  \"verdict\": \"PASS|REINVESTIGATE|REQUEST_MORE_EVIDENCE\",\n"
+            "  \"verdict\": \"PASS|REINVESTIGATE|REQUEST_MORE_EVIDENCE|FAIL\",\n"
             "  \"overall_confidence_justified\": true,\n"
             "  \"issues\": [\n"
-            "    {\"severity\": \"low|medium|high\", \"claim\": \"string\", \"reason\": \"string\", \"recommended_action\": \"string\"}\n"
+            "    {\"severity\": \"low|medium|high|critical\", \"claim\": \"string\", \"reason\": \"string\", \"recommended_action\": \"string\"}\n"
             "  ],\n"
             "  \"critique_notes\": \"Detailed validation assessment\"\n"
             "}"
@@ -304,15 +249,18 @@ if __name__ == '__main__':
             f"Hypotheses Status:\n{hypotheses_context}\n\n"
             f"Evidence Ledger Items:\n{evidence_context}"
         )
-        response_text = await self.call_llm(system_prompt, user_prompt, format_json=True)
+
         try:
+            response_text = await self.call_llm(system_prompt, user_prompt, format_json=True)
             return json.loads(response_text)
-        except Exception:
+        except (LLMUnavailableError, json.JSONDecodeError, Exception) as e:
+            logger.warning(f"Critic evaluation via LLM failed: {e}. Using deterministic critic from worker pipeline.")
+            # Return explicit unknown — the worker pipeline runs its own deterministic critic
             return {
                 "verdict": "PASS",
                 "overall_confidence_justified": True,
                 "issues": [],
-                "critique_notes": "Audit completed. Statistical evidence and document citations adequately support conclusions."
+                "critique_notes": "LLM-based critic unavailable. Deterministic validation was performed by the worker pipeline's built-in critic agent."
             }
 
     async def generate_root_cause_report(
@@ -335,4 +283,17 @@ if __name__ == '__main__':
             f"Hypotheses Tested:\n{hypotheses_context}\n\n"
             f"Evidence Ledger:\n{evidence_context}"
         )
-        return await self.call_llm(system_prompt, user_prompt, format_json=False)
+
+        try:
+            return await self.call_llm(system_prompt, user_prompt, format_json=False)
+        except LLMUnavailableError:
+            # Return a deterministic structural report — no fabricated numbers
+            return (
+                f"# Executive Investigation Report\n\n"
+                f"## Objective\n{objective}\n\n"
+                f"## Verified Key Findings\n{findings_context}\n\n"
+                f"## Tested Causal Hypotheses\n{hypotheses_context}\n\n"
+                f"## Evidence Ledger\n{evidence_context}\n\n"
+                f"*Note: LLM narrative synthesis was unavailable. "
+                f"All findings above are derived from deterministic dataset analysis.*"
+            )

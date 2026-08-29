@@ -53,6 +53,15 @@ class DatasetContext:
         self.question_relevant_columns: List[str] = kwargs.get("question_relevant_columns", [])
         self._df: Optional[pd.DataFrame] = kwargs.get("df")
 
+        # Candidate column classifications (derived from actual schema)
+        self.candidate_metric_columns: List[str] = kwargs.get("candidate_metric_columns", [])
+        self.candidate_dimension_columns: List[str] = kwargs.get("candidate_dimension_columns", [])
+        self.candidate_period_columns: List[str] = kwargs.get("candidate_period_columns", [])
+        # Question-to-data mapping: {concept: column_name_or_None}
+        self.question_mapping: Dict[str, Optional[str]] = kwargs.get("question_mapping", {})
+        # Concepts from user question that cannot be mapped to dataset columns
+        self.unmappable_concepts: List[str] = kwargs.get("unmappable_concepts", [])
+
     def get_df(self) -> Optional[pd.DataFrame]:
         """Return the in-memory DataFrame. May be None if not loaded from disk."""
         return self._df
@@ -95,6 +104,11 @@ class DatasetContext:
             "unique_counts": self.unique_counts,
             "question": self.question,
             "question_relevant_columns": self.question_relevant_columns,
+            "candidate_metric_columns": self.candidate_metric_columns,
+            "candidate_dimension_columns": self.candidate_dimension_columns,
+            "candidate_period_columns": self.candidate_period_columns,
+            "question_mapping": self.question_mapping,
+            "unmappable_concepts": self.unmappable_concepts,
         }
 
 
@@ -335,6 +349,27 @@ async def build_dataset_context(
         f"{len(question_relevant)} question-relevant columns: {question_relevant[:5]}"
     )
 
+    # Classify candidate columns
+    metric_kw = ["revenue", "sales", "amount", "value", "price", "cost", "profit", "income",
+                 "total", "qty", "quantity", "count", "volume", "units", "sum"]
+    dim_kw = ["region", "country", "state", "city", "segment", "category", "type", "group",
+              "channel", "product", "department", "division", "section", "status", "priority"]
+    period_kw = ["quarter", "month", "year", "period", "cohort", "week", "fiscal"]
+
+    candidate_metric_cols = [c for c in profiling["numeric_columns"]
+                             if any(k in c.lower() for k in metric_kw)] or profiling["numeric_columns"][:3]
+    candidate_dim_cols = [c for c in profiling["categorical_columns"]
+                          if any(k in c.lower() for k in dim_kw)] or profiling["categorical_columns"][:3]
+    candidate_period_cols = ([c for c in profiling["categorical_columns"] + profiling["date_columns"]
+                              if any(k in c.lower() for k in period_kw)]
+                             or profiling["date_columns"][:1])
+
+    # Build question-to-data mapping
+    q_mapping, unmappable = _build_question_mapping(
+        question, list(df.columns), profiling["sample_values"],
+        profiling["numeric_columns"], profiling["categorical_columns"], profiling["date_columns"]
+    )
+
     return DatasetContext(
         dataset_id=primary_ds.id,
         dataset_name=primary_ds.original_filename or primary_ds.name,
@@ -350,6 +385,11 @@ async def build_dataset_context(
         unique_counts=profiling["unique_counts"],
         question=question,
         question_relevant_columns=question_relevant,
+        candidate_metric_columns=candidate_metric_cols,
+        candidate_dimension_columns=candidate_dim_cols,
+        candidate_period_columns=candidate_period_cols,
+        question_mapping=q_mapping,
+        unmappable_concepts=unmappable,
         df=df,
     )
 
@@ -405,6 +445,15 @@ def perform_question_driven_analysis(ctx: DatasetContext) -> Dict[str, Any]:
     section_col = _find_col(cat_cols, ["section", "department", "dept", "division", "unit"])
     priority_col = _find_col(cat_cols, ["priority", "urgency", "importance"])
 
+    # Detect revenue/metric columns for period analysis
+    revenue_keywords = ["revenue", "sales", "income", "amount", "value", "transaction_value",
+                        "transaction_amount", "total", "price", "profit"]
+    metric_col = _find_col(num_cols, revenue_keywords) or (num_cols[0] if num_cols else None)
+
+    # Detect region/dimension columns
+    region_col = _find_col(cat_cols, ["region", "country", "state", "territory", "area", "location", "geography"])
+    segment_col = _find_col(cat_cols, ["segment", "customer_segment", "customer_type", "tier"])
+
     # ── Route to appropriate analysis based on question intent ──
     is_pending = any(k in q_lower for k in [
         "pending", "not ordered", "unordered", "unfulfilled", "outstanding",
@@ -418,6 +467,14 @@ def perform_question_driven_analysis(ctx: DatasetContext) -> Dict[str, Any]:
     is_category = any(k in q_lower for k in ["category", "which category", "by category", "section", "by section", "which section", "group"])
     is_priority = any(k in q_lower for k in ["priority", "high priority", "urgent", "critical"])
 
+    # Detect period-over-period / change analysis intent
+    is_period_comparison = any(k in q_lower for k in [
+        "decline", "decrease", "drop", "fell", "fall", "increase", "growth", "grew",
+        "change", "trend", "q1", "q2", "q3", "q4", "quarter", "month",
+        "year over year", "yoy", "period", "compare", "versus", "vs",
+        "why did", "what caused", "what drove", "explain the",
+    ])
+
     if is_pending or is_gap:
         return _analyze_pending_items(df, ctx, ordered_col, required_col, received_col,
                                        item_name_col, item_code_col, category_col, section_col,
@@ -426,6 +483,13 @@ def perform_question_driven_analysis(ctx: DatasetContext) -> Dict[str, Any]:
     if is_overdue:
         return _analyze_overdue_items(df, ctx, date_cols, item_name_col, item_code_col,
                                        ordered_col, required_col, priority_col)
+
+    # Period comparison / metric change analysis
+    if is_period_comparison and metric_col:
+        return _analyze_period_comparison(
+            df, ctx, metric_col, date_cols, cat_cols,
+            region_col, segment_col, category_col, section_col,
+        )
 
     n_match = re.search(r"\btop\s+(\d+)\b|\b(\d+)\s+(?:items?|records?|rows?)\b", q_lower)
     n = int(n_match.group(1) or n_match.group(2)) if n_match else 10
@@ -869,6 +933,13 @@ def _analyze_general(
     display_cols = [c for c in (ctx.question_relevant_columns or list(df.columns)) if c in df.columns][:8]
     primary_table = df[display_cols].head(25).fillna("").to_dict(orient="records") if display_cols else []
 
+    # Add unmappable concepts to general analysis
+    if ctx.unmappable_concepts:
+        findings.append(
+            f"Note: The following concepts from the question could not be mapped to dataset columns: "
+            f"{', '.join(ctx.unmappable_concepts)}. Analysis proceeded with available data."
+        )
+
     return {
         "success": True,
         "analysis_type": "GENERAL_ANALYSIS",
@@ -881,7 +952,335 @@ def _analyze_general(
     }
 
 
-# ── Hypothesis Generation ──────────────────────────────────────────────────────
+# ── Question-to-Data Mapping ──────────────────────────────────────────────────
+
+def _build_question_mapping(
+    question: str,
+    all_columns: List[str],
+    sample_values: Dict[str, List],
+    numeric_columns: List[str],
+    categorical_columns: List[str],
+    date_columns: List[str],
+) -> tuple:
+    """
+    Map business concepts from the user's question to actual dataset columns.
+
+    Returns:
+        (mapping_dict, unmappable_concepts_list)
+        mapping_dict: {concept: column_name_or_None}
+        unmappable: list of concepts that have no matching column
+    """
+    q_lower = question.lower()
+    concept_keywords = {
+        "revenue": ["revenue", "sales", "income", "total_revenue", "amount", "value"],
+        "region": ["region", "country", "state", "territory", "area", "geography", "location"],
+        "segment": ["segment", "customer_segment", "customer_type", "tier", "cohort"],
+        "product": ["product", "item", "sku", "material", "item_name", "product_name"],
+        "period": ["quarter", "month", "year", "date", "period", "fiscal", "time"],
+        "quantity": ["qty", "quantity", "count", "units", "volume", "number"],
+        "cost": ["cost", "expense", "price", "unit_price", "unit_cost"],
+        "profit": ["profit", "margin", "net", "gross"],
+        "category": ["category", "type", "group", "class", "section", "department"],
+        "channel": ["channel", "source", "medium", "platform"],
+        "status": ["status", "state", "phase", "stage"],
+    }
+
+    mapping = {}
+    unmappable = []
+    cols_lower = {c.lower(): c for c in all_columns}
+
+    for concept, keywords in concept_keywords.items():
+        # Only map if the concept is mentioned in the question
+        if not any(k in q_lower for k in [concept] + keywords[:2]):
+            continue
+
+        matched_col = None
+        for kw in keywords:
+            for col_lower, col_real in cols_lower.items():
+                if kw in col_lower:
+                    matched_col = col_real
+                    break
+            if matched_col:
+                break
+
+        mapping[concept] = matched_col
+        if matched_col is None:
+            unmappable.append(concept)
+
+    return mapping, unmappable
+
+
+# ── Period-over-Period Comparison Analysis ─────────────────────────────────────
+
+def _analyze_period_comparison(
+    df: pd.DataFrame,
+    ctx: DatasetContext,
+    metric_col: str,
+    date_cols: List[str],
+    cat_cols: List[str],
+    region_col: Optional[str],
+    segment_col: Optional[str],
+    category_col: Optional[str],
+    section_col: Optional[str],
+) -> Dict[str, Any]:
+    """
+    Analyze metric changes across time periods.
+
+    Detects temporal groupings (quarter, month, year) from date columns,
+    computes actual period-over-period changes, and performs premise validation.
+
+    NEVER fabricates period data. If no date column exists, reports that
+    temporal analysis is unavailable.
+    """
+    findings = []
+    q_lower = ctx.question.lower()
+    total_records = len(df)
+
+    # Ensure metric column is numeric
+    df = df.copy()
+    df[metric_col] = pd.to_numeric(df[metric_col], errors="coerce")
+
+    # Find a period column (explicit quarter/month column or derive from date)
+    period_col = None
+    period_type = None
+
+    # Check for explicit period categorical columns
+    for col in cat_cols:
+        col_lower = col.lower()
+        if any(k in col_lower for k in ["quarter", "qtr"]):
+            period_col = col
+            period_type = "quarter"
+            break
+        elif "month" in col_lower:
+            period_col = col
+            period_type = "month"
+            break
+        elif "year" in col_lower and "month" not in col_lower:
+            period_col = col
+            period_type = "year"
+            break
+
+    # Derive period from date column if no explicit period column
+    if not period_col and date_cols:
+        date_col = date_cols[0]
+        try:
+            dt_series = pd.to_datetime(df[date_col], errors="coerce")
+            valid_dates = dt_series.dropna()
+            if len(valid_dates) > 0:
+                date_range = (valid_dates.max() - valid_dates.min()).days
+                if date_range > 90:
+                    df["_derived_quarter"] = "Q" + dt_series.dt.quarter.astype(str)
+                    period_col = "_derived_quarter"
+                    period_type = "quarter"
+                elif date_range > 28:
+                    df["_derived_month"] = dt_series.dt.strftime("%Y-%m")
+                    period_col = "_derived_month"
+                    period_type = "month"
+                else:
+                    df["_derived_week"] = dt_series.dt.isocalendar().week.astype(str)
+                    period_col = "_derived_week"
+                    period_type = "week"
+        except Exception as e:
+            logger.warning(f"Period derivation failed: {e}")
+
+    # If no period can be determined, report it honestly
+    if not period_col:
+        findings.append(
+            f"Temporal analysis requested but no date or period column found in dataset '{ctx.dataset_name}'. "
+            f"Available columns: {', '.join(ctx.all_columns[:10])}. "
+            f"Cannot perform period-over-period comparison."
+        )
+        # Fall through to basic metric analysis
+        metric_series = df[metric_col].dropna()
+        if len(metric_series) > 0:
+            findings.append(
+                f"Overall '{metric_col}' statistics: "
+                f"total={metric_series.sum():,.2f}, mean={metric_series.mean():,.2f}, "
+                f"median={metric_series.median():,.2f}, count={len(metric_series):,}."
+            )
+        return {
+            "success": True,
+            "analysis_type": "PERIOD_ANALYSIS_UNAVAILABLE",
+            "analysis_description": f"Period comparison not possible — no temporal column available in '{ctx.dataset_name}'.",
+            "columns_used": [metric_col],
+            "findings": findings,
+            "primary_table": [],
+            "aggregations": {"metric_column": metric_col, "period_column": None, "reason": "no_temporal_column"},
+            "total_records": total_records,
+            "data_sufficiency": {"temporal_analysis": False, "metric_available": True},
+        }
+
+    # Compute period-level aggregation
+    period_summary = (
+        df.groupby(period_col, dropna=True)[metric_col]
+        .agg(["sum", "mean", "count"])
+        .reset_index()
+        .rename(columns={"sum": "total", "mean": "average", "count": "record_count"})
+        .sort_values(period_col)
+    )
+
+    if len(period_summary) < 2:
+        findings.append(
+            f"Only {len(period_summary)} {period_type or 'period'}(s) found. "
+            f"At least 2 periods are needed for comparison."
+        )
+        return {
+            "success": True,
+            "analysis_type": "INSUFFICIENT_PERIODS",
+            "analysis_description": f"Only {len(period_summary)} period found — insufficient for comparison.",
+            "columns_used": [metric_col, period_col],
+            "findings": findings,
+            "primary_table": period_summary.fillna("").to_dict(orient="records"),
+            "aggregations": {"metric_column": metric_col, "period_column": period_col, "periods_found": len(period_summary)},
+            "total_records": total_records,
+            "data_sufficiency": {"temporal_analysis": False, "metric_available": True},
+        }
+
+    # Compute period-over-period changes
+    period_summary["pct_change"] = period_summary["total"].pct_change() * 100
+    period_summary["abs_change"] = period_summary["total"].diff()
+
+    # Overall direction
+    first_period_val = float(period_summary.iloc[0]["total"])
+    last_period_val = float(period_summary.iloc[-1]["total"])
+    overall_change_pct = ((last_period_val - first_period_val) / abs(first_period_val) * 100) if first_period_val != 0 else 0
+
+    if overall_change_pct > 0:
+        direction = "increased"
+    elif overall_change_pct < 0:
+        direction = "decreased"
+    else:
+        direction = "remained unchanged"
+
+    findings.append(
+        f"'{metric_col}' {direction} by {abs(overall_change_pct):.1f}% "
+        f"from {period_summary.iloc[0][period_col]} ({first_period_val:,.2f}) "
+        f"to {period_summary.iloc[-1][period_col]} ({last_period_val:,.2f})."
+    )
+
+    # Premise validation — check if user's assumption matches data
+    premise_result = validate_premise(ctx.question, direction, overall_change_pct, metric_col)
+    if premise_result:
+        findings.append(premise_result)
+
+    # Find largest period-over-period swing
+    if len(period_summary) > 1:
+        changes = period_summary.dropna(subset=["pct_change"])
+        if len(changes) > 0:
+            max_change_idx = changes["pct_change"].abs().idxmax()
+            max_row = changes.loc[max_change_idx]
+            change_dir = "increase" if max_row["pct_change"] > 0 else "decrease"
+            findings.append(
+                f"Largest period-over-period {change_dir}: {abs(max_row['pct_change']):.1f}% "
+                f"in {max_row[period_col]} (Δ{max_row['abs_change']:+,.2f})."
+            )
+
+    # Dimensional breakdown if available
+    breakdown_tables = {}
+    breakdown_col = region_col or segment_col or category_col or section_col
+    if breakdown_col and breakdown_col in df.columns:
+        dim_period = (
+            df.groupby([breakdown_col, period_col], dropna=True)[metric_col]
+            .sum()
+            .reset_index()
+            .pivot_table(index=breakdown_col, columns=period_col, values=metric_col, fill_value=0)
+        )
+        if dim_period.shape[0] > 0 and dim_period.shape[1] >= 2:
+            cols = list(dim_period.columns)
+            dim_period["change"] = dim_period[cols[-1]] - dim_period[cols[0]]
+            dim_period["pct_change"] = ((dim_period[cols[-1]] - dim_period[cols[0]]) / dim_period[cols[0]].replace(0, np.nan) * 100)
+            dim_period = dim_period.sort_values("change")
+            breakdown_tables[breakdown_col] = dim_period.reset_index().fillna("").to_dict(orient="records")
+
+            top_decliner = dim_period.iloc[0]
+            findings.append(
+                f"By '{breakdown_col}': '{top_decliner.name}' had the largest absolute change "
+                f"(Δ{top_decliner['change']:+,.2f}, {top_decliner['pct_change']:+.1f}% change)."
+            )
+
+    primary_table = period_summary.fillna("").to_dict(orient="records")
+
+    return {
+        "success": True,
+        "analysis_type": "PERIOD_COMPARISON",
+        "analysis_description": (
+            f"Period-over-period analysis of '{metric_col}' across {len(period_summary)} "
+            f"{period_type or 'period'}s in '{ctx.dataset_name}'."
+        ),
+        "columns_used": [metric_col, period_col] + ([breakdown_col] if breakdown_col else []),
+        "findings": findings,
+        "primary_table": primary_table,
+        "breakdown_tables": breakdown_tables,
+        "aggregations": {
+            "metric_column": metric_col,
+            "period_column": period_col,
+            "period_type": period_type,
+            "periods_found": len(period_summary),
+            "overall_change_pct": round(overall_change_pct, 2),
+            "overall_direction": direction,
+            "first_period": str(period_summary.iloc[0][period_col]),
+            "last_period": str(period_summary.iloc[-1][period_col]),
+            "first_period_value": round(first_period_val, 2),
+            "last_period_value": round(last_period_val, 2),
+        },
+        "total_records": total_records,
+        "data_sufficiency": {"temporal_analysis": True, "metric_available": True},
+    }
+
+
+# ── Premise Validation ────────────────────────────────────────────────────────
+
+def validate_premise(
+    question: str,
+    actual_direction: str,
+    change_pct: float,
+    metric_name: str,
+) -> Optional[str]:
+    """
+    Challenge the user's premise when the data contradicts their assumption.
+
+    If the user asks 'Why did revenue decline?' but revenue actually increased,
+    this function returns an explicit correction.
+
+    Returns:
+        A premise validation string if the user's assumption is wrong, or None if consistent.
+    """
+    q_lower = question.lower()
+
+    # Detect assumed direction
+    user_assumes_decline = any(k in q_lower for k in [
+        "decline", "decrease", "drop", "fell", "fall", "loss", "losing",
+        "went down", "going down", "reduced", "shrink", "shrunk",
+    ])
+    user_assumes_increase = any(k in q_lower for k in [
+        "increase", "growth", "grew", "rise", "rising", "went up", "going up",
+        "surge", "spike", "jumped", "soar",
+    ])
+
+    if user_assumes_decline and actual_direction == "increased":
+        return (
+            f"⚠ PREMISE CHALLENGE: The question assumes '{metric_name}' declined, "
+            f"but the data shows it actually INCREASED by {abs(change_pct):.1f}%. "
+            f"The analysis below reflects the actual data direction."
+        )
+    elif user_assumes_increase and actual_direction == "decreased":
+        return (
+            f"⚠ PREMISE CHALLENGE: The question assumes '{metric_name}' increased, "
+            f"but the data shows it actually DECREASED by {abs(change_pct):.1f}%. "
+            f"The analysis below reflects the actual data direction."
+        )
+    elif (user_assumes_decline or user_assumes_increase) and actual_direction == "remained unchanged":
+        assumed = "decline" if user_assumes_decline else "increase"
+        return (
+            f"⚠ PREMISE CHALLENGE: The question assumes a {assumed} in '{metric_name}', "
+            f"but the data shows NO SIGNIFICANT CHANGE ({change_pct:+.1f}%). "
+            f"The assumption is not supported by the dataset."
+        )
+
+    return None
+
+
+
 
 def generate_grounded_hypotheses(
     ctx: DatasetContext,

@@ -145,21 +145,27 @@ class EvidenceLedgerService:
             return 0.10, breakdown
 
         # 1. Statistical Evidence (35%)
-        stat_items = [e for e in evidence_items if e.source_type == "statistical"]
+        stat_items = [
+            e for e in evidence_items
+            if e.source_type == "statistical" or e.analysis_type == "STATISTICAL_HYPOTHESIS_TEST"
+        ]
         if stat_items:
             valid_stats = []
             for s in stat_items:
                 sm = s.statistical_metrics
                 p_val = getattr(sm, "p_value", None) if hasattr(sm, "p_value") else (sm.get("p_value") if isinstance(sm, dict) else None)
-                if p_val is not None and p_val < 0.05:
+                if p_val is not None and p_val < 0.05 and s.supports_claim:
                     valid_stats.append(s)
-            stat_score = 0.35 * (len(valid_stats) / len(stat_items)) if stat_items else 0.15
+            stat_score = 0.35 * (len(valid_stats) / len(stat_items))
         else:
-            stat_score = 0.15  # Partial baseline if only observational queries
+            stat_score = 0.05  # Minimal observational score if no statistical tests possible
 
         # 2. Data Coverage (20%)
-        dataset_items = [e for e in evidence_items if e.source_type == "dataset"]
-        data_score = 0.20 if len(dataset_items) >= 2 else (0.12 if len(dataset_items) == 1 else 0.0)
+        dataset_items = [
+            e for e in evidence_items
+            if e.source_type == "dataset" and e.analysis_type != "STATISTICAL_HYPOTHESIS_TEST"
+        ]
+        data_score = 0.20 if len(dataset_items) >= 2 else (0.10 if len(dataset_items) == 1 else 0.0)
 
         # 3. Evidence Consistency (15%)
         supporting_items = [e for e in evidence_items if e.supports_claim]
@@ -167,8 +173,8 @@ class EvidenceLedgerService:
         consistency_score = 0.15 * consistency_ratio
 
         # 4. Document / Context Support (10%)
-        doc_items = [e for e in evidence_items if e.source_type == "document"]
-        doc_score = 0.10 if len(doc_items) >= 1 else 0.05
+        doc_items = [e for e in evidence_items if e.source_type == "document" and getattr(e, "document_citation", None)]
+        doc_score = 0.10 if len(doc_items) >= 1 else 0.0
 
         # 5. Critic Validation (10%)
         critic_score = 0.10 if has_critic_pass else 0.0
@@ -178,19 +184,23 @@ class EvidenceLedgerService:
 
         raw_conf = stat_score + data_score + consistency_score + doc_score + critic_score + contradiction_penalty
 
-        # Sample size calibration multiplier
+        # Sample size calibration multiplier and hard ceilings
+        max_ceiling = 0.99
         if sample_size is not None:
             if sample_size < 10:
-                sample_multiplier = 0.72  # Small exploratory sample size (e.g. n=8) -> caps ~0.65 - 0.70
+                sample_multiplier = 0.60
+                max_ceiling = 0.55  # Hard cap for tiny exploratory sample
             elif sample_size < 30:
-                sample_multiplier = 0.85
+                sample_multiplier = 0.80
+                max_ceiling = 0.70  # Hard cap for exploratory sample (<30)
             elif sample_size < 100:
                 sample_multiplier = 0.95
+                max_ceiling = 0.90
             else:
                 sample_multiplier = 1.0
             raw_conf = raw_conf * sample_multiplier
 
-        final_conf = max(0.10, min(0.99, raw_conf))
+        final_conf = max(0.10, min(max_ceiling, raw_conf))
 
         breakdown = ConfidenceCalibrationBreakdown(
             statistical_evidence_score=round(stat_score, 3),

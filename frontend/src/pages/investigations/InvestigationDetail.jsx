@@ -93,7 +93,7 @@ export default function InvestigationDetail() {
         setActiveTab('timeline')
       } else if (detail.status === 'FAILED') {
         setActiveTab('timeline')
-      } else if (detail.status === 'COMPLETED' && activeTab === 'timeline') {
+      } else if (['COMPLETED', 'COMPLETED_WITH_LIMITATIONS', 'INSUFFICIENT_DATA'].includes(detail.status) && activeTab === 'timeline') {
         setActiveTab('overview')
       }
     }
@@ -148,14 +148,14 @@ export default function InvestigationDetail() {
           if (data.failure_reason) setStreamFailureReason(data.failure_reason)
           if (data.execution_id) setStreamExecutionId(data.execution_id)
 
-          if (data.status === 'COMPLETED' || data.status === 'FAILED') {
+          if (['COMPLETED', 'COMPLETED_WITH_LIMITATIONS', 'INSUFFICIENT_DATA', 'FAILED'].includes(data.status)) {
             toast?.show(data.message || 'Investigation concluded', data.status === 'FAILED' ? 'error' : 'info')
             if (eventSourceRef.current) {
               eventSourceRef.current.close()
               eventSourceRef.current = null
             }
             queryClient.invalidateQueries(['investigation-detail', id])
-            if (data.status === 'COMPLETED') setActiveTab('overview')
+            if (['COMPLETED', 'COMPLETED_WITH_LIMITATIONS', 'INSUFFICIENT_DATA'].includes(data.status)) setActiveTab('overview')
             else setActiveTab('timeline')
           }
         } else if (data.type === 'agent_activity' && data.activity) {
@@ -343,7 +343,7 @@ export default function InvestigationDetail() {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
           {STAGES.map((s, idx) => {
             const isCurrent = streamStage === s.id && isRunning
-            const isPassed = !isRunning && currentStatus === 'COMPLETED'
+            const isPassed = !isRunning && ['COMPLETED', 'COMPLETED_WITH_LIMITATIONS', 'INSUFFICIENT_DATA'].includes(currentStatus)
             return (
               <div
                 key={s.id}

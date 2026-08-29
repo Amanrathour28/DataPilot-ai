@@ -58,8 +58,11 @@ export default function RootCausePanel({
       {activeTab === 'ranking' && (
         <div className="space-y-4">
           {rootCauses.length === 0 ? (
-            <div className="card text-center py-12 text-slate-500 text-xs border border-slate-800">
-              Root causes are being synthesized from the evidence ledger.
+            <div className="card text-center py-12 text-slate-400 text-xs border border-slate-800 space-y-2">
+              <p className="font-semibold text-slate-300">No Statistical Root Causes Identified</p>
+              <p className="text-slate-500 max-w-md mx-auto">
+                The available dataset records do not exhibit sufficient dimensional variance or statistical significance to establish definite causal drivers.
+              </p>
             </div>
           ) : (
             <div className="space-y-4">

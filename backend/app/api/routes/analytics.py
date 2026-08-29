@@ -126,9 +126,11 @@ async def get_workspace_analytics_summary(
         )
         total_hypotheses = hyp_res.scalar() or 0
 
-    # Token and cost estimation (approx 1.8k tokens per agent step)
-    estimated_tokens = total_agent_runs * 1850 + total_investigations * 1200
-    estimated_cost_saved_usd = round(total_investigations * 15.5, 2) # Manual analyst hours equiv
+    # Metrics based on actual completed investigations
+    estimated_tokens = total_agent_runs * 1200 + completed_investigations * 800
+    # Benchmark: 1 completed autonomous investigation saves ~1.5 manual analyst hours ($50/hr equivalent)
+    estimated_analyst_hours = round(completed_investigations * 1.5, 1)
+    estimated_cost_saved_usd = round(estimated_analyst_hours * 50.0, 2)
 
     return {
         "workspace_id": workspace_id,
