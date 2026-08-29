@@ -32,6 +32,7 @@ export default function NewInvestigation() {
   const toast = useToast()
   const { activeWorkspace } = useWorkspaceStore()
   const [objective, setObjective] = useState('')
+  const [selectedDatasetId, setSelectedDatasetId] = useState('')
   const [loading, setLoading] = useState(false)
 
   // Fetch datasets to ensure at least one profiled dataset exists
@@ -59,10 +60,15 @@ export default function NewInvestigation() {
 
     setLoading(true)
     try {
-      const result = await investigationsApi.create(activeWorkspace.id, {
+      const payload = {
         objective: objective.trim(),
         workspace_id: activeWorkspace.id,
-      })
+      }
+      if (selectedDatasetId) {
+        payload.dataset_id = selectedDatasetId
+        payload.dataset_ids = [selectedDatasetId]
+      }
+      const result = await investigationsApi.create(activeWorkspace.id, payload)
       toast?.show('AI Agents launched successfully', 'success')
       navigate(`/investigations/${result.id}`)
     } catch (err) {
@@ -143,6 +149,27 @@ export default function NewInvestigation() {
           </div>
 
           <form onSubmit={handleLaunch} className="space-y-5">
+            {profiledDatasets.length > 1 && (
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
+                  <span>Target Dataset</span>
+                  <span className="text-[11px] text-slate-500 font-normal">Optional — defaults to all active datasets</span>
+                </label>
+                <select
+                  value={selectedDatasetId}
+                  onChange={(e) => setSelectedDatasetId(e.target.value)}
+                  className="input text-xs py-2 bg-[#0c0c18] border-slate-800 text-slate-200"
+                >
+                  <option value="">All active datasets ({profiledDatasets.length} datasets)</option>
+                  {profiledDatasets.map((ds) => (
+                    <option key={ds.id} value={ds.id}>
+                      {ds.original_filename || ds.name} ({ds.row_count || 0} rows)
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <div className="space-y-2">
               <label className="text-xs font-semibold text-slate-400">
                 What would you like the agents to investigate?

@@ -557,3 +557,165 @@ async def debug_investigation(
             for e in events
         ],
     }
+
+
+@router.post("/{investigation_id}/replay", response_model=InvestigationResponse, status_code=status.HTTP_201_CREATED)
+async def replay_investigation(
+    investigation_id: str,
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Replay an investigation using the original question and current dataset state.
+
+    Creates a new investigation record with parent_id set to the original, generates
+    a fresh execution_id, and kicks off autonomous worker execution.
+    """
+    res = await db.execute(select(Investigation).where(Investigation.id == investigation_id))
+    original = res.scalar_one_or_none()
+    if not original:
+        raise HTTPException(status_code=404, detail="Original investigation not found")
+
+    await _assert_workspace_access(original.workspace_id, current_user, db)
+
+    replayed = Investigation(
+        workspace_id=original.workspace_id,
+        created_by=current_user.id,
+        objective=original.objective,
+        parent_id=original.id,
+        status="QUEUED",
+    )
+    db.add(replayed)
+    await db.commit()
+    await db.refresh(replayed)
+
+    worker = InvestigationWorker(worker_id="replay_init")
+    await worker.record_event(
+        db,
+        replayed.id,
+        agent="Supervisor Agent",
+        event_type="STARTED",
+        message=f"Replay execution spawned from parent investigation {original.id[:8]}...",
+        details={"parent_id": original.id, "status": "QUEUED"},
+    )
+
+    background_tasks.add_task(ensure_worker_running, replayed.id)
+    return replayed
+
+
+@router.post("/{investigation_id}/pause")
+async def pause_investigation(
+    investigation_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Pause an active investigation."""
+    res = await db.execute(select(Investigation).where(Investigation.id == investigation_id))
+    inv = res.scalar_one_or_none()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Investigation not found")
+
+    await _assert_workspace_access(inv.workspace_id, current_user, db)
+
+    from app.services.investigation_service import pause_investigation_run, broadcast_event
+    pause_investigation_run(investigation_id)
+
+    inv.status = "PAUSED"
+    await db.commit()
+
+    broadcast_event(investigation_id, {"type": "status", "status": "PAUSED", "message": "Investigation paused by user."})
+    return {"status": "PAUSED", "investigation_id": investigation_id}
+
+
+@router.post("/{investigation_id}/resume")
+async def resume_investigation(
+    investigation_id: str,
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Resume a paused investigation."""
+    res = await db.execute(select(Investigation).where(Investigation.id == investigation_id))
+    inv = res.scalar_one_or_none()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Investigation not found")
+
+    await _assert_workspace_access(inv.workspace_id, current_user, db)
+
+    from app.services.investigation_service import resume_investigation_run, broadcast_event
+    resume_investigation_run(investigation_id)
+
+    inv.status = inv.last_completed_stage or "RUNNING"
+    await db.commit()
+
+    broadcast_event(investigation_id, {"type": "status", "status": inv.status, "message": "Investigation resumed."})
+    background_tasks.add_task(ensure_worker_running, investigation_id)
+    return {"status": inv.status, "investigation_id": investigation_id}
+
+
+@router.post("/{investigation_id}/cancel")
+async def cancel_investigation(
+    investigation_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cancel an active or queued investigation."""
+    res = await db.execute(select(Investigation).where(Investigation.id == investigation_id))
+    inv = res.scalar_one_or_none()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Investigation not found")
+
+    await _assert_workspace_access(inv.workspace_id, current_user, db)
+
+    from app.services.investigation_service import cancel_investigation_run, broadcast_event
+    cancel_investigation_run(investigation_id)
+
+    inv.status = "CANCELLED"
+    inv.locked_by = None
+    inv.lock_expires_at = None
+    await db.commit()
+
+    broadcast_event(investigation_id, {"type": "status", "status": "CANCELLED", "message": "Investigation cancelled by user."})
+    return {"status": "CANCELLED", "investigation_id": investigation_id}
+
+
+@router.get("/{investigation_id}/evidence")
+async def get_investigation_evidence(
+    investigation_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get all evidence items for an investigation."""
+    res = await db.execute(select(Investigation).where(Investigation.id == investigation_id))
+    inv = res.scalar_one_or_none()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Investigation not found")
+
+    await _assert_workspace_access(inv.workspace_id, current_user, db)
+
+    e_res = await db.execute(
+        select(EvidenceItem)
+        .where(EvidenceItem.investigation_id == investigation_id)
+        .order_by(EvidenceItem.created_at.asc())
+    )
+    items = e_res.scalars().all()
+    return [
+        {
+            "id": item.id,
+            "claim": item.claim,
+            "source_type": item.source_type,
+            "source_name": item.source_name,
+            "analysis_type": item.analysis_type,
+            "query_or_method": item.query_or_method,
+            "result_summary": item.result_summary,
+            "statistical_metrics": item.statistical_metrics,
+            "document_citation": item.document_citation,
+            "causal_classification": item.causal_classification,
+            "confidence": item.confidence,
+            "supports_claim": item.supports_claim,
+            "created_by_agent": item.created_by_agent,
+            "created_at": item.created_at.isoformat() if item.created_at else None,
+        }
+        for item in items
+    ]
+

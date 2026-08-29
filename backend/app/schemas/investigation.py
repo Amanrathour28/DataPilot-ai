@@ -6,6 +6,8 @@ from pydantic import BaseModel, ConfigDict
 class InvestigationCreate(BaseModel):
     objective: str
     workspace_id: Optional[str] = None
+    dataset_ids: Optional[List[str]] = None
+    dataset_id: Optional[str] = None
 
 
 class FindingResponse(BaseModel):

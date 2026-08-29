@@ -140,8 +140,23 @@ def _load_dataframe(dataset: Dataset, profile: Optional[DatasetProfile]) -> Opti
         except Exception as read_err:
             logger.warning(f"[DatasetContext] Failed to read disk file {dataset.file_path}: {read_err}")
 
-    # 2. Fallback to profile sample_rows (Vercel serverless / missing file)
-    if profile and profile.sample_rows:
+    # 2. Try persisted raw_data from database (production serverless safe)
+    if df is None and getattr(dataset, "raw_data", None):
+        ext = (dataset.file_extension or "").lower()
+        try:
+            import io
+            if ext == ".json":
+                df = pd.read_json(io.StringIO(dataset.raw_data))
+            else:
+                df = pd.read_csv(io.StringIO(dataset.raw_data))
+            if df is not None:
+                logger.info(f"[DatasetContext] Loaded {len(df)} rows from dataset.raw_data for {dataset.id}")
+                return df
+        except Exception as raw_err:
+            logger.warning(f"[DatasetContext] Failed to parse dataset.raw_data for {dataset.id}: {raw_err}")
+
+    # 3. Fallback to profile sample_rows (Vercel serverless / missing file)
+    if df is None and profile and profile.sample_rows:
         sdata = profile.sample_rows
         if isinstance(sdata, str):
             try:
@@ -153,7 +168,7 @@ def _load_dataframe(dataset: Dataset, profile: Optional[DatasetProfile]) -> Opti
             logger.info(f"[DatasetContext] Loaded {len(df)} rows from profile sample_rows for {dataset.id}")
             return df
 
-    logger.warning(f"[DatasetContext] Could not load dataset {dataset.id} — no disk file and no sample rows available")
+    logger.warning(f"[DatasetContext] Could not load dataset {dataset.id} — no disk file, no raw_data, and no sample rows available")
     return None
 
 
@@ -281,6 +296,7 @@ async def build_dataset_context(
     question: str,
     db: AsyncSession,
     dataset_id: Optional[str] = None,
+    dataset_ids: Optional[List[str]] = None,
 ) -> Optional[DatasetContext]:
     """
     Build a DatasetContext from the actual uploaded dataset in the workspace.
@@ -289,13 +305,18 @@ async def build_dataset_context(
     This is the single source of truth for dataset loading.
     All agents must use this context rather than loading data independently.
     """
+    target_ids = list(dataset_ids) if dataset_ids else ([dataset_id] if dataset_id else [])
+
     # Fetch dataset(s)
-    if dataset_id:
+    if target_ids:
         ds_res = await db.execute(
-            select(Dataset).where(Dataset.id == dataset_id, Dataset.is_deleted == False)
+            select(Dataset).where(
+                Dataset.id.in_(target_ids),
+                Dataset.workspace_id == workspace_id,
+                Dataset.is_deleted == False
+            )
         )
-        datasets = [ds_res.scalar_one_or_none()]
-        datasets = [d for d in datasets if d is not None]
+        datasets = ds_res.scalars().all()
     else:
         ds_res = await db.execute(
             select(Dataset).where(

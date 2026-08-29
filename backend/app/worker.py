@@ -38,6 +38,7 @@ from app.services.dataset_context import (
     test_hypothesis_on_real_data,
     DatasetContext,
 )
+from dataclasses import dataclass, field
 from app.schemas.investigation_state import EvidenceItemSchema, StatisticalMetric, DocumentCitation
 from app.tools.python_executor import PythonExecutor
 from app.core.config import settings
@@ -45,6 +46,20 @@ from app.core.config import settings
 logger = logging.getLogger("datapilot.worker")
 
 LEASE_DURATION_SECONDS = getattr(settings, "workflow_lease_seconds", 120)
+
+
+@dataclass
+class InvestigationExecutionContext:
+    """Explicit strongly typed execution context for all tasks in an investigation run."""
+    investigation_id: str
+    workspace_id: str
+    objective: str
+    execution_id: str
+    attempt_number: int = 1
+    user_id: Optional[str] = None
+    dataset_ids: List[str] = field(default_factory=list)
+    ctx: Optional[DatasetContext] = None
+    analytics: Dict[str, Any] = field(default_factory=dict)
 
 
 class LeaseLostError(Exception):
@@ -226,16 +241,30 @@ class InvestigationWorker:
 
     # ── EMPIRICAL DATA ANALYSIS ENGINE ──────────────────────────────────────────
     async def _analyze_workspace_data(
-        self, db: AsyncSession, workspace_id: str, objective: Optional[str] = None
+        self,
+        db: AsyncSession,
+        workspace_id: str,
+        objective: Optional[str] = None,
+        dataset_ids: Optional[List[str]] = None,
     ) -> Tuple[Optional[pd.DataFrame], Dict[str, Any], List[Dataset], Optional[DatasetContext]]:
         """Loads workspace datasets and executes empirical schema-aware, question-driven analysis."""
-        datasets_res = await db.execute(
-            select(Dataset).where(
-                Dataset.workspace_id == workspace_id,
-                Dataset.status.in_(["PROFILED", "UPLOADED"]),
-                Dataset.is_deleted == False,
-            ).order_by(Dataset.updated_at.desc())
-        )
+        target_ids = list(dataset_ids) if dataset_ids else []
+        if target_ids:
+            datasets_res = await db.execute(
+                select(Dataset).where(
+                    Dataset.id.in_(target_ids),
+                    Dataset.workspace_id == workspace_id,
+                    Dataset.is_deleted == False
+                )
+            )
+        else:
+            datasets_res = await db.execute(
+                select(Dataset).where(
+                    Dataset.workspace_id == workspace_id,
+                    Dataset.status.in_(["PROFILED", "UPLOADED"]),
+                    Dataset.is_deleted == False,
+                ).order_by(Dataset.updated_at.desc())
+            )
         datasets = datasets_res.scalars().all()
         if not datasets:
             return None, {}, [], None
@@ -244,6 +273,7 @@ class InvestigationWorker:
             workspace_id=workspace_id,
             question=objective or "",
             db=db,
+            dataset_ids=target_ids or None,
         )
         if not ctx or ctx.get_df() is None:
             return None, {}, datasets, None
@@ -253,10 +283,19 @@ class InvestigationWorker:
 
     # ── AGENT TASK EXECUTORS ───────────────────────────────────────────────────
     async def _execute_data_analyst_task(
-        self, db: AsyncSession, inv: Investigation, task: InvestigationTask
+        self,
+        db: AsyncSession,
+        inv: Investigation,
+        task: InvestigationTask,
+        exec_context: InvestigationExecutionContext,
     ) -> Dict[str, Any]:
         """Executes targeted query and calculations on the actual dataset guided by the question."""
-        df, analytics, datasets, ctx = await self._analyze_workspace_data(db, inv.workspace_id, inv.objective)
+        df, analytics, datasets, ctx = await self._analyze_workspace_data(
+            db, inv.workspace_id, inv.objective, exec_context.dataset_ids
+        )
+        exec_context.ctx = ctx
+        exec_context.analytics = analytics or {}
+
         if not ctx or not analytics or not analytics.get("success", False):
             err_msg = analytics.get("error", "No structured tabular dataset found or data could not be parsed.") if analytics else "No dataset available."
             return {
@@ -271,7 +310,6 @@ class InvestigationWorker:
         source_name = ctx.dataset_name
 
         # 1. Add all data-grounded findings derived from actual calculations
-        # Confidence is evidence-calibrated: based on data completeness, sample size, and analysis type
         total_records = analytics.get("total_records", len(df) if df is not None else 0)
         null_ratio = sum(ctx.null_counts.values()) / max(total_records * len(ctx.all_columns), 1)
         base_confidence = 0.90 if total_records >= 100 else (0.75 if total_records >= 30 else 0.55)
@@ -285,7 +323,22 @@ class InvestigationWorker:
                 "causal_classification": "OBSERVATION",
                 "impact": "HIGH" if total_records >= 30 else "MEDIUM",
                 "source": source_name,
-                "evidence": analytics.get("aggregations", {})
+                "evidence": {
+                    "dataset_id": ctx.dataset_id,
+                    "dataset_name": source_name,
+                    "rows_used": total_records,
+                    "columns_used": analytics.get("columns_used", []),
+                    "analysis_type": analytics.get("analysis_type"),
+                    "aggregations": analytics.get("aggregations", {}),
+                    "provenance": {
+                        "dataset_id": ctx.dataset_id,
+                        "dataset_name": source_name,
+                        "total_records": total_records,
+                        "null_ratio": round(null_ratio, 4),
+                        "columns_used": analytics.get("columns_used", []),
+                        "calculation_method": analytics.get("analysis_description") or "Dynamic Empirical Aggregation",
+                    }
+                }
             })
 
         # Persist findings and evidence items into DB
@@ -340,10 +393,22 @@ class InvestigationWorker:
         }
 
     async def _execute_hypothesis_agent_task(
-        self, db: AsyncSession, inv: Investigation, task: InvestigationTask
+        self,
+        db: AsyncSession,
+        inv: Investigation,
+        task: InvestigationTask,
+        exec_context: InvestigationExecutionContext,
     ) -> Dict[str, Any]:
         """Formulates testable causal hypotheses grounded strictly in empirical dataset columns."""
-        _, analytics, _, ctx = await self._analyze_workspace_data(db, inv.workspace_id, inv.objective)
+        ctx = exec_context.ctx
+        analytics = exec_context.analytics
+        if not ctx or not analytics:
+            _, analytics, _, ctx = await self._analyze_workspace_data(
+                db, inv.workspace_id, inv.objective, exec_context.dataset_ids
+            )
+            exec_context.ctx = ctx
+            exec_context.analytics = analytics or {}
+
         if not ctx:
             return {"hypotheses": []}
 
@@ -389,10 +454,21 @@ class InvestigationWorker:
         }
 
     async def _execute_hypothesis_tester_task(
-        self, db: AsyncSession, inv: Investigation, task: InvestigationTask
+        self,
+        db: AsyncSession,
+        inv: Investigation,
+        task: InvestigationTask,
+        exec_context: InvestigationExecutionContext,
     ) -> Dict[str, Any]:
         """Runs deterministic statistical significance tests on real dataset values."""
-        _, analytics, _, ctx = await self._analyze_workspace_data(db, inv.workspace_id, inv.objective)
+        ctx = exec_context.ctx
+        if not ctx:
+            _, analytics, _, ctx = await self._analyze_workspace_data(
+                db, inv.workspace_id, inv.objective, exec_context.dataset_ids
+            )
+            exec_context.ctx = ctx
+            exec_context.analytics = analytics or {}
+
         if not ctx:
             return {"tests": [], "sample_size": 0, "reliability": "UNKNOWN"}
 
@@ -579,7 +655,11 @@ class InvestigationWorker:
         }
 
     async def _execute_critic_task(
-        self, db: AsyncSession, inv: Investigation, task: InvestigationTask
+        self,
+        db: AsyncSession,
+        inv: Investigation,
+        task: InvestigationTask,
+        exec_context: InvestigationExecutionContext,
     ) -> Dict[str, Any]:
         """Genuine adversarial critic that validates evidence integrity, column references, and statistical claims."""
         f_res = await db.execute(select(Finding).where(Finding.investigation_id == inv.id))
@@ -590,7 +670,13 @@ class InvestigationWorker:
         evidence_items = e_res.scalars().all()
 
         # Load dataset context for column validation
-        _, _, _, ctx = await self._analyze_workspace_data(db, inv.workspace_id, inv.objective)
+        ctx = exec_context.ctx
+        if not ctx:
+            _, _, _, ctx = await self._analyze_workspace_data(
+                db, inv.workspace_id, inv.objective, exec_context.dataset_ids
+            )
+            exec_context.ctx = ctx
+
         available_columns = set(ctx.all_columns) if ctx else set()
 
         issues = []
@@ -739,10 +825,22 @@ class InvestigationWorker:
 
 
     async def _execute_report_agent_task(
-        self, db: AsyncSession, inv: Investigation, task: InvestigationTask
+        self,
+        db: AsyncSession,
+        inv: Investigation,
+        task: InvestigationTask,
+        exec_context: InvestigationExecutionContext,
     ) -> Dict[str, Any]:
         """Synthesizes the comprehensive Executive Investigation Report strictly from real dataset evidence."""
-        df, analytics, datasets, ctx = await self._analyze_workspace_data(db, inv.workspace_id, inv.objective)
+        ctx = exec_context.ctx
+        analytics = exec_context.analytics
+        if not ctx or not analytics:
+            df, analytics, datasets, ctx = await self._analyze_workspace_data(
+                db, inv.workspace_id, inv.objective, exec_context.dataset_ids
+            )
+            exec_context.ctx = ctx
+            exec_context.analytics = analytics or {}
+
         if not ctx:
             return {"report_markdown": "# Investigation Report\n\nNo dataset found in workspace.", "sections_generated": []}
 
@@ -936,21 +1034,25 @@ class InvestigationWorker:
         }
 
     async def _execute_real_agent_task(
-        self, db: AsyncSession, inv: Investigation, task: InvestigationTask
+        self,
+        db: AsyncSession,
+        inv: Investigation,
+        task: InvestigationTask,
+        exec_context: InvestigationExecutionContext,
     ) -> Dict[str, Any]:
-        """Routes task execution to the appropriate domain agent."""
+        """Routes task execution to the appropriate domain agent with explicit execution context."""
         if task.agent == "data_analyst":
-            return await self._execute_data_analyst_task(db, inv, task)
+            return await self._execute_data_analyst_task(db, inv, task, exec_context)
         elif task.agent == "hypothesis_agent":
-            return await self._execute_hypothesis_agent_task(db, inv, task)
+            return await self._execute_hypothesis_agent_task(db, inv, task, exec_context)
         elif task.agent == "hypothesis_tester":
-            return await self._execute_hypothesis_tester_task(db, inv, task)
+            return await self._execute_hypothesis_tester_task(db, inv, task, exec_context)
         elif task.agent == "rag_agent":
             return await self._execute_rag_agent_task(db, inv, task)
         elif task.agent == "critic":
-            return await self._execute_critic_task(db, inv, task)
+            return await self._execute_critic_task(db, inv, task, exec_context)
         elif task.agent == "report_agent":
-            return await self._execute_report_agent_task(db, inv, task)
+            return await self._execute_report_agent_task(db, inv, task, exec_context)
         else:
             return {"status": "ok"}
 
@@ -961,6 +1063,15 @@ class InvestigationWorker:
             acquired, exec_id, inv = await self.acquire_lease(db, investigation_id)
             if not acquired or not inv or not exec_id:
                 return False
+
+            exec_context = InvestigationExecutionContext(
+                investigation_id=investigation_id,
+                workspace_id=inv.workspace_id,
+                user_id=inv.created_by,
+                objective=inv.objective,
+                execution_id=exec_id,
+                attempt_number=inv.attempt_number,
+            )
 
             try:
                 await self.record_event(
@@ -1109,7 +1220,7 @@ class InvestigationWorker:
 
                     start_time = utcnow()
                     try:
-                        result_data = await self._execute_real_agent_task(db, inv, pending_task)
+                        result_data = await self._execute_real_agent_task(db, inv, pending_task, exec_context)
 
                         pending_task.status = "COMPLETED"
                         pending_task.completed_at = utcnow()
@@ -1119,9 +1230,11 @@ class InvestigationWorker:
                         await db.commit()
 
                     except Exception as task_err:
-                        logger.error(f"Task {pending_task.id} ({pending_task.agent}) failed: {task_err}")
+                        import traceback
+                        tb_str = traceback.format_exc()
+                        logger.error(f"Task {pending_task.id} ({pending_task.agent}) failed: {task_err}\nTraceback:\n{tb_str}")
                         pending_task.retry_count += 1
-                        pending_task.error = str(task_err)
+                        pending_task.error = f"{str(task_err)}\n{tb_str[:400]}"
 
                         if pending_task.retry_count <= pending_task.max_retries:
                             backoff_seconds = 5 if pending_task.retry_count == 1 else 15
@@ -1279,6 +1392,7 @@ class InvestigationWorker:
                 has_valid_findings = len(all_findings) > 0
                 has_valid_report = report_md is not None and len(report_md.strip()) > 100
                 critic_failed = critic_rev and critic_rev.verdict == "FAIL"
+                ctx = exec_context.ctx
 
                 if not has_valid_findings or critic_failed:
                     final_status = "INSUFFICIENT_DATA"
