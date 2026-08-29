@@ -47,15 +47,16 @@ function FileItem({ file, progress, status, error, onRemove }) {
   )
 }
 
-export default function UploadDropzone({ onUpload, workspaceId }) {
+export default function UploadDropzone({ onUpload, onBatchComplete, workspaceId }) {
   const [queue, setQueue] = useState([]) // { file, progress, status, error }
+  const [isProcessingBatch, setIsProcessingBatch] = useState(false)
 
   const onDrop = useCallback((accepted, rejected) => {
     const newItems = accepted.map(f => ({ file: f, progress: 0, status: 'pending', error: null }))
     setQueue(q => [...q, ...newItems])
 
     rejected.forEach(({ file, errors }) => {
-      const err = errors[0]?.message || 'Invalid file'
+      const err = errors[0]?.message || 'Invalid file type or size exceeded'
       setQueue(q => [...q, { file, progress: 0, status: 'error', error: err }])
     })
   }, [])
@@ -72,19 +73,30 @@ export default function UploadDropzone({ onUpload, workspaceId }) {
 
   const uploadAll = async () => {
     const pending = queue.filter(i => i.status === 'pending')
+    if (pending.length === 0) return
+
+    setIsProcessingBatch(true)
+    const results = []
 
     for (const item of pending) {
-      setQueue(q => q.map(i => i.file === item.file ? { ...i, status: 'uploading' } : i))
+      setQueue(q => q.map(i => i.file === item.file ? { ...i, status: 'uploading', error: null } : i))
 
       try {
-        await onUpload(item.file, (pct) => {
+        const res = await onUpload(item.file, (pct) => {
           setQueue(q => q.map(i => i.file === item.file ? { ...i, progress: pct } : i))
         })
         setQueue(q => q.map(i => i.file === item.file ? { ...i, status: 'done', progress: 100 } : i))
+        results.push({ file: item.file, status: 'done', data: res })
       } catch (err) {
-        const msg = err.response?.data?.detail || 'Upload failed'
+        const msg = err.userMessage || err.response?.data?.detail || err.message || 'Upload failed'
         setQueue(q => q.map(i => i.file === item.file ? { ...i, status: 'error', error: msg } : i))
+        results.push({ file: item.file, status: 'error', error: msg })
       }
+    }
+
+    setIsProcessingBatch(false)
+    if (onBatchComplete) {
+      await onBatchComplete(results)
     }
   }
 
@@ -140,10 +152,10 @@ export default function UploadDropzone({ onUpload, workspaceId }) {
             <Button
               variant="primary"
               onClick={uploadAll}
-              loading={uploadingCount > 0}
+              loading={isProcessingBatch || uploadingCount > 0}
               className="w-full mt-2"
             >
-              {uploadingCount > 0 ? 'Uploading…' : `Upload ${pendingCount} file${pendingCount > 1 ? 's' : ''}`}
+              {isProcessingBatch || uploadingCount > 0 ? 'Uploading files…' : `Upload ${pendingCount} file${pendingCount > 1 ? 's' : ''}`}
             </Button>
           )}
         </div>

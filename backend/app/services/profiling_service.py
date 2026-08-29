@@ -114,18 +114,26 @@ def _get_sample_values(series: pd.Series, n: int = 5) -> list[Any]:
 
 
 def _load_dataframe(file_path: str, file_extension: str) -> pd.DataFrame:
-    """Load a dataset file into a Pandas DataFrame."""
+    """Load a dataset file into a Pandas DataFrame safely."""
     path = Path(file_path)
     ext = file_extension.lower()
 
     if ext == ".csv":
-        return pd.read_csv(path, low_memory=False)
+        df = pd.read_csv(path, low_memory=False)
     elif ext in (".xlsx", ".xls"):
-        return pd.read_excel(path)
+        engine = "openpyxl" if ext == ".xlsx" else None
+        xl_file = pd.ExcelFile(path, engine=engine)
+        sheet_names = xl_file.sheet_names
+        target_sheet = sheet_names[0] if sheet_names else 0
+        df = xl_file.parse(sheet_name=target_sheet)
     elif ext == ".json":
-        return pd.read_json(path)
+        df = pd.read_json(path)
     else:
         raise ValueError(f"Unsupported file extension: {ext}")
+
+    # Ensure all column names are non-empty strings
+    df.columns = [str(c).strip() if pd.notna(c) else f"Column_{i+1}" for i, c in enumerate(df.columns)]
+    return df
 
 
 def profile_dataframe(df: pd.DataFrame, dataset_name: str) -> dict[str, Any]:

@@ -772,22 +772,6 @@ class InvestigationWorker:
                 "Data Quality Summary",
                 "Recommended Actions"
             ]
-        }ction value expansion strategies across all territories.
-3. **Expand Data Ingestion**: Ingest customer segment and product category dimensions into the tabular dataset to enable granular multi-dimensional root cause attribution in subsequent periods.
-"""
-
-        await self.record_event(
-            db, inv.id, "Report Agent", "COMPLETED",
-            f"Synthesized comprehensive 12-section Executive Root Cause Report with reality check validation, mathematical gross decomposition, and data sufficiency summary.",
-            {"report_length": len(report_md)}
-        )
-
-        return {
-            "report_markdown": report_md,
-            "reality_check": rc,
-            "data_quality": dq,
-            "metrics": m,
-            "sections_generated": ["Investigation Summary", "Executive Answer", "Reality Check", "Key Metrics", "Key Findings", "Regional Analysis", "Segment & Product Analysis", "Hypotheses Tested", "Statistical Reliability", "Knowledge Base Evidence", "Root Cause Ranking", "Data Quality Summary", "Recommended Actions"]
         }
 
     async def _execute_real_agent_task(

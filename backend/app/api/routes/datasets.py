@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, BackgroundTasks, Query
+import logging
+from typing import List, Dict, Any
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, BackgroundTasks, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -12,6 +14,8 @@ from app.services.profiling_service import run_profiling
 from app.services.dataset_relationship_service import dataset_relationship_service
 from app.services.semantic_dataset_service import semantic_dataset_service
 
+logger = logging.getLogger("datapilot.datasets_route")
+
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
 
@@ -23,20 +27,78 @@ async def upload_dataset(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Upload a dataset file (CSV, XLSX, JSON) to a workspace."""
+    """Upload a single dataset file (CSV, XLSX, JSON) to a workspace."""
+    logger.info(
+        f"[Dataset Upload] Initiated filename='{file.filename}' workspace_id={workspace_id} user_id={current_user.id}"
+    )
     dataset = await dataset_service.save_dataset_file(
         file=file,
         workspace_id=workspace_id,
         user_id=current_user.id,
         db=db,
     )
-    try:
-        await run_profiling(dataset.id)
-        await db.refresh(dataset)
-    except Exception as prof_err:
-        logger.warning(f"Inline dataset profiling exception: {prof_err}, scheduling background fallback")
-        background_tasks.add_task(run_profiling, dataset.id)
+
+    # Schedule detailed profiling in the background to keep the HTTP upload fast and resilient
+    background_tasks.add_task(run_profiling, dataset.id)
+    
+    logger.info(
+        f"[Dataset Upload] Successfully saved dataset id={dataset.id} name='{dataset.name}' rows={dataset.row_count} cols={dataset.column_count}"
+    )
     return dataset
+
+
+@router.post("/upload-batch", status_code=201)
+async def upload_datasets_batch(
+    workspace_id: str = Query(..., description="Target workspace ID"),
+    files: List[UploadFile] = File(..., description="List of dataset files to upload"),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload multiple dataset files concurrently with per-file isolation. Partial failures do not break the batch."""
+    logger.info(
+        f"[Batch Upload] Initiated {len(files)} files for workspace_id={workspace_id} user_id={current_user.id}"
+    )
+    successful = []
+    failed = []
+
+    for file in files:
+        filename = file.filename or "unknown"
+        try:
+            dataset = await dataset_service.save_dataset_file(
+                file=file,
+                workspace_id=workspace_id,
+                user_id=current_user.id,
+                db=db,
+            )
+            background_tasks.add_task(run_profiling, dataset.id)
+            successful.append({
+                "id": dataset.id,
+                "name": dataset.name,
+                "original_filename": dataset.original_filename,
+                "file_size_bytes": dataset.file_size_bytes,
+                "row_count": dataset.row_count,
+                "column_count": dataset.column_count,
+                "status": dataset.status,
+            })
+            logger.info(f"[Batch Upload] Successfully saved file: {filename} (id={dataset.id})")
+        except Exception as e:
+            err_msg = getattr(e, "detail", str(e))
+            logger.warning(f"[Batch Upload] Failed to process file '{filename}': {err_msg}")
+            failed.append({
+                "filename": filename,
+                "error": str(err_msg),
+            })
+
+    logger.info(
+        f"[Batch Upload] Completed for workspace_id={workspace_id}: {len(successful)} successful, {len(failed)} failed"
+    )
+    return {
+        "successful": successful,
+        "failed": failed,
+        "total_uploaded": len(successful),
+        "total_failed": len(failed),
+    }
 
 
 @router.get("", response_model=list[DatasetResponse])
@@ -45,12 +107,15 @@ async def list_datasets(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all datasets in a workspace."""
-    return await dataset_service.get_datasets_for_workspace(
+    """List all datasets in a workspace. Returns 200 OK with [] when empty."""
+    logger.info(f"[Dataset List] Fetching datasets for workspace_id={workspace_id} user_id={current_user.id}")
+    datasets = await dataset_service.get_datasets_for_workspace(
         workspace_id=workspace_id,
         user_id=current_user.id,
         db=db,
     )
+    logger.info(f"[Dataset List] Returned {len(datasets)} datasets for workspace_id={workspace_id}")
+    return datasets
 
 
 @router.get("/relationships")

@@ -114,18 +114,66 @@ async def save_dataset_file(
             detail=f"File too large. Maximum allowed size is {settings.max_upload_size_mb} MB",
         )
 
-    # Extract raw data text representation for persistent storage in serverless environments
+    # Extract raw data text representation and immediate row/column counts
     raw_data_str = None
-    if size <= 10 * 1024 * 1024:  # up to 10MB stored directly in DB for zero-loss serverless persistence
-        try:
-            if ext in [".csv", ".json"]:
-                raw_data_str = content.decode("utf-8", errors="replace")
-            elif ext in [".xlsx", ".xls"]:
-                import pandas as pd
-                excel_df = pd.read_excel(io.BytesIO(content))
-                raw_data_str = excel_df.to_csv(index=False)
-        except Exception as conv_err:
-            logger.warning(f"Could not convert raw data to text string: {conv_err}")
+    initial_row_count = None
+    initial_col_count = None
+
+    try:
+        import pandas as pd
+        if ext == ".csv":
+            raw_data_str = content.decode("utf-8", errors="replace")
+            try:
+                sample_df = pd.read_csv(io.StringIO(raw_data_str))
+                # Ensure column names are strings
+                sample_df.columns = [str(c).strip() for c in sample_df.columns]
+                initial_row_count = len(sample_df)
+                initial_col_count = len(sample_df.columns)
+            except Exception as csv_err:
+                logger.warning(f"Could not compute initial CSV metadata for {sanitized}: {csv_err}")
+        elif ext in [".xlsx", ".xls"]:
+            try:
+                engine = "openpyxl" if ext == ".xlsx" else None
+                # Read all sheets or first active sheet safely
+                xl_file = pd.ExcelFile(io.BytesIO(content), engine=engine)
+                sheet_names = xl_file.sheet_names
+                if not sheet_names:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Excel workbook '{original_name}' contains no worksheets."
+                    )
+                target_sheet = sheet_names[0]
+                
+                excel_df = xl_file.parse(sheet_name=target_sheet)
+                # Clean column headers
+                excel_df.columns = [str(c).strip() if pd.notna(c) else f"Column_{i+1}" for i, c in enumerate(excel_df.columns)]
+                initial_row_count = len(excel_df)
+                initial_col_count = len(excel_df.columns)
+                
+                # Persist CSV representation into raw_data for serverless resilience
+                if size <= 25 * 1024 * 1024:
+                    raw_data_str = excel_df.to_csv(index=False)
+            except HTTPException:
+                raise
+            except Exception as xl_err:
+                logger.warning(f"Could not parse Excel workbook during upload for {sanitized}: {xl_err}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unable to parse Excel workbook '{original_name}': {str(xl_err)}"
+                )
+        elif ext == ".json":
+            raw_data_str = content.decode("utf-8", errors="replace")
+            try:
+                json_df = pd.read_json(io.StringIO(raw_data_str))
+                json_df.columns = [str(c).strip() for c in json_df.columns]
+                initial_row_count = len(json_df)
+                initial_col_count = len(json_df.columns)
+            except Exception as json_err:
+                logger.warning(f"Could not compute initial JSON metadata for {sanitized}: {json_err}")
+    except HTTPException:
+        raise
+    except Exception as parse_err:
+        logger.warning(f"Non-fatal error during upload inspection for {sanitized}: {parse_err}")
 
     # Create DB record first to get an ID
     dataset_id = str(uuid.uuid4())
@@ -144,7 +192,9 @@ async def save_dataset_file(
         mime_type=file.content_type or "application/octet-stream",
         file_extension=ext,
         raw_data=raw_data_str,
-        status=DatasetStatus.UPLOADED.value,
+        row_count=initial_row_count,
+        column_count=initial_col_count,
+        status=DatasetStatus.PROFILED.value if (initial_row_count is not None) else DatasetStatus.UPLOADED.value,
     )
     db.add(dataset)
     await db.commit()
@@ -156,7 +206,7 @@ async def save_dataset_file(
     except Exception as disk_err:
         logger.warning(f"Could not persist file to disk (acceptable on read-only serverless): {disk_err}")
 
-    logger.info(f"Dataset {dataset_id} uploaded: {original_name} ({size} bytes, raw_data_len={len(raw_data_str) if raw_data_str else 0})")
+    logger.info(f"Dataset {dataset_id} saved: {original_name} ({size} bytes, rows={initial_row_count}, cols={initial_col_count})")
     return dataset
 
 

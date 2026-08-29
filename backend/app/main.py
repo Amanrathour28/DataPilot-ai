@@ -206,8 +206,9 @@ app.add_middleware(
     allow_origins=settings.allowed_origins_list,
     allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "Origin", "User-Agent", "DNT", "Cache-Control", "X-Mx-ReqToken", "X-Requested-With", "*"],
+    expose_headers=["*"],
 )
 
 
@@ -254,8 +255,9 @@ app.include_router(analytics.router, prefix="/api/v1")
 
 # ── Health & Schema Check ────────────────────────────────────────────────────
 @app.get("/health", tags=["health"])
+@app.get("/api/v1/health", tags=["health"])
 async def health_check():
-    return {"status": "ok", "app": settings.app_name, "version": "0.1.0"}
+    return {"status": "healthy", "app": settings.app_name, "version": "0.1.0"}
 
 
 @app.get("/api/v1/system/sync-schema", tags=["health"])

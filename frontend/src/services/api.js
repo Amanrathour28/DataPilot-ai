@@ -1,13 +1,15 @@
 import axios from 'axios'
 
 const getBaseUrl = () => {
-  const envUrl = import.meta.env.VITE_API_URL
-  if (envUrl && envUrl.trim() !== '') {
-    return envUrl.trim()
+  // Support both standard env variable naming conventions
+  const envUrl = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL
+  if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
+    return envUrl.trim().replace(/\/+$/, '')
   }
+  // In production browser environments without explicit env var, default to the current origin
+  // (vercel.json routes /api/* to the serverless Python backend on the same origin)
   if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-    // Production backend deployment on Vercel
-    return 'https://datapilot-backend-five.vercel.app'
+    return window.location.origin
   }
   return 'http://localhost:8000'
 }
@@ -17,36 +19,79 @@ const BASE_URL = getBaseUrl()
 const api = axios.create({
   baseURL: `${BASE_URL}/api/v1`,
   headers: { 'Content-Type': 'application/json' },
+  timeout: 90000, // 90s timeout for large dataset operations
 })
 
 // Attach JWT token to every request reliably
-api.interceptors.request.use((config) => {
-  let token = localStorage.getItem('datapilot_token')
-  if (!token) {
-    try {
-      const authStorage = localStorage.getItem('datapilot_auth')
-      if (authStorage) {
-        const parsed = JSON.parse(authStorage)
-        token = parsed?.state?.token
+api.interceptors.request.use(
+  (config) => {
+    let token = localStorage.getItem('datapilot_token')
+    if (!token) {
+      try {
+        const authStorage = localStorage.getItem('datapilot_auth')
+        if (authStorage) {
+          const parsed = JSON.parse(authStorage)
+          token = parsed?.state?.token
+        }
+      } catch {
+        // Ignore JSON parse errors
       }
-    } catch {
-      // Ignore JSON parse errors
     }
-  }
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
-  }
-  return config
-})
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`
+    }
 
-// Handle 401 globally — clear tokens cleanly
+    // Safe dev/diagnostic logging
+    if (import.meta.env.DEV) {
+      console.debug(`[API] ${config.method?.toUpperCase()} ${config.baseURL}${config.url}`)
+    }
+    return config
+  },
+  (error) => Promise.reject(error)
+)
+
+// Handle errors and map them to human-readable explanations
 api.interceptors.response.use(
   (res) => res,
   (error) => {
-    if (error.response?.status === 401) {
+    const status = error.response?.status
+    const url = error.config?.url || 'unknown'
+    const method = error.config?.method?.toUpperCase() || 'REQUEST'
+
+    let userMessage = 'An unexpected error occurred.'
+
+    if (!error.response) {
+      if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+        userMessage = 'The request timed out. The server may still be processing your files.'
+      } else {
+        userMessage = `Unable to connect to the DataPilot backend (${BASE_URL}). Please verify your network connection or server status.`
+      }
+    } else if (status === 401) {
       localStorage.removeItem('datapilot_token')
       localStorage.removeItem('datapilot_auth')
+      userMessage = 'Your session has expired. Please sign in again.'
+    } else if (status === 403) {
+      userMessage = error.response?.data?.detail || 'You do not have permission to access datasets in this workspace.'
+    } else if (status === 404) {
+      userMessage = error.response?.data?.detail || 'The requested resource or workspace was not found.'
+    } else if (status === 413) {
+      userMessage = 'The uploaded file is too large (maximum allowed size is 100 MB).'
+    } else if (status === 415) {
+      userMessage = 'Unsupported file type. Please upload a valid CSV, XLSX, or JSON file.'
+    } else if (status >= 500) {
+      userMessage = error.response?.data?.detail || 'Datasets could not be loaded because the server encountered an error. Please try again.'
+    } else {
+      userMessage = error.response?.data?.detail || error.message || 'Request failed.'
     }
+
+    // Attach structured diagnostic info
+    error.userMessage = userMessage
+    error.statusCode = status || 0
+
+    if (import.meta.env.DEV) {
+      console.warn(`[API Error] ${method} ${url} (Status ${status || 'Network Error'}):`, userMessage)
+    }
+
     return Promise.reject(error)
   }
 )
@@ -76,8 +121,9 @@ export const datasetsApi = {
   upload: (workspaceId, file, onProgress) => {
     const form = new FormData()
     form.append('file', file)
-    return api.post(`/datasets/upload?workspace_id=${workspaceId}`, form, {
+    return api.post(`/datasets/upload?workspace_id=${encodeURIComponent(workspaceId)}`, form, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000, // 2 minutes for large file uploads
       onUploadProgress: (e) => {
         if (onProgress && e.total) {
           onProgress(Math.round((e.loaded * 100) / e.total))
@@ -85,14 +131,30 @@ export const datasetsApi = {
       },
     }).then(r => r.data)
   },
-  list:          (workspaceId) => api.get(`/datasets?workspace_id=${workspaceId}`).then(r => r.data),
+  uploadBatch: (workspaceId, files, onProgress) => {
+    const form = new FormData()
+    files.forEach(f => form.append('files', f))
+    return api.post(`/datasets/upload-batch?workspace_id=${encodeURIComponent(workspaceId)}`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 180000,
+      onUploadProgress: (e) => {
+        if (onProgress && e.total) {
+          onProgress(Math.round((e.loaded * 100) / e.total))
+        }
+      },
+    }).then(r => r.data)
+  },
+  list: (workspaceId) => {
+    if (!workspaceId) return Promise.resolve([])
+    return api.get(`/datasets?workspace_id=${encodeURIComponent(workspaceId)}`).then(r => r.data)
+  },
   get:           (id)          => api.get(`/datasets/${id}`).then(r => r.data),
   profile:       (id)          => api.get(`/datasets/${id}/profile`).then(r => r.data),
   delete:        (id)          => api.delete(`/datasets/${id}`),
   reprofile:     (id)          => api.post(`/datasets/${id}/reprofile`).then(r => r.data),
   preview:       (id, limit = 50, offset = 0) => api.get(`/datasets/${id}/preview?limit=${limit}&offset=${offset}`).then(r => r.data),
   query:         (id, query)   => api.post(`/datasets/${id}/query`, { query }).then(r => r.data),
-  relationships: (workspaceId) => api.get(`/datasets/relationships?workspace_id=${workspaceId}`).then(r => r.data),
+  relationships: (workspaceId) => api.get(`/datasets/relationships?workspace_id=${encodeURIComponent(workspaceId)}`).then(r => r.data),
   semantic:      (id)          => api.get(`/datasets/${id}/semantic`).then(r => r.data),
 }
 

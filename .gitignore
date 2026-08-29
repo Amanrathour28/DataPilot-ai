@@ -19,12 +19,17 @@ backend/venv/
 backend/.venv/
 
 # Database (SQLite dev)
+*.db
+*.db-shm
+*.db-wal
 backend/*.db
 backend/*.db-shm
 backend/*.db-wal
 
-# Upload files
+# Upload files & scratch
+uploads/
 backend/uploads/
+scratch/
 
 # Environment & Local Test Scripts
 .env

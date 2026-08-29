@@ -47,11 +47,16 @@ export default function Datasets() {
     isRefetching,
   } = useQuery({
     queryKey: ['datasets', activeWorkspace?.id],
-    queryFn: () => datasetsApi.list(activeWorkspace.id),
+    queryFn: () => datasetsApi.list(activeWorkspace?.id),
     enabled: !!activeWorkspace?.id,
-    refetchInterval: (data) => {
+    staleTime: 10000,
+    retry: 2,
+    retryDelay: 1000,
+    placeholderData: (previousData) => previousData,
+    refetchInterval: (query) => {
+      const data = query?.state?.data || []
       const hasPending = Array.isArray(data) && data.some(d => d && ['UPLOADING', 'PROFILING'].includes(d.status))
-      return hasPending ? 3000 : false
+      return hasPending ? 4000 : false
     },
   })
 
@@ -66,11 +71,22 @@ export default function Datasets() {
   })
 
   const handleUpload = async (file, onProgress) => {
-    if (!activeWorkspace) throw new Error('No workspace selected')
+    if (!activeWorkspace?.id) throw new Error('No workspace selected')
     const result = await datasetsApi.upload(activeWorkspace.id, file, onProgress)
-    await queryClient.invalidateQueries(['datasets', activeWorkspace.id])
-    toast?.show(`${result.name || 'Dataset'} uploaded. Profiling started…`, 'success')
     return result
+  }
+
+  const handleBatchComplete = async (uploadResults) => {
+    await queryClient.invalidateQueries({ queryKey: ['datasets', activeWorkspace?.id] })
+    const successList = uploadResults.filter(r => r.status === 'done')
+    const failedList = uploadResults.filter(r => r.status === 'error')
+
+    if (successList.length > 0) {
+      toast?.show(`Uploaded ${successList.length} dataset${successList.length > 1 ? 's' : ''}. Profiling started.`, 'success')
+    }
+    if (failedList.length > 0) {
+      toast?.show(`${failedList.length} file${failedList.length > 1 ? 's' : ''} failed to upload.`, 'error')
+    }
   }
 
   if (!activeWorkspace) {
@@ -84,11 +100,21 @@ export default function Datasets() {
     )
   }
 
-  const pageDescription = isLoading
+  const pageDescription = isLoading && datasets.length === 0
     ? 'Loading datasets…'
-    : isError
+    : isError && datasets.length === 0
     ? 'Error connecting to dataset service'
     : `${datasets.length} dataset${datasets.length !== 1 ? 's' : ''} in “${activeWorkspace.name}”`
+
+  const getErrorMessage = (err) => {
+    if (err?.userMessage) return err.userMessage
+    if (err?.response?.status === 401) return 'Your session has expired. Please sign in again.'
+    if (err?.response?.status === 403) return 'You do not have permission to view datasets in this workspace.'
+    if (err?.response?.status === 404) return 'Workspace was not found.'
+    if (err?.response?.data?.detail) return String(err.response.data.detail)
+    if (err?.message?.includes('Network Error')) return 'Unable to connect to the DataPilot backend. Please verify your connection or retry.'
+    return err?.message || 'Could not connect to the backend server. Please verify your connection or retry.'
+  }
 
   return (
     <PageShell>
@@ -114,16 +140,33 @@ export default function Datasets() {
         }
       />
 
+      {/* Background Revalidation Error Banner (shown if refreshing failed but cached data exists) */}
+      {isError && datasets.length > 0 && (
+        <div className="mb-5 p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/10 flex items-center justify-between gap-3 text-amber-300 text-xs">
+          <div className="flex items-center gap-2">
+            <AlertCircle size={16} className="text-amber-400 flex-shrink-0" />
+            <span>Connection issue: {getErrorMessage(error)}. Showing latest cached datasets.</span>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => refetch()}>
+            <RefreshCw size={12} /> Retry
+          </Button>
+        </div>
+      )}
+
       {/* Upload panel */}
       {showUpload && (
         <div className="card p-6 mb-6 animate-slide-up">
           <h2 className="text-sm font-semibold text-slate-200 mb-4">Upload Datasets</h2>
-          <UploadDropzone onUpload={handleUpload} workspaceId={activeWorkspace.id} />
+          <UploadDropzone
+            onUpload={handleUpload}
+            onBatchComplete={handleBatchComplete}
+            workspaceId={activeWorkspace.id}
+          />
         </div>
       )}
 
-      {/* Search + View toggle (shown only when datasets exist and not in error state) */}
-      {!isError && datasets.length > 0 && (
+      {/* Search + View toggle (shown only when datasets exist and not in fatal initial error state) */}
+      {datasets.length > 0 && (
         <div className="flex items-center gap-3 mb-5">
           <div className="relative flex-1 max-w-md">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
@@ -154,12 +197,12 @@ export default function Datasets() {
         </div>
       )}
 
-      {/* Content Rendering: Clean State Separation */}
-      {isLoading ? (
+      {/* Content Rendering */}
+      {isLoading && datasets.length === 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3].map(i => <CardSkeleton key={i} />)}
         </div>
-      ) : isError ? (
+      ) : isError && datasets.length === 0 ? (
         <div className="card p-12 text-center space-y-4 border border-rose-500/30 bg-rose-500/5 rounded-2xl shadow-xl">
           <div className="inline-flex p-3 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20">
             <AlertCircle size={28} />
@@ -167,7 +210,7 @@ export default function Datasets() {
           <div className="space-y-1.5 max-w-md mx-auto">
             <h3 className="text-sm font-bold text-slate-100">Failed to Load Datasets</h3>
             <p className="text-xs text-slate-400 leading-relaxed font-mono">
-              {error?.response?.data?.detail || error?.message || 'Could not connect to the backend server. Please verify your connection or retry.'}
+              {getErrorMessage(error)}
             </p>
           </div>
           <Button variant="secondary" size="sm" onClick={() => refetch()}>
