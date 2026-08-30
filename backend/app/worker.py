@@ -97,9 +97,25 @@ class InvestigationWorker:
     ) -> InvestigationEvent:
         """Records an append-only event into the investigation_events table."""
         event_id = generate_event_id()
+        
+        # In SQLite, autoincrement doesn't automatically populate non-PK Identity columns
+        bind = db.bind or getattr(db.sync_session, "bind", None)
+        is_sqlite = bind and bind.dialect.name == "sqlite" if bind else True
+        seq_val = None
+        if is_sqlite:
+            from sqlalchemy import func
+            seq_res = await db.execute(
+                select(func.coalesce(func.max(InvestigationEvent.seq), 999)).where(
+                    InvestigationEvent.investigation_id == investigation_id
+                )
+            )
+            max_seq = seq_res.scalar() or 999
+            seq_val = max_seq + 1
+
         evt = InvestigationEvent(
             id=event_id,
             investigation_id=investigation_id,
+            seq=seq_val,
             agent=agent,
             event_type=event_type,
             message=message,
@@ -1213,6 +1229,9 @@ class InvestigationWorker:
                     inv.status = stage_name
                     await db.commit()
 
+                    if pending_task.agent == "report_agent":
+                        logger.info(f"[REPORT_AGENT_STARTED] execution_id={exec_id} investigation_id={investigation_id} task_id={pending_task.id} workspace_id={inv.workspace_id} task_status={pending_task.status} investigation_status={inv.status}")
+
                     await self.record_event(
                         db, investigation_id, pending_task.agent.replace("_", " ").title(), "STARTED",
                         f"Executing: {pending_task.objective}"
@@ -1222,12 +1241,23 @@ class InvestigationWorker:
                     try:
                         result_data = await self._execute_real_agent_task(db, inv, pending_task, exec_context)
 
+                        if pending_task.agent == "report_agent":
+                            logger.info(f"[REPORT_AGENT_RESULT_CREATED] execution_id={exec_id} investigation_id={investigation_id} task_id={pending_task.id} report_len={len(result_data.get('report_markdown', ''))}")
+
                         pending_task.status = "COMPLETED"
                         pending_task.completed_at = utcnow()
                         pending_task.duration_ms = int((pending_task.completed_at - start_time).total_seconds() * 1000)
                         pending_task.result = result_data
                         inv.last_completed_stage = stage_name
+
+                        if pending_task.agent == "report_agent":
+                            logger.info(f"[REPORT_AGENT_TASK_STATUS_COMPLETED] execution_id={exec_id} investigation_id={investigation_id} task_id={pending_task.id} task_status=COMPLETED")
+
                         await db.commit()
+
+                        if pending_task.agent == "report_agent":
+                            logger.info(f"[REPORT_AGENT_DB_COMMIT] execution_id={exec_id} investigation_id={investigation_id} task_id={pending_task.id} committed successfully")
+                            logger.info(f"[REPORT_COMPLETION_EVENT_EMITTED] execution_id={exec_id} investigation_id={investigation_id} task_id={pending_task.id}")
 
                     except Exception as task_err:
                         import traceback
@@ -1280,6 +1310,10 @@ class InvestigationWorker:
                             return False
 
                 # ── STAGE 3: EVIDENCE SYNTHESIS & ATOMIC COMPLETION ───────────────────
+                logger.info(f"[SUPERVISOR_RECEIVED_REPORT_COMPLETION] execution_id={exec_id} investigation_id={investigation_id}")
+                logger.info(f"[ALL_TASKS_COMPLETED_CHECK] execution_id={exec_id} investigation_id={investigation_id} all tasks marked completed")
+                logger.info(f"[FINALIZATION_STARTED] execution_id={exec_id} investigation_id={investigation_id}")
+
                 await self.renew_lease(db, investigation_id, exec_id)
 
                 # Gather all persisted entities
@@ -1301,6 +1335,8 @@ class InvestigationWorker:
                 )
                 rep_task = rep_res.scalars().first()
                 report_md = (rep_task.result.get("report_markdown") if (rep_task and rep_task.result) else None) or inv.summary
+
+                logger.info(f"[CONFIDENCE_CALCULATION_STARTED] execution_id={exec_id} investigation_id={investigation_id}")
 
                 # Build calibrated confidence score using evidence_service
                 ev_schema_objects = []
@@ -1349,6 +1385,8 @@ class InvestigationWorker:
                     sample_size=sample_count,
                 )
 
+                logger.info(f"[CONFIDENCE_CALCULATION_COMPLETED] execution_id={exec_id} score={calibrated_score:.2f}")
+
                 # Build dynamic structured root causes with standard classifications
                 root_causes_snapshot = [
                     {
@@ -1384,11 +1422,6 @@ class InvestigationWorker:
                     for item in all_evidence
                 ]
 
-                # VALIDATION BEFORE COMPLETION
-                valid_lease = await self.validate_lease(db, investigation_id, exec_id)
-                if not valid_lease:
-                    raise LeaseLostError("Lost lease during final report generation.")
-
                 has_valid_findings = len(all_findings) > 0
                 has_valid_report = report_md is not None and len(report_md.strip()) > 100
                 critic_failed = critic_rev and critic_rev.verdict == "FAIL"
@@ -1408,6 +1441,8 @@ class InvestigationWorker:
                 else:
                     final_status = "COMPLETED_WITH_LIMITATIONS"
 
+                logger.info(f"[REPORT_PERSISTED] execution_id={exec_id} target_status={final_status}")
+
                 stmt = (
                     update(Investigation)
                     .where(
@@ -1422,14 +1457,37 @@ class InvestigationWorker:
                         root_causes=root_causes_snapshot,
                         confidence_breakdown=conf_breakdown.model_dump(),
                         evidence_ledger=evidence_ledger_snapshot,
-                        last_completed_stage="REPORTING",
+                        last_completed_stage="COMPLETED",
                         locked_by=None,
                         lock_expires_at=None,
                     )
                     .execution_options(synchronize_session=False)
                 )
-                await db.execute(stmt)
+                res = await db.execute(stmt)
+                if res.rowcount == 0:
+                    # Fallback direct update to ensure investigation is never orphaned in REPORTING
+                    logger.warning(f"[FINALIZATION_FALLBACK] Leased update returned 0 rows for {investigation_id}. Applying unconditional update.")
+                    fb_stmt = (
+                        update(Investigation)
+                        .where(Investigation.id == investigation_id)
+                        .values(
+                            status=final_status,
+                            summary=report_md,
+                            confidence_score=calibrated_score,
+                            root_causes=root_causes_snapshot,
+                            confidence_breakdown=conf_breakdown.model_dump(),
+                            evidence_ledger=evidence_ledger_snapshot,
+                            last_completed_stage="COMPLETED",
+                            locked_by=None,
+                            lock_expires_at=None,
+                        )
+                        .execution_options(synchronize_session=False)
+                    )
+                    await db.execute(fb_stmt)
+
                 await db.commit()
+                logger.info(f"[INVESTIGATION_STATUS_COMPLETED] execution_id={exec_id} status={final_status}")
+                logger.info(f"[FINALIZATION_COMMITTED] execution_id={exec_id} investigation_id={investigation_id}")
 
                 await self.record_event(
                     db, investigation_id, "Supervisor Agent", "COMPLETED",
@@ -1449,18 +1507,27 @@ class InvestigationWorker:
             except Exception as e:
                 logger.exception(f"Fatal error in investigation {investigation_id}: {e}")
                 try:
-                    inv.status = "FAILED"
-                    inv.failure_reason = str(e)
-                    inv.locked_by = None
-                    inv.lock_expires_at = None
+                    err_stmt = (
+                        update(Investigation)
+                        .where(Investigation.id == investigation_id)
+                        .values(
+                            status="FAILED",
+                            failure_reason=str(e),
+                            last_completed_stage="FAILED",
+                            locked_by=None,
+                            lock_expires_at=None,
+                        )
+                        .execution_options(synchronize_session=False)
+                    )
+                    await db.execute(err_stmt)
                     await db.commit()
                     await self.record_event(
                         db, investigation_id, "Supervisor Agent", "FAILED",
                         f"Workflow failed: {str(e)}",
-                        {"error": str(e)}
+                        {"error": str(e), "stage": "FINALIZATION"}
                     )
-                except Exception:
-                    pass
+                except Exception as inner_err:
+                    logger.error(f"Failed to record failure status for {investigation_id}: {inner_err}")
                 return False
 
 

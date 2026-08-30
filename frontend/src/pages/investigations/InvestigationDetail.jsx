@@ -342,21 +342,45 @@ export default function InvestigationDetail() {
       <div className="card p-4 border border-slate-800/80 bg-[#10101e]">
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
           {STAGES.map((s, idx) => {
-            const isCurrent = streamStage === s.id && isRunning
-            const isPassed = !isRunning && ['COMPLETED', 'COMPLETED_WITH_LIMITATIONS', 'INSUFFICIENT_DATA'].includes(currentStatus)
+            const isCompleted = ['COMPLETED', 'COMPLETED_WITH_LIMITATIONS', 'INSUFFICIENT_DATA', 'INSUFFICIENT_EVIDENCE'].includes(currentStatus)
+            
+            // Check individual task status for progressive completion
+            let taskPassed = isCompleted
+            let taskExecuting = false
+            
+            if (s.id === 'PLANNING') {
+              taskPassed = isCompleted || streamPlan.length > 0 || streamTasks.length > 0
+              taskExecuting = streamStage === 'PLANNING' && isRunning && !taskPassed
+            } else if (s.id === 'ANALYZING') {
+              taskPassed = isCompleted || streamTasks.some(t => t.agent === 'data_analyst' && t.status === 'COMPLETED')
+              taskExecuting = streamStage === 'ANALYZING' && isRunning && !taskPassed
+            } else if (s.id === 'TESTING') {
+              taskPassed = isCompleted || streamTasks.some(t => t.agent.includes('hypothesis') && t.status === 'COMPLETED')
+              taskExecuting = streamStage === 'TESTING' && isRunning && !taskPassed
+            } else if (s.id === 'RETRIEVING') {
+              taskPassed = isCompleted || streamTasks.some(t => t.agent === 'rag_agent' && t.status === 'COMPLETED')
+              taskExecuting = streamStage === 'RETRIEVING' && isRunning && !taskPassed
+            } else if (s.id === 'VERIFYING') {
+              taskPassed = isCompleted || streamTasks.some(t => t.agent === 'critic' && t.status === 'COMPLETED')
+              taskExecuting = streamStage === 'VERIFYING' && isRunning && !taskPassed
+            } else if (s.id === 'REPORTING') {
+              taskPassed = isCompleted || streamTasks.some(t => t.agent === 'report_agent' && t.status === 'COMPLETED')
+              taskExecuting = (streamStage === 'REPORTING' || isRunning) && !taskPassed
+            }
+
             return (
               <div
                 key={s.id}
                 className={clsx(
                   'p-2.5 rounded-xl text-center border transition-all',
-                  isCurrent && 'bg-brand-500/20 border-brand-500/40 text-brand-300 shadow-sm shadow-brand-500/10 animate-pulse',
-                  isPassed && 'bg-[#141426] border-slate-800 text-slate-300',
-                  !isCurrent && !isPassed && 'bg-[#0d0d1a] border-slate-900 text-slate-600'
+                  taskExecuting && 'bg-brand-500/20 border-brand-500/40 text-brand-300 shadow-sm shadow-brand-500/10 animate-pulse',
+                  taskPassed && 'bg-[#141426] border-slate-800 text-slate-300',
+                  !taskExecuting && !taskPassed && 'bg-[#0d0d1a] border-slate-900 text-slate-600'
                 )}
               >
                 <span className="text-[11px] font-bold block">{s.label}</span>
                 <span className="text-[10px] text-slate-400 mt-0.5 block">
-                  {isCurrent ? 'Executing…' : (isPassed ? 'Verified' : 'Pending')}
+                  {taskExecuting ? 'Executing…' : (taskPassed ? 'Verified' : 'Pending')}
                 </span>
               </div>
             )

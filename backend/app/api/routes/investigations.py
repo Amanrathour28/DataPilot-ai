@@ -181,7 +181,6 @@ async def create_investigation(
 
     logger.info(f"Investigation created & queued: {investigation.id}")
     ensure_worker_running(investigation.id)
-    background_tasks.add_task(_run_worker_async, investigation.id)
     return investigation
 
 
@@ -222,7 +221,6 @@ async def start_investigation(
     await db.commit()
 
     ensure_worker_running(investigation_id)
-    background_tasks.add_task(_run_worker_async, investigation_id)
     return {
         "status": "QUEUED",
         "investigation_id": inv.id,
@@ -462,7 +460,15 @@ async def stream_investigation_events(
                     ).where(Investigation.id == investigation_id)
                 )
                 curr_inv = inv_res.first()
-                if curr_inv and curr_inv.status in ["COMPLETED", "FAILED", "CANCELLED"] and len(events) == 0:
+                terminal_statuses = [
+                    "COMPLETED",
+                    "COMPLETED_WITH_LIMITATIONS",
+                    "INSUFFICIENT_DATA",
+                    "INSUFFICIENT_EVIDENCE",
+                    "FAILED",
+                    "CANCELLED",
+                ]
+                if curr_inv and curr_inv.status in terminal_statuses:
                     status_payload = {
                         "type": "status",
                         "status": curr_inv.status,
@@ -480,7 +486,7 @@ async def stream_investigation_events(
                     yield f"data: {json.dumps(status_payload)}\n\n"
                     break
 
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(1.0)
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
