@@ -468,14 +468,23 @@ def perform_question_driven_analysis(ctx: DatasetContext) -> Dict[str, Any]:
 
     # Detect revenue/metric columns for period analysis
     revenue_keywords = ["revenue", "sales", "income", "amount", "value", "transaction_value",
-                        "transaction_amount", "total", "price", "profit"]
-    metric_col = _find_col(num_cols, revenue_keywords) or (num_cols[0] if num_cols else None)
+                        "transaction_amount", "total", "price", "profit", "cost", "margin"]
+    metric_col = _find_col(num_cols, revenue_keywords)
 
     # Detect region/dimension columns
     region_col = _find_col(cat_cols, ["region", "country", "state", "territory", "area", "location", "geography"])
     segment_col = _find_col(cat_cols, ["segment", "customer_segment", "customer_type", "tier"])
+    product_col = _find_col(cat_cols, ["product", "item", "sku", "material", "item_name", "product_name"])
 
     # ── Route to appropriate analysis based on question intent ──
+    is_volume = any(k in q_lower for k in [
+        "how many records", "how many rows", "row count", "how many entries",
+        "dataset size", "number of rows", "number of records", "total rows", "total records"
+    ])
+    is_missing = any(k in q_lower for k in [
+        "missing value", "missing values", "null count", "null values", "nulls",
+        "empty cells", "completeness", "nan values", "what are the missing"
+    ])
     is_pending = any(k in q_lower for k in [
         "pending", "not ordered", "unordered", "unfulfilled", "outstanding",
         "open", "yet to order", "still to order", "pending to be ordered",
@@ -488,6 +497,16 @@ def perform_question_driven_analysis(ctx: DatasetContext) -> Dict[str, Any]:
     is_category = any(k in q_lower for k in ["category", "which category", "by category", "section", "by section", "which section", "group"])
     is_priority = any(k in q_lower for k in ["priority", "high priority", "urgent", "critical"])
 
+    # Detect grouped aggregation / breakdown intent
+    is_grouped_breakdown = any(k in q_lower for k in [
+        "by region", "by product", "by category", "by section", "by department",
+        "vary by", "varies by", "vary across", "variation", "breakdown",
+        "per region", "per product", "per category", "each region", "each product",
+        "each category", "distribution by", "percentage of revenue", "total revenue",
+        "total sales", "total amount", "what is the total", "which region", "which product",
+        "highest revenue", "highest sales", "lowest revenue", "lowest sales"
+    ])
+
     # Detect period-over-period / change analysis intent
     is_period_comparison = any(k in q_lower for k in [
         "decline", "decrease", "drop", "fell", "fall", "increase", "growth", "grew",
@@ -496,22 +515,46 @@ def perform_question_driven_analysis(ctx: DatasetContext) -> Dict[str, Any]:
         "why did", "what caused", "what drove", "explain the",
     ])
 
-    if is_pending or is_gap:
-        return _analyze_pending_items(df, ctx, ordered_col, required_col, received_col,
-                                       item_name_col, item_code_col, category_col, section_col,
-                                       priority_col, date_cols)
+    # 1. Volume query
+    if is_volume:
+        return _analyze_dataset_volume(df, ctx)
 
-    if is_overdue:
-        return _analyze_overdue_items(df, ctx, date_cols, item_name_col, item_code_col,
-                                       ordered_col, required_col, priority_col)
+    # 2. Missing values query
+    if is_missing:
+        return _analyze_missing_values(df, ctx)
 
-    # Period comparison / metric change analysis
+    # 3. Period comparison (e.g., "Why did sales decline from Q2 to Q3?")
     if is_period_comparison and metric_col:
         return _analyze_period_comparison(
             df, ctx, metric_col, date_cols, cat_cols,
             region_col, segment_col, category_col, section_col,
         )
 
+    # 4. Check for explicitly unmappable critical concepts requested in question
+    if ctx.unmappable_concepts:
+        critical_unmapped = [c for c in ctx.unmappable_concepts if c in ["revenue", "sales", "cost", "profit", "price", "region", "product", "segment"]]
+        if critical_unmapped and not metric_col and not is_pending and not is_overdue:
+            return _analyze_unmappable_question(df, ctx, critical_unmapped)
+
+    # 5. Grouped aggregation (e.g. "What is the total revenue in the dataset, and how does it vary by region?")
+    target_metric = metric_col or (qty_cols[0] if qty_cols else (num_cols[0] if num_cols else None))
+    target_dim = region_col or category_col or section_col or segment_col or product_col or (cat_cols[0] if cat_cols else None)
+
+    if is_grouped_breakdown and target_metric and target_dim:
+        return _analyze_grouped_metric_by_dimension(df, ctx, target_metric, target_dim)
+
+    # 6. Pending & gap items
+    if is_pending or is_gap:
+        return _analyze_pending_items(df, ctx, ordered_col, required_col, received_col,
+                                       item_name_col, item_code_col, category_col, section_col,
+                                       priority_col, date_cols)
+
+    # 7. Overdue items
+    if is_overdue:
+        return _analyze_overdue_items(df, ctx, date_cols, item_name_col, item_code_col,
+                                       ordered_col, required_col, priority_col)
+
+    # 8. Top-N Ranking
     n_match = re.search(r"\btop\s+(\d+)\b|\b(\d+)\s+(?:items?|records?|rows?)\b", q_lower)
     n = int(n_match.group(1) or n_match.group(2)) if n_match else 10
 
@@ -526,7 +569,11 @@ def perform_question_driven_analysis(ctx: DatasetContext) -> Dict[str, Any]:
         dim_col = section_col if "section" in q_lower and section_col else (category_col or section_col)
         return _analyze_by_dimension(df, ctx, dim_col, qty_cols, ordered_col, required_col)
 
-    # General analysis: show key stats on all numeric columns + relevant sample
+    # 9. If target metric and dimension exist, default to grouped metric analysis
+    if target_metric and target_dim:
+        return _analyze_grouped_metric_by_dimension(df, ctx, target_metric, target_dim)
+
+    # 10. General analysis
     return _analyze_general(df, ctx, qty_cols, ordered_col, required_col, item_name_col)
 
 
@@ -537,6 +584,189 @@ def _find_col(columns: List[str], keywords: List[str]) -> Optional[str]:
             if kw in col.lower():
                 return col
     return None
+
+
+def _analyze_grouped_metric_by_dimension(
+    df: pd.DataFrame,
+    ctx: DatasetContext,
+    metric_col: str,
+    dim_col: str,
+) -> Dict[str, Any]:
+    """
+    Direct question-driven grouped aggregation: calculates total metric and breakdown per dimension group.
+    All calculations are 100% computed from actual dataset rows.
+    """
+    df = df.copy()
+    df[metric_col] = pd.to_numeric(df[metric_col], errors="coerce")
+    valid_df = df.dropna(subset=[metric_col])
+    total_records = len(df)
+    valid_count = len(valid_df)
+    null_count = total_records - valid_count
+    grand_total = float(valid_df[metric_col].sum())
+    grand_mean = float(valid_df[metric_col].mean()) if valid_count > 0 else 0.0
+
+    df[dim_col] = df[dim_col].fillna("(Missing/Unknown)").astype(str)
+    grouped = df.groupby(dim_col)[metric_col].agg(["sum", "count", "mean"]).reset_index()
+    grouped.columns = [dim_col, "total", "record_count", "average"]
+    if grand_total != 0:
+        grouped["pct_of_total"] = (grouped["total"] / grand_total * 100).round(2)
+    else:
+        grouped["pct_of_total"] = 0.0
+
+    grouped = grouped.sort_values("total", ascending=False).reset_index(drop=True)
+    primary_table = grouped.to_dict(orient="records")
+
+    top_row = grouped.iloc[0] if len(grouped) > 0 else None
+    findings = [
+        f"Total '{metric_col}' is {grand_total:,.2f} across {valid_count:,} valid records in '{ctx.dataset_name}' (average: {grand_mean:,.2f} per record)."
+    ]
+    if top_row is not None:
+        findings.append(
+            f"By '{dim_col}': '{top_row[dim_col]}' generated the highest '{metric_col}' "
+            f"with {top_row['total']:,.2f} ({top_row['pct_of_total']:.1f}% of total across {int(top_row['record_count'])} records)."
+        )
+    for idx, row in grouped.iterrows():
+        if idx > 0 and idx < 8:
+            findings.append(
+                f"• {row[dim_col]}: {row['total']:,.2f} ({row['pct_of_total']:.1f}%, {int(row['record_count'])} records, avg {row['average']:,.2f})"
+            )
+
+    dim_dict = {str(r[dim_col]): float(r["total"]) for _, r in grouped.iterrows()}
+
+    return {
+        "success": True,
+        "analysis_type": "GROUPED_AGGREGATION",
+        "analysis_description": (
+            f"Calculated total '{metric_col}' ({grand_total:,.2f}) and grouped breakdown across "
+            f"{len(grouped)} distinct '{dim_col}' cohorts in '{ctx.dataset_name}'."
+        ),
+        "columns_used": [metric_col, dim_col],
+        "findings": findings,
+        "primary_table": primary_table,
+        "aggregations": {
+            "metric_column": metric_col,
+            "dimension_column": dim_col,
+            "grand_total": round(grand_total, 2),
+            "grand_mean": round(grand_mean, 2),
+            "valid_records": valid_count,
+            "null_records": null_count,
+            "total_records": total_records,
+            "groups_count": len(grouped),
+            "top_group": str(top_row[dim_col]) if top_row is not None else None,
+            "top_group_total": float(top_row["total"]) if top_row is not None else 0.0,
+            "top_group_pct": float(top_row["pct_of_total"]) if top_row is not None else 0.0,
+            "dimensional_summary": {f"{metric_col}_by_{dim_col}": dim_dict},
+        },
+        "total_records": total_records,
+        "data_sufficiency": {"temporal_analysis": False, "metric_available": True},
+    }
+
+
+def _analyze_missing_values(df: pd.DataFrame, ctx: DatasetContext) -> Dict[str, Any]:
+    """Audit missing values per column across the dataset."""
+    total_records = len(df)
+    null_data = []
+    total_nulls = 0
+    for col in df.columns:
+        null_cnt = int(df[col].isna().sum())
+        total_nulls += null_cnt
+        null_pct = round((null_cnt / total_records * 100), 2) if total_records > 0 else 0.0
+        null_data.append({
+            "column_name": col,
+            "data_type": str(df[col].dtype),
+            "missing_count": null_cnt,
+            "missing_percentage": null_pct,
+            "complete_count": total_records - null_cnt,
+            "completeness_status": "100% Complete" if null_cnt == 0 else f"{100 - null_pct:.1f}% Complete"
+        })
+    null_df = pd.DataFrame(null_data).sort_values("missing_count", ascending=False)
+    findings = [
+        f"Dataset '{ctx.dataset_name}' contains {total_nulls} missing values across {total_records} records and {len(df.columns)} columns."
+    ]
+    missing_cols = [r["column_name"] for r in null_data if r["missing_count"] > 0]
+    if missing_cols:
+        findings.append(f"Columns with missing values: {', '.join(missing_cols)}.")
+        for r in null_data:
+            if r["missing_count"] > 0:
+                findings.append(f"• '{r['column_name']}': {r['missing_count']} missing ({r['missing_percentage']}%)")
+    else:
+        findings.append("All columns in the dataset have 100% complete data (0 missing values).")
+
+    return {
+        "success": True,
+        "analysis_type": "MISSING_VALUES_ANALYSIS",
+        "analysis_description": f"Audited missing values across {len(df.columns)} columns in '{ctx.dataset_name}'.",
+        "columns_used": list(df.columns),
+        "findings": findings,
+        "primary_table": null_df.to_dict(orient="records"),
+        "aggregations": {
+            "total_records": total_records,
+            "total_columns": len(df.columns),
+            "total_null_values": total_nulls,
+            "columns_with_nulls": len(missing_cols),
+        },
+        "total_records": total_records,
+    }
+
+
+def _analyze_dataset_volume(df: pd.DataFrame, ctx: DatasetContext) -> Dict[str, Any]:
+    """Calculate record count, column summary, and structural metrics."""
+    total_records = len(df)
+    total_columns = len(df.columns)
+    summary_table = [
+        {"property": "Total Records (Rows)", "value": f"{total_records:,}"},
+        {"property": "Total Columns", "value": f"{total_columns}"},
+        {"property": "Numeric Columns", "value": f"{len(ctx.numeric_columns)} ({', '.join(ctx.numeric_columns[:5])})"},
+        {"property": "Categorical Columns", "value": f"{len(ctx.categorical_columns)} ({', '.join(ctx.categorical_columns[:5])})"},
+        {"property": "Date Columns", "value": f"{len(ctx.date_columns)} ({', '.join(ctx.date_columns) or 'None'})"},
+        {"property": "Total Missing Values", "value": f"{sum(ctx.null_counts.values()):,}"},
+    ]
+    findings = [
+        f"Dataset '{ctx.dataset_name}' contains {total_records:,} records across {total_columns} columns.",
+        f"Identified {len(ctx.numeric_columns)} numeric column(s) and {len(ctx.categorical_columns)} categorical column(s)."
+    ]
+    return {
+        "success": True,
+        "analysis_type": "DATASET_VOLUME_ANALYSIS",
+        "analysis_description": f"Calculated volume and structure metrics for '{ctx.dataset_name}'.",
+        "columns_used": list(df.columns),
+        "findings": findings,
+        "primary_table": summary_table,
+        "aggregations": {
+            "total_records": total_records,
+            "total_columns": total_columns,
+            "numeric_columns_count": len(ctx.numeric_columns),
+            "categorical_columns_count": len(ctx.categorical_columns),
+        },
+        "total_records": total_records,
+    }
+
+
+def _analyze_unmappable_question(df: pd.DataFrame, ctx: DatasetContext, unmapped: List[str]) -> Dict[str, Any]:
+    """Honest response when question references columns not present in dataset."""
+    findings = [
+        f"The requested concept(s) ({', '.join(unmapped)}) cannot be answered from '{ctx.dataset_name}' because no matching columns exist in the file.",
+        f"Available numeric columns in this dataset: {', '.join(ctx.numeric_columns) or 'None'}.",
+        f"Available categorical columns in this dataset: {', '.join(ctx.categorical_columns[:8]) or 'None'}."
+    ]
+    return {
+        "success": True,
+        "analysis_type": "UNMAPPABLE_QUESTION_CONCEPT",
+        "analysis_description": (
+            f"The question referenced concepts ({', '.join(unmapped)}) that do not exist in '{ctx.dataset_name}'. "
+            f"Analysis cannot fabricate non-existent columns."
+        ),
+        "columns_used": [],
+        "findings": findings,
+        "primary_table": [],
+        "aggregations": {
+            "unmappable_concepts": unmapped,
+            "available_columns": ctx.all_columns,
+            "total_records": len(df),
+        },
+        "total_records": len(df),
+        "data_sufficiency": {"temporal_analysis": False, "metric_available": False},
+    }
 
 
 def _build_display_cols(
@@ -799,6 +1029,10 @@ def _analyze_top_n(
         sort_col = qty_cols[0]
         df[sort_col] = pd.to_numeric(df[sort_col], errors="coerce").fillna(0)
         col_label = sort_col
+    elif ctx.numeric_columns:
+        sort_col = ctx.numeric_columns[0]
+        df[sort_col] = pd.to_numeric(df[sort_col], errors="coerce").fillna(0)
+        col_label = sort_col
     else:
         return {
             "success": False,
@@ -814,7 +1048,7 @@ def _analyze_top_n(
     direction = "highest" if is_top else "lowest"
 
     display_cols = _build_display_cols(
-        item_name_col, required_col, ordered_col, "_gap" if "_gap" in df.columns else None,
+        item_name_col, sort_col, required_col, ordered_col, "_gap" if "_gap" in df.columns else None,
         category_col, section_col,
         df_cols=list(sorted_df.columns),
     )

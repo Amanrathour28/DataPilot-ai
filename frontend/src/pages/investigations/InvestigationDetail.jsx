@@ -508,8 +508,29 @@ export default function InvestigationDetail() {
         })}
       </div>
 
+      {/* Terminal State Alert Banners */}
+      {currentStatus === 'CANCELLED' && (
+        <div className="p-4 rounded-xl bg-red-950/40 border border-red-500/40 text-red-200 flex items-center gap-3 shadow-lg">
+          <XCircle size={20} className="text-red-400 flex-shrink-0" />
+          <div>
+            <p className="font-bold text-sm text-red-200">Investigation Cancelled</p>
+            <p className="text-xs text-red-300/80">This investigation was cancelled before completion. Partial executions were halted safely.</p>
+          </div>
+        </div>
+      )}
+
+      {currentStatus === 'FAILED' && (
+        <div className="p-4 rounded-xl bg-rose-950/40 border border-rose-500/40 text-rose-200 flex items-center gap-3 shadow-lg">
+          <AlertCircle size={20} className="text-rose-400 flex-shrink-0" />
+          <div>
+            <p className="font-bold text-sm text-rose-200">Investigation Failed</p>
+            <p className="text-xs text-rose-300/80">{detail.failure_reason || "The investigation encountered an unrecoverable error during execution."}</p>
+          </div>
+        </div>
+      )}
+
       {/* ── TAB 1: OVERVIEW ──────────────────────────────────────────────── */}
-      {activeTab === 'overview' && (
+      {activeTab === 'overview' && currentStatus !== 'CANCELLED' && (
         <div className="space-y-6">
           {/* Direct Answer & Reality Check Card */}
           <div className="card p-6 border border-brand-500/30 bg-gradient-to-br from-brand-950/30 via-[#101024] to-[#0c0c1a] rounded-2xl space-y-4 shadow-xl">
@@ -521,9 +542,9 @@ export default function InvestigationDetail() {
                     Executive Answer & Reality Check
                   </span>
                 </div>
-                <h2 className="text-base font-bold text-slate-100">
-                  {executiveAnswerText || "Autonomous analytical investigation completed across baseline and current periods."}
-                </h2>
+                <div className="text-base font-bold text-slate-100 whitespace-pre-line">
+                  {executiveAnswerText || detail.summary || "Investigation completed. See detailed findings and dataset tables below."}
+                </div>
               </div>
             </div>
 
