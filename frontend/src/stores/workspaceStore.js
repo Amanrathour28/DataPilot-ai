@@ -10,10 +10,10 @@ const useWorkspaceStore = create(
       isLoading: false,
       error: null,
 
-      fetchWorkspaces: async () => {
+      fetchWorkspaces: async (organizationId) => {
         set({ isLoading: true, error: null })
         try {
-          const workspaces = await workspacesApi.list()
+          const workspaces = await workspacesApi.list(organizationId)
           set({ workspaces, isLoading: false })
           
           // Auto-select valid workspace or fallback to first
@@ -22,17 +22,19 @@ const useWorkspaceStore = create(
           
           if ((!stillValid || !current) && workspaces.length > 0) {
             set({ activeWorkspace: workspaces[0] })
-          } else if (workspaces.length === 0) {
+          } else if (workspaces.length === 0 && organizationId) {
             try {
               const newWs = await workspacesApi.create({
-                name: 'Personal Workspace',
-                slug: `personal-ws-${Date.now()}`
+                name: 'General',
+                organization_id: organizationId,
+                description: 'Default workspace'
               })
               set({ workspaces: [newWs], activeWorkspace: newWs })
             } catch (createErr) {
               console.error('Error auto-creating default workspace:', createErr)
             }
           }
+          return workspaces
         } catch (err) {
           console.error('Failed to load workspaces:', err)
           set({ error: 'Failed to load workspaces', isLoading: false })

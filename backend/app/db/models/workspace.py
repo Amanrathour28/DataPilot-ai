@@ -25,6 +25,9 @@ class Workspace(Base):
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
+    organization_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -40,7 +43,7 @@ class Workspace(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Workspace id={self.id} name={self.name}>"
+        return f"<Workspace id={self.id} name={self.name} org={self.organization_id}>"
 
 
 class WorkspaceMember(Base):

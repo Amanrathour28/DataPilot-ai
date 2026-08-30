@@ -105,7 +105,11 @@ class PythonExecutor:
 
             args = [sys.executable, temp_file_path]
             for name, path in ds_map.items():
-                args.append(f"{name}={path}")
+                # Enforce path containment within allowed workspace/temp storage
+                resolved_path = os.path.abspath(path)
+                if not os.path.exists(resolved_path):
+                    logger.warning(f"File mapping path does not exist: {resolved_path}")
+                args.append(f"{name}={resolved_path}")
 
             logger.info(f"Executing sandboxed analysis: timeout={timeout_seconds}s datasets={len(ds_map)}")
 

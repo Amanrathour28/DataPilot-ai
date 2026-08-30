@@ -5,19 +5,23 @@ import {
   ArrowLeft, RotateCcw, Pause, Play, XCircle, CheckCircle2,
   Terminal, ShieldCheck, Database, Zap, FileText, CheckSquare,
   Award, Sparkles, Scale, Info, AlertCircle, ChevronRight,
-  TrendingUp, BarChart3, Check, ShieldAlert
+  TrendingUp, BarChart3, Check, ShieldAlert, Users, UserPlus,
+  MessageSquare, UserCheck, CheckCircle
 } from 'lucide-react'
 import { Button, IconButton } from '../../components/ui/Button'
-import { StatusBadge } from '../../components/ui/Badge'
+import { StatusBadge, Badge } from '../../components/ui/Badge'
 import { Skeleton } from '../../components/ui/Skeleton'
 import { PageShell } from '../../components/layout/PageShell'
 import { useToast } from '../../components/ui/Toast'
-import { investigationsApi } from '../../services/api'
+import { investigationsApi, collaborationApi, organizationsApi } from '../../services/api'
 import AgentReasoningPanel from '../../components/investigations/AgentReasoningPanel'
 import EvidenceLedger from '../../components/investigations/EvidenceLedger'
 import HypothesisScorecard from '../../components/investigations/HypothesisScorecard'
 import RootCausePanel from '../../components/investigations/RootCausePanel'
 import MarkdownReport from '../../components/investigations/MarkdownReport'
+import DiscussionTab from '../../components/investigation/DiscussionTab'
+import useAuthStore from '../../stores/authStore'
+import useOrganizationStore from '../../stores/organizationStore'
 import { clsx } from 'clsx'
 
 const STAGES = [
@@ -57,9 +61,87 @@ export default function InvestigationDetail() {
   const [streamFailureReason, setStreamFailureReason] = useState(null)
   const [streamExecutionId, setStreamExecutionId] = useState(null)
 
+  // Multi-tenant & Collaboration State
+  const { user } = useAuthStore()
+  const { activeOrganization } = useOrganizationStore()
+  const [collaborators, setCollaborators] = useState([])
+  const [reviews, setReviews] = useState([])
+  const [showAddCollabModal, setShowAddCollabModal] = useState(false)
+  const [orgMembers, setOrgMembers] = useState([])
+  const [selectedCollabUserId, setSelectedCollabUserId] = useState('')
+  const [selectedCollabRole, setSelectedCollabRole] = useState('EDITOR')
+  const [isAddingCollab, setIsAddingCollab] = useState(false)
+  const [reviewNote, setReviewNote] = useState('')
+
   const eventSourceRef = useRef(null)
   const lastEventIdRef = useRef(0)
   const seenEventIdsRef = useRef(new Set())
+
+  const loadCollaborationData = async () => {
+    if (!id) return
+    try {
+      const [collabs, revs] = await Promise.all([
+        collaborationApi.getMembers(id).catch(() => []),
+        collaborationApi.getReviews(id).catch(() => []),
+      ])
+      setCollaborators(collabs || [])
+      setReviews(revs || [])
+    } catch (err) {
+      console.warn('Failed to load investigation collaboration data:', err)
+    }
+  }
+
+  useEffect(() => {
+    loadCollaborationData()
+  }, [id])
+
+  const openAddCollabModal = async () => {
+    setShowAddCollabModal(true)
+    if (activeOrganization?.id) {
+      try {
+        const members = await organizationsApi.members(activeOrganization.id)
+        setOrgMembers(members || [])
+      } catch (err) {
+        console.warn('Failed to fetch org members for collaborator invite:', err)
+      }
+    }
+  }
+
+  const handleAddCollaborator = async (e) => {
+    e.preventDefault()
+    if (!selectedCollabUserId || !id) return
+    try {
+      setIsAddingCollab(true)
+      await collaborationApi.addMember(id, {
+        user_id: selectedCollabUserId,
+        role: selectedCollabRole,
+      })
+      toast?.show('Collaborator attached to investigation', 'success')
+      setShowAddCollabModal(false)
+      loadCollaborationData()
+    } catch (err) {
+      toast?.show(err.response?.data?.detail || 'Failed to add collaborator', 'error')
+    } finally {
+      setIsAddingCollab(false)
+    }
+  }
+
+  const handleFindingReview = async (findingId, rootCauseIndex, status) => {
+    try {
+      await collaborationApi.submitReview(id, {
+        finding_id: findingId,
+        root_cause_index: rootCauseIndex,
+        status: status,
+        reviewer_role_title: 'Domain Reviewer',
+        notes: reviewNote || undefined,
+      })
+      toast?.show(`Finding marked as ${status}`, 'success')
+      setReviewNote('')
+      loadCollaborationData()
+    } catch (err) {
+      toast?.show(err.response?.data?.detail || 'Failed to submit review', 'error')
+    }
+  }
 
   // Initial Fetch & Regular Polling Fallback
   const { data: detail, isLoading, refetch } = useQuery({
@@ -310,25 +392,62 @@ export default function InvestigationDetail() {
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-white/[0.08]">
         <div className="flex items-start gap-4 min-w-0">
           <IconButton icon={ArrowLeft} label="Back" onClick={() => navigate('/investigations')} className="mt-1" />
-          <div className="min-w-0 space-y-1.5">
+          <div className="min-w-0 space-y-2">
             <div className="flex items-center gap-3 flex-wrap">
-              <span className="font-mono text-xs text-[#d4ff58] uppercase tracking-widest">
+              <span className="font-mono text-xs text-[#c8ff00] uppercase tracking-widest">
                 ID / {id.slice(0, 10)}
               </span>
               <StatusBadge status={currentStatus} />
               {streamConfidence && (
-                <span className="font-mono text-[11px] font-bold text-[#d4ff58] border border-[#d4ff58]/30 bg-[#d4ff58]/10 px-2 py-0.5">
+                <span className="font-mono text-[11px] font-bold text-[#c8ff00] border border-[#c8ff00]/30 bg-[#c8ff00]/10 px-2 py-0.5">
                   {Math.round(streamConfidence * 100)}% Analytical Rigor
                 </span>
               )}
+              <span className="font-mono text-[10px] text-[#f2f2ef]/50 uppercase tracking-widest border border-white/[0.08] px-2 py-0.5">
+                {detail.visibility || 'WORKSPACE'}
+              </span>
             </div>
+
             <h1 className="font-display font-extrabold text-xl sm:text-2xl md:text-3xl uppercase tracking-tight text-[#f2f2ef] leading-tight">
               {detail.objective || detail.title}
             </h1>
-            <p className="font-mono text-xs text-[#f2f2ef]/40">
-              Started {new Date(detail.created_at).toLocaleString()}
-              {detail.parent_id && <span> &middot; Replay of {detail.parent_id.slice(0, 8)}</span>}
-            </p>
+
+            {/* Team Collaborators Strip */}
+            <div className="flex items-center gap-3 flex-wrap font-mono text-xs pt-1">
+              <div className="flex items-center gap-1.5 text-[#f2f2ef]/60">
+                <span className="text-[#f2f2ef]/40">Creator:</span>
+                <span className="text-[#f2f2ef] font-semibold">{detail.created_by_name || 'Operator'}</span>
+              </div>
+
+              {detail.assigned_to_name && (
+                <div className="flex items-center gap-1.5 text-[#f2f2ef]/60">
+                  <span className="text-[#f2f2ef]/40">&middot; Assigned to:</span>
+                  <span className="text-[#c8ff00] font-semibold">{detail.assigned_to_name}</span>
+                </div>
+              )}
+
+              <div className="flex items-center gap-1.5">
+                <span className="text-[#f2f2ef]/40">&middot; Collaborators:</span>
+                <div className="flex items-center -space-x-1.5">
+                  {collaborators.map((c) => (
+                    <div
+                      key={c.id}
+                      title={`${c.name} (${c.role})`}
+                      className="w-5 h-5 rounded-full bg-white/[0.1] border border-black text-[#f2f2ef] font-mono text-[9px] font-bold flex items-center justify-center"
+                    >
+                      {c.name.charAt(0).toUpperCase()}
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={openAddCollabModal}
+                  className="flex items-center gap-1 text-[10px] font-mono text-[#c8ff00] hover:underline ml-1 cursor-pointer"
+                >
+                  <UserPlus size={11} />
+                  <span>Add</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -353,6 +472,74 @@ export default function InvestigationDetail() {
           )}
         </div>
       </div>
+
+      {/* Add Collaborator Modal */}
+      {showAddCollabModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-sm border border-white/[0.12] bg-[#0c0c0c] p-6 font-sans space-y-4">
+            <div className="flex items-center justify-between border-b border-white/[0.08] pb-3">
+              <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-[#c8ff00]">
+                ADD INVESTIGATION COLLABORATOR
+              </span>
+              <button onClick={() => setShowAddCollabModal(false)} className="text-[#f2f2ef]/40 hover:text-white">
+                ✕
+              </button>
+            </div>
+            <form onSubmit={handleAddCollaborator} className="space-y-3">
+              <div>
+                <label className="block font-mono text-[10px] uppercase tracking-widest text-[#f2f2ef]/50 mb-1">
+                  Select Teammate
+                </label>
+                <select
+                  required
+                  value={selectedCollabUserId}
+                  onChange={(e) => setSelectedCollabUserId(e.target.value)}
+                  className="w-full px-3 py-2 bg-black border border-white/[0.12] text-xs font-mono text-[#f2f2ef] focus:border-[#c8ff00] focus:outline-none"
+                >
+                  <option value="">Choose colleague...</option>
+                  {orgMembers.map((m) => (
+                    <option key={m.user_id} value={m.user_id}>
+                      {m.name} ({m.email})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-mono text-[10px] uppercase tracking-widest text-[#f2f2ef]/50 mb-1">
+                  Collaborator Role
+                </label>
+                <select
+                  value={selectedCollabRole}
+                  onChange={(e) => setSelectedCollabRole(e.target.value)}
+                  className="w-full px-3 py-2 bg-black border border-white/[0.12] text-xs font-mono text-[#f2f2ef] focus:border-[#c8ff00] focus:outline-none"
+                >
+                  <option value="EDITOR">EDITOR (Add comments & follow-ups)</option>
+                  <option value="REVIEWER">REVIEWER (Verify & approve findings)</option>
+                  <option value="VIEWER">VIEWER (Read-only access)</option>
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddCollabModal(false)}
+                  className="px-3 py-1.5 text-xs font-mono text-[#f2f2ef]/60 hover:text-white border border-white/[0.08]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isAddingCollab || !selectedCollabUserId}
+                  className="btn-dn-primary px-3 py-1.5 text-xs font-mono"
+                >
+                  {isAddingCollab ? 'Attaching...' : 'Attach Teammate →'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* 6-Stage Investigation Lifecycle Stepper (DayNight Rail) */}
       <div className="border border-white/[0.08] bg-[#0c0c0c] p-4 sm:p-6">
@@ -448,6 +635,7 @@ export default function InvestigationDetail() {
       <div className="flex items-center gap-0 border-b border-white/[0.08] overflow-x-auto">
         {[
           { id: 'overview',   label: 'Overview',          icon: Sparkles },
+          { id: 'discussion', label: 'Discussion & Follow-ups', icon: MessageSquare },
           { id: 'report',     label: 'Executive Report',   icon: Award },
           { id: 'findings',   label: 'Key Findings',       icon: FileText,   badge: streamFindings.length || null },
           { id: 'evidence',   label: 'Evidence Ledger',    icon: Database,   badge: streamEvidence.length || null },
@@ -583,16 +771,24 @@ export default function InvestigationDetail() {
         </div>
       )}
 
+      {/* ── TAB 1.5: DISCUSSION & FOLLOW-UPS ──────────────────────────────── */}
+      {activeTab === 'discussion' && (
+        <DiscussionTab
+          investigationId={id}
+          onFollowUpTriggered={() => refetch()}
+        />
+      )}
+
       {/* ── TAB 2: EXECUTIVE REPORT ────────────────────────────────────────── */}
       {activeTab === 'report' && (
         <div className="space-y-6">
           <div className="flex items-center justify-between pb-4 border-b border-white/[0.08]">
             <h2 className="font-display font-bold text-lg uppercase tracking-tight text-[#f2f2ef] flex items-center gap-2">
-              <Award size={18} className="text-[#d4ff58]" />
+              <Award size={18} className="text-[#c8ff00]" />
               <span>Audited Executive Report</span>
             </h2>
             {streamConfidence && (
-              <span className="font-mono text-xs text-[#d4ff58] font-bold border border-[#d4ff58]/30 bg-[#d4ff58]/10 px-3 py-1">
+              <span className="font-mono text-xs text-[#c8ff00] font-bold border border-[#c8ff00]/30 bg-[#c8ff00]/10 px-3 py-1">
                 Confidence: {(streamConfidence * 100).toFixed(0)}%
               </span>
             )}
@@ -601,13 +797,16 @@ export default function InvestigationDetail() {
         </div>
       )}
 
-      {/* ── TAB 3: KEY FINDINGS ──────────────────────────────────────────── */}
+      {/* ── TAB 3: KEY FINDINGS & HUMAN VERIFICATION ────────────────────────── */}
       {activeTab === 'findings' && (
         <div className="space-y-4">
-          <div className="border-b border-white/[0.08] pb-3">
+          <div className="border-b border-white/[0.08] pb-3 flex items-center justify-between">
             <h3 className="font-display font-bold text-base uppercase tracking-tight text-[#f2f2ef]">
-              Quantitative Findings Ledger ({streamFindings.length})
+              Quantitative Findings & Human Verification Ledger ({streamFindings.length})
             </h3>
+            <span className="font-mono text-xs text-[#f2f2ef]/40">
+              Verified: {reviews.filter((r) => r.status === 'APPROVED').length} / {streamFindings.length}
+            </span>
           </div>
 
           {streamFindings.length === 0 ? (
@@ -616,25 +815,66 @@ export default function InvestigationDetail() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {streamFindings.map((f, idx) => (
-                <div key={f.id || idx} className="p-5 border border-white/[0.08] bg-[#0c0c0c] space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-[10px] uppercase tracking-wider px-2 py-0.5 border border-[#d4ff58]/30 bg-[#d4ff58]/10 text-[#d4ff58]">
-                      {f.causal_classification || 'OBSERVATION'}
-                    </span>
-                    <span className="font-mono text-xs font-bold text-[#f2f2ef]">
-                      {Math.round((f.confidence || 0.9) * 100)}%
-                    </span>
+              {streamFindings.map((f, idx) => {
+                const findingReview = reviews.find((r) => r.finding_id === f.id || r.root_cause_index === idx)
+                const isApproved = findingReview?.status === 'APPROVED'
+                const isRejected = findingReview?.status === 'REJECTED'
+
+                return (
+                  <div key={f.id || idx} className="p-5 border border-white/[0.08] bg-[#0c0c0c] space-y-3 font-sans">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-[10px] uppercase tracking-wider px-2 py-0.5 border border-[#c8ff00]/30 bg-[#c8ff00]/10 text-[#c8ff00]">
+                        {f.causal_classification || 'OBSERVATION'}
+                      </span>
+                      <span className="font-mono text-xs font-bold text-[#f2f2ef]">
+                        {Math.round((f.confidence || 0.9) * 100)}% Rigor
+                      </span>
+                    </div>
+
+                    <p className="text-xs sm:text-sm text-[#f2f2ef] leading-relaxed">
+                      {f.statement}
+                    </p>
+
+                    {/* Human Verification Stamp */}
+                    <div className="pt-3 border-t border-white/[0.06] flex items-center justify-between gap-2">
+                      {isApproved ? (
+                        <div className="flex items-center gap-1.5 text-xs text-[#c8ff00] font-mono">
+                          <CheckCircle2 size={13} />
+                          <span>✓ Verified by {findingReview.reviewer_name || 'Expert'}</span>
+                        </div>
+                      ) : isRejected ? (
+                        <div className="flex items-center gap-1.5 text-xs text-red-400 font-mono">
+                          <XCircle size={13} />
+                          <span>✕ Challenged by {findingReview.reviewer_name || 'Reviewer'}</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 text-xs text-[#f2f2ef]/40 font-mono">
+                          <span>AI Synthesized (Unreviewed)</span>
+                        </div>
+                      )}
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleFindingReview(f.id || `f_${idx}`, idx, 'APPROVED')}
+                          disabled={isApproved}
+                          className="px-2 py-1 bg-white/[0.04] hover:bg-[#c8ff00]/20 hover:text-[#c8ff00] border border-white/[0.08] text-[10px] font-mono transition-colors cursor-pointer"
+                          title="Approve & Stamp Finding"
+                        >
+                          Approve ✓
+                        </button>
+                        <button
+                          onClick={() => handleFindingReview(f.id || `f_${idx}`, idx, 'REJECTED')}
+                          disabled={isRejected}
+                          className="px-2 py-1 bg-white/[0.04] hover:bg-red-500/20 hover:text-red-400 border border-white/[0.08] text-[10px] font-mono transition-colors cursor-pointer"
+                          title="Challenge or Reject Finding"
+                        >
+                          Reject ✕
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                  <p className="text-xs sm:text-sm text-[#f2f2ef] leading-relaxed">
-                    {f.statement}
-                  </p>
-                  <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between font-mono text-[10px] text-[#f2f2ef]/40">
-                    <span>Source: {f.source || 'Dataset'}</span>
-                    <span>Empirical Verification &radic;</span>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>

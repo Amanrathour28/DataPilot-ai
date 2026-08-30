@@ -26,6 +26,9 @@ import Agents from './pages/agents/Agents'
 import Analytics from './pages/analytics/Analytics'
 import Memory from './pages/memory/Memory'
 import SettingsPage from './pages/settings/SettingsPage'
+import TeamPage from './pages/team/TeamPage'
+import AuditLogsPage from './pages/audit/AuditLogsPage'
+import AcceptInvitation from './pages/auth/AcceptInvitation'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -49,6 +52,7 @@ export default function App() {
               <Route path="/register"        element={<ErrorBoundary><Register /></ErrorBoundary>} />
               <Route path="/forgot-password" element={<ErrorBoundary><ForgotPassword /></ErrorBoundary>} />
               <Route path="/reset-password"  element={<ErrorBoundary><ResetPassword /></ErrorBoundary>} />
+              <Route path="/invite/:token"   element={<ErrorBoundary><AcceptInvitation /></ErrorBoundary>} />
 
               {/* Protected app routes */}
               <Route element={<AppLayout />}>
@@ -62,6 +66,8 @@ export default function App() {
                 <Route path="/agents"             element={<ErrorBoundary><Agents /></ErrorBoundary>} />
                 <Route path="/analytics"          element={<ErrorBoundary><Analytics /></ErrorBoundary>} />
                 <Route path="/memory"             element={<ErrorBoundary><Memory /></ErrorBoundary>} />
+                <Route path="/team"               element={<ErrorBoundary><TeamPage /></ErrorBoundary>} />
+                <Route path="/audit-logs"         element={<ErrorBoundary><AuditLogsPage /></ErrorBoundary>} />
                 <Route path="/settings"           element={<ErrorBoundary><SettingsPage /></ErrorBoundary>} />
               </Route>
 

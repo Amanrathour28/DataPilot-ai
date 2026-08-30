@@ -6,6 +6,9 @@ from pydantic import BaseModel, ConfigDict
 class InvestigationCreate(BaseModel):
     objective: str
     workspace_id: Optional[str] = None
+    organization_id: Optional[str] = None
+    visibility: Optional[str] = "WORKSPACE"
+    assigned_to: Optional[str] = None
     dataset_ids: Optional[List[str]] = None
     dataset_id: Optional[str] = None
 
@@ -80,9 +83,14 @@ class InvestigationResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str
+    organization_id: Optional[str] = None
     workspace_id: str
     parent_id: Optional[str] = None
     created_by: Optional[str] = None
+    created_by_name: Optional[str] = None
+    assigned_to: Optional[str] = None
+    assigned_to_name: Optional[str] = None
+    visibility: Optional[str] = "WORKSPACE"
     objective: str
     status: str
     confidence_score: Optional[float] = None
@@ -109,3 +117,5 @@ class InvestigationDetailResponse(InvestigationResponse):
     runs: List[AgentRunResponse] = []
     findings: List[FindingResponse] = []
     hypotheses: List[HypothesisResponse] = []
+    collaborators: List[Dict[str, Any]] = []
+

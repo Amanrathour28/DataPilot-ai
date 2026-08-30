@@ -46,21 +46,31 @@ async def _assert_workspace_access(
     return workspace
 
 
+from app.db.models.organization import OrganizationMember
+from app.api.dependencies import log_audit_event, assert_org_access
+
+
 @router.get("", response_model=list[WorkspaceResponse])
 async def list_workspaces(
+    organization_id: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all workspaces the current user is a member of."""
-    result = await db.execute(
+    """List all workspaces the current user is a member of, optionally filtered by organization."""
+    query = (
         select(Workspace)
         .join(WorkspaceMember, WorkspaceMember.workspace_id == Workspace.id)
         .where(
             WorkspaceMember.user_id == current_user.id,
             Workspace.is_deleted == False,
         )
-        .order_by(Workspace.created_at.desc())
     )
+
+    if organization_id:
+        query = query.where(Workspace.organization_id == organization_id)
+
+    query = query.order_by(Workspace.created_at.desc())
+    result = await db.execute(query)
     return result.scalars().all()
 
 
@@ -70,13 +80,27 @@ async def create_workspace(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new workspace owned by the current user."""
+    """Create a new workspace owned by the current user within an organization."""
+    target_org_id = payload.organization_id
+    if target_org_id:
+        await assert_org_access(target_org_id, current_user, db, min_role="MEMBER")
+    else:
+        # Fallback to user's active organization
+        org_mem_res = await db.execute(
+            select(OrganizationMember.organization_id).where(
+                OrganizationMember.user_id == current_user.id,
+                OrganizationMember.status == "ACTIVE",
+            ).limit(1)
+        )
+        target_org_id = org_mem_res.scalar_one_or_none()
+
     base_slug = slugify(payload.name)
     slug = f"{base_slug}-{current_user.id[:8]}"
 
     workspace = Workspace(
         name=payload.name,
         slug=slug,
+        organization_id=target_org_id,
         description=payload.description,
         owner_id=current_user.id,
     )
@@ -89,6 +113,19 @@ async def create_workspace(
         role=WorkspaceMemberRole.OWNER,
     )
     db.add(member)
+
+    if target_org_id:
+        await log_audit_event(
+            db,
+            organization_id=target_org_id,
+            user=current_user,
+            action="workspace.created",
+            resource_type="workspace",
+            resource_id=workspace.id,
+            metadata_json={"name": workspace.name},
+            workspace_id=workspace.id,
+        )
+
     await db.commit()
     await db.refresh(workspace)
     return workspace

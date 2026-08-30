@@ -6,6 +6,7 @@ from typing import Optional
 class WorkspaceCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: Optional[str] = None
+    organization_id: Optional[str] = None
 
 
 class WorkspaceUpdate(BaseModel):
@@ -15,9 +16,10 @@ class WorkspaceUpdate(BaseModel):
 
 class WorkspaceResponse(BaseModel):
     id: str
+    organization_id: Optional[str] = None
     name: str
     slug: str
-    description: Optional[str]
+    description: Optional[str] = None
     owner_id: str
     created_at: datetime
     updated_at: datetime

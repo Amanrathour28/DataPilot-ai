@@ -50,17 +50,20 @@ async def _assert_workspace_member(workspace_id: str, user_id: str, db: AsyncSes
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found")
 
     if workspace.owner_id == user_id:
-        try:
-            from app.db.models.workspace import WorkspaceMemberRole
-            member = WorkspaceMember(
-                workspace_id=workspace_id,
-                user_id=user_id,
-                role=WorkspaceMemberRole.OWNER,
+        return
+
+    # Check parent organization role (OWNER/ADMIN inherits workspace access)
+    if workspace.organization_id:
+        from app.db.models.organization import OrganizationMember
+        om_res = await db.execute(
+            select(OrganizationMember).where(
+                OrganizationMember.organization_id == workspace.organization_id,
+                OrganizationMember.user_id == user_id,
+                OrganizationMember.status == "ACTIVE",
             )
-            db.add(member)
-            await db.commit()
-            return
-        except Exception:
+        )
+        om = om_res.scalar_one_or_none()
+        if om and str(om.role).upper() in ("OWNER", "ADMIN"):
             return
 
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to this workspace")

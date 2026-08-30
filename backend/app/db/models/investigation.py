@@ -19,8 +19,11 @@ class Investigation(Base):
     id: Mapped[str] = mapped_column(
         String(36), primary_key=True, default=lambda: str(uuid.uuid4())
     )
+    organization_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     workspace_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+        String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
     )
     parent_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("investigations.id", ondelete="SET NULL"), nullable=True
@@ -28,6 +31,12 @@ class Investigation(Base):
     created_by: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    assigned_to: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    visibility: Mapped[str] = mapped_column(
+        String(20), default="WORKSPACE", nullable=False
+    )  # WORKSPACE, PRIVATE, SHARED
     objective: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(
         String(20), default="PENDING", nullable=False
@@ -262,3 +271,98 @@ class CriticReview(Base):
 
     def __repr__(self) -> str:
         return f"<CriticReview id={self.id} verdict={self.verdict} round={self.round_number}>"
+
+
+class InvestigationMember(Base):
+    __tablename__ = "investigation_members"
+    __table_args__ = (
+        Index("idx_inv_members_inv_user", "investigation_id", "user_id", unique=True),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    investigation_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("investigations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    role: Mapped[str] = mapped_column(
+        String(20), default="VIEWER", nullable=False
+    )  # OWNER, EDITOR, REVIEWER, VIEWER
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<InvestigationMember inv={self.investigation_id} user={self.user_id} role={self.role}>"
+
+
+class InvestigationComment(Base):
+    __tablename__ = "investigation_comments"
+    __table_args__ = (
+        Index("idx_inv_comments_inv_created", "investigation_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    organization_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    workspace_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    investigation_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("investigations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    parent_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("investigation_comments.id", ondelete="CASCADE"), nullable=True
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    is_ai_triggered: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<InvestigationComment id={self.id} inv={self.investigation_id} user={self.user_id}>"
+
+
+class FindingReview(Base):
+    __tablename__ = "finding_reviews"
+    __table_args__ = (
+        Index("idx_finding_reviews_inv", "investigation_id"),
+    )
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    investigation_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("investigations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    finding_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    root_cause_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(20), default="PENDING", nullable=False
+    )  # PENDING, APPROVED, REJECTED
+    reviewed_by: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    reviewer_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    reviewer_role_title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<FindingReview id={self.id} inv={self.investigation_id} status={self.status}>"

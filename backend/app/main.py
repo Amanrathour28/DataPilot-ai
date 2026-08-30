@@ -15,7 +15,17 @@ from app.db.base import engine, Base, _is_sqlite
 # Import models so SQLAlchemy registers them on the metadata
 import app.db.models  # noqa: F401
 
-from app.api.routes import auth, workspaces, datasets, investigations, documents, memories, analytics
+from app.api.routes import (
+    auth,
+    organizations,
+    workspaces,
+    datasets,
+    investigations,
+    documents,
+    memories,
+    analytics,
+    collaboration,
+)
 
 setup_logging()
 logger = logging.getLogger("datapilot")
@@ -245,9 +255,12 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 app.include_router(auth.router, prefix="/api/v1")
+app.include_router(organizations.router, prefix="/api/v1")
+app.include_router(organizations.invitations_public_router, prefix="/api/v1")
 app.include_router(workspaces.router, prefix="/api/v1")
 app.include_router(datasets.router, prefix="/api/v1")
 app.include_router(investigations.router, prefix="/api/v1")
+app.include_router(collaboration.router, prefix="/api/v1")
 app.include_router(documents.router, prefix="/api/v1")
 app.include_router(memories.router, prefix="/api/v1")
 app.include_router(analytics.router, prefix="/api/v1")

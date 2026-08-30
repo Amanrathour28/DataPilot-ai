@@ -139,6 +139,17 @@ def ensure_worker_running(investigation_id: str) -> asyncio.Task:
     return t
 
 
+from app.db.models.organization import OrganizationMember
+from app.db.models.investigation import InvestigationMember
+from app.api.dependencies import (
+    get_current_user,
+    assert_workspace_access,
+    assert_investigation_access,
+    log_audit_event,
+    create_notification,
+)
+
+
 @router.post("", response_model=InvestigationResponse, status_code=status.HTTP_201_CREATED)
 async def create_investigation(
     payload: InvestigationCreate,
@@ -156,15 +167,64 @@ async def create_investigation(
         )
 
     logger.info(f"Investigation request received for workspace {target_workspace_id}")
-    await _assert_workspace_access(target_workspace_id, current_user, db)
+    workspace = await assert_workspace_access(target_workspace_id, current_user, db, min_role="MEMBER")
+
+    org_id = payload.organization_id or workspace.organization_id
 
     investigation = Investigation(
+        organization_id=org_id,
         workspace_id=target_workspace_id,
         created_by=current_user.id,
+        assigned_to=payload.assigned_to,
+        visibility=payload.visibility or "WORKSPACE",
         objective=payload.objective,
         status="QUEUED",
     )
     db.add(investigation)
+    await db.flush()
+
+    # Add creator as OWNER in investigation_members
+    creator_member = InvestigationMember(
+        id=str(uuid.uuid4()),
+        investigation_id=investigation.id,
+        user_id=current_user.id,
+        role="OWNER",
+    )
+    db.add(creator_member)
+
+    # If assigned to someone else, add them and dispatch notification
+    if payload.assigned_to and payload.assigned_to != current_user.id:
+        assignee_member = InvestigationMember(
+            id=str(uuid.uuid4()),
+            investigation_id=investigation.id,
+            user_id=payload.assigned_to,
+            role="EDITOR",
+        )
+        db.add(assignee_member)
+
+        await create_notification(
+            db,
+            user_id=payload.assigned_to,
+            organization_id=org_id,
+            type="ASSIGNMENT",
+            title="New Investigation Assigned",
+            message=f"{current_user.name} assigned you an investigation: {payload.objective[:60]}",
+            resource_type="investigation",
+            resource_id=investigation.id,
+        )
+
+    if org_id:
+        await log_audit_event(
+            db,
+            organization_id=org_id,
+            user=current_user,
+            action="investigation.created",
+            resource_type="investigation",
+            resource_id=investigation.id,
+            metadata_json={"objective": payload.objective, "workspace_id": target_workspace_id},
+            workspace_id=target_workspace_id,
+        )
+
     await db.commit()
     await db.refresh(investigation)
 
@@ -181,7 +241,10 @@ async def create_investigation(
 
     logger.info(f"Investigation created & queued: {investigation.id}")
     ensure_worker_running(investigation.id)
-    return investigation
+
+    resp = InvestigationResponse.model_validate(investigation)
+    resp.created_by_name = current_user.name
+    return resp
 
 
 @router.post("/{investigation_id}/start")
@@ -192,12 +255,7 @@ async def start_investigation(
     db: AsyncSession = Depends(get_db),
 ):
     """Idempotent workflow start endpoint."""
-    result = await db.execute(select(Investigation).where(Investigation.id == investigation_id))
-    inv = result.scalar_one_or_none()
-    if not inv:
-        raise HTTPException(status_code=404, detail="Investigation not found")
-
-    await _assert_workspace_access(inv.workspace_id, current_user, db)
+    inv = await assert_investigation_access(investigation_id, current_user, db, min_role="MEMBER")
 
     # Check terminal state protection
     if inv.status in ["COMPLETED", "FAILED", "CANCELLED"]:
@@ -230,22 +288,61 @@ async def start_investigation(
 
 @router.get("", response_model=list[InvestigationResponse])
 async def list_investigations(
-    workspace_id: str = Query(..., description="Workspace ID"),
+    workspace_id: Optional[str] = Query(None, description="Workspace ID"),
+    organization_id: Optional[str] = Query(None, description="Organization ID"),
+    filter: Optional[str] = Query("all", description="Filter: all, mine, shared, assigned"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all investigations for a workspace."""
-    await _assert_workspace_access(workspace_id, current_user, db)
+    """List investigations with multi-tenant filtering."""
+    query = select(Investigation).where(Investigation.is_deleted == False)
 
-    result = await db.execute(
-        select(Investigation)
-        .where(
-            Investigation.workspace_id == workspace_id,
-            Investigation.is_deleted == False,
+    if workspace_id:
+        await assert_workspace_access(workspace_id, current_user, db, min_role="VIEWER")
+        query = query.where(Investigation.workspace_id == workspace_id)
+    elif organization_id:
+        from app.api.dependencies import assert_org_access
+        await assert_org_access(organization_id, current_user, db, min_role="VIEWER")
+        query = query.where(Investigation.organization_id == organization_id)
+
+    if filter == "mine":
+        query = query.where(Investigation.created_by == current_user.id)
+    elif filter == "assigned":
+        query = query.where(Investigation.assigned_to == current_user.id)
+    elif filter == "shared":
+        query = query.join(
+            InvestigationMember,
+            InvestigationMember.investigation_id == Investigation.id,
+        ).where(
+            InvestigationMember.user_id == current_user.id,
+            Investigation.created_by != current_user.id,
         )
-        .order_by(Investigation.created_at.desc())
-    )
-    return result.scalars().all()
+
+    query = query.order_by(Investigation.created_at.desc())
+    result = await db.execute(query)
+    invs = result.scalars().all()
+
+    # Pre-fetch user names
+    user_ids = set()
+    for inv in invs:
+        if inv.created_by:
+            user_ids.add(inv.created_by)
+        if inv.assigned_to:
+            user_ids.add(inv.assigned_to)
+
+    user_map = {}
+    if user_ids:
+        u_res = await db.execute(select(User.id, User.name).where(User.id.in_(user_ids)))
+        user_map = dict(u_res.all())
+
+    responses = []
+    for inv in invs:
+        r = InvestigationResponse.model_validate(inv)
+        r.created_by_name = user_map.get(inv.created_by)
+        r.assigned_to_name = user_map.get(inv.assigned_to)
+        responses.append(r)
+
+    return responses
 
 
 @router.get("/{investigation_id}", response_model=InvestigationDetailResponse)
@@ -254,18 +351,8 @@ async def get_investigation(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Pure read endpoint. Get detailed investigation report."""
-    result = await db.execute(
-        select(Investigation).where(
-            Investigation.id == investigation_id,
-            Investigation.is_deleted == False,
-        )
-    )
-    investigation = result.scalar_one_or_none()
-    if not investigation:
-        raise HTTPException(status_code=404, detail="Investigation not found")
-
-    await _assert_workspace_access(investigation.workspace_id, current_user, db)
+    """Pure read endpoint. Get detailed investigation report with collaborators."""
+    investigation = await assert_investigation_access(investigation_id, current_user, db, min_role="VIEWER")
 
     tasks = await db.execute(
         select(InvestigationTask)
@@ -357,11 +444,48 @@ async def get_investigation(
         for evt in events
     ]
 
+    # Query collaborators with user metadata
+    im_res = await db.execute(
+        select(InvestigationMember, User.name, User.email, User.avatar_url)
+        .join(User, User.id == InvestigationMember.user_id)
+        .where(InvestigationMember.investigation_id == investigation_id)
+        .order_by(InvestigationMember.created_at.asc())
+    )
+    im_rows = im_res.all()
+    collaborators = [
+        {
+            "id": m.id,
+            "user_id": m.user_id,
+            "name": name,
+            "email": email,
+            "avatar_url": avatar_url,
+            "role": m.role,
+            "created_at": m.created_at.isoformat() if m.created_at else None,
+        }
+        for m, name, email, avatar_url in im_rows
+    ]
+
+    # Resolve names
+    created_by_name = None
+    if investigation.created_by:
+        c_res = await db.execute(select(User.name).where(User.id == investigation.created_by))
+        created_by_name = c_res.scalar_one_or_none()
+
+    assigned_to_name = None
+    if investigation.assigned_to:
+        a_res = await db.execute(select(User.name).where(User.id == investigation.assigned_to))
+        assigned_to_name = a_res.scalar_one_or_none()
+
     return InvestigationDetailResponse(
         id=investigation.id,
+        organization_id=investigation.organization_id,
         workspace_id=investigation.workspace_id,
         parent_id=investigation.parent_id,
         created_by=investigation.created_by,
+        created_by_name=created_by_name,
+        assigned_to=investigation.assigned_to,
+        assigned_to_name=assigned_to_name,
+        visibility=investigation.visibility or "WORKSPACE",
         objective=investigation.objective,
         status=investigation.status,
         confidence_score=investigation.confidence_score,
@@ -385,6 +509,7 @@ async def get_investigation(
         runs=runs.scalars().all(),
         findings=findings.scalars().all(),
         hypotheses=hypotheses.scalars().all(),
+        collaborators=collaborators,
     )
 
 
@@ -397,12 +522,7 @@ async def stream_investigation_events(
     db: AsyncSession = Depends(get_db),
 ):
     """Observation-only cursor-based SSE stream using DB-backed event store."""
-    result = await db.execute(select(Investigation).where(Investigation.id == investigation_id))
-    investigation = result.scalar_one_or_none()
-    if not investigation:
-        raise HTTPException(status_code=404, detail="Investigation not found")
-
-    await _assert_workspace_access(investigation.workspace_id, current_user, db)
+    investigation = await assert_investigation_access(investigation_id, current_user, db, min_role="VIEWER")
 
     # Determine starting cursor from query param or Last-Event-ID header
     header_last_id = request.headers.get("Last-Event-ID")
@@ -509,12 +629,7 @@ async def debug_investigation(
     db: AsyncSession = Depends(get_db),
 ):
     """Admin / Debug observability endpoint inspecting active execution lease, tasks, and events."""
-    result = await db.execute(select(Investigation).where(Investigation.id == investigation_id))
-    inv = result.scalar_one_or_none()
-    if not inv:
-        raise HTTPException(status_code=404, detail="Investigation not found")
-
-    await _assert_workspace_access(inv.workspace_id, current_user, db)
+    inv = await assert_investigation_access(investigation_id, current_user, db, min_role="VIEWER")
 
     tasks_res = await db.execute(
         select(InvestigationTask)
@@ -583,19 +698,11 @@ async def replay_investigation(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Replay an investigation using the original question and current dataset state.
-
-    Creates a new investigation record with parent_id set to the original, generates
-    a fresh execution_id, and kicks off autonomous worker execution.
-    """
-    res = await db.execute(select(Investigation).where(Investigation.id == investigation_id))
-    original = res.scalar_one_or_none()
-    if not original:
-        raise HTTPException(status_code=404, detail="Original investigation not found")
-
-    await _assert_workspace_access(original.workspace_id, current_user, db)
+    """Replay an investigation using the original question and current dataset state."""
+    original = await assert_investigation_access(investigation_id, current_user, db, min_role="MEMBER")
 
     replayed = Investigation(
+        organization_id=original.organization_id,
         workspace_id=original.workspace_id,
         created_by=current_user.id,
         objective=original.objective,
@@ -603,6 +710,29 @@ async def replay_investigation(
         status="QUEUED",
     )
     db.add(replayed)
+    await db.flush()
+
+    # Add creator as OWNER in investigation_members
+    creator_member = InvestigationMember(
+        id=str(uuid.uuid4()),
+        investigation_id=replayed.id,
+        user_id=current_user.id,
+        role="OWNER",
+    )
+    db.add(creator_member)
+
+    if original.organization_id:
+        await log_audit_event(
+            db,
+            organization_id=original.organization_id,
+            user=current_user,
+            action="investigation.replayed",
+            resource_type="investigation",
+            resource_id=replayed.id,
+            metadata_json={"parent_id": original.id},
+            workspace_id=original.workspace_id,
+        )
+
     await db.commit()
     await db.refresh(replayed)
 
@@ -626,13 +756,8 @@ async def pause_investigation(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Pause an active investigation."""
-    res = await db.execute(select(Investigation).where(Investigation.id == investigation_id))
-    inv = res.scalar_one_or_none()
-    if not inv:
-        raise HTTPException(status_code=404, detail="Investigation not found")
-
-    await _assert_workspace_access(inv.workspace_id, current_user, db)
+    """Pause an active investigation (EDITOR/OWNER only)."""
+    inv = await assert_investigation_access(investigation_id, current_user, db, min_role="EDITOR")
 
     from app.services.investigation_service import pause_investigation_run, broadcast_event
     pause_investigation_run(investigation_id)
@@ -651,13 +776,8 @@ async def resume_investigation(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Resume a paused investigation."""
-    res = await db.execute(select(Investigation).where(Investigation.id == investigation_id))
-    inv = res.scalar_one_or_none()
-    if not inv:
-        raise HTTPException(status_code=404, detail="Investigation not found")
-
-    await _assert_workspace_access(inv.workspace_id, current_user, db)
+    """Resume a paused investigation (EDITOR/OWNER only)."""
+    inv = await assert_investigation_access(investigation_id, current_user, db, min_role="EDITOR")
 
     from app.services.investigation_service import resume_investigation_run, broadcast_event
     resume_investigation_run(investigation_id)
@@ -676,13 +796,8 @@ async def cancel_investigation(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Cancel an active or queued investigation."""
-    res = await db.execute(select(Investigation).where(Investigation.id == investigation_id))
-    inv = res.scalar_one_or_none()
-    if not inv:
-        raise HTTPException(status_code=404, detail="Investigation not found")
-
-    await _assert_workspace_access(inv.workspace_id, current_user, db)
+    """Cancel an active or queued investigation (EDITOR/OWNER only)."""
+    inv = await assert_investigation_access(investigation_id, current_user, db, min_role="EDITOR")
 
     from app.services.investigation_service import cancel_investigation_run, broadcast_event
     cancel_investigation_run(investigation_id)
@@ -703,12 +818,7 @@ async def get_investigation_evidence(
     db: AsyncSession = Depends(get_db),
 ):
     """Get all evidence items for an investigation."""
-    res = await db.execute(select(Investigation).where(Investigation.id == investigation_id))
-    inv = res.scalar_one_or_none()
-    if not inv:
-        raise HTTPException(status_code=404, detail="Investigation not found")
-
-    await _assert_workspace_access(inv.workspace_id, current_user, db)
+    inv = await assert_investigation_access(investigation_id, current_user, db, min_role="VIEWER")
 
     e_res = await db.execute(
         select(EvidenceItem)

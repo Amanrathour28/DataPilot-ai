@@ -109,7 +109,10 @@ export const authApi = {
 
 // ── Workspaces ────────────────────────────────────────────────────────────────
 export const workspacesApi = {
-  list:   ()               => api.get('/workspaces').then(r => r.data),
+  list:   (organizationId) => {
+    const url = organizationId ? `/workspaces?organization_id=${encodeURIComponent(organizationId)}` : '/workspaces'
+    return api.get(url).then(r => r.data)
+  },
   create: (data)           => api.post('/workspaces', data).then(r => r.data),
   get:    (id)             => api.get(`/workspaces/${id}`).then(r => r.data),
   update: (id, data)       => api.patch(`/workspaces/${id}`, data).then(r => r.data),
@@ -165,7 +168,17 @@ export const investigationsApi = {
     return api.post(`/investigations?workspace_id=${encodeURIComponent(workspaceId)}`, payload).then(r => r.data)
   },
   start:        (id)                => api.post(`/investigations/${id}/start`).then(r => r.data),
-  list:         (workspaceId)       => api.get(`/investigations?workspace_id=${workspaceId}`).then(r => r.data),
+  list:         (params)            => {
+    if (typeof params === 'string') {
+      return api.get(`/investigations?workspace_id=${encodeURIComponent(params)}`).then(r => r.data)
+    }
+    const query = new URLSearchParams()
+    if (params?.workspaceId) query.set('workspace_id', params.workspaceId)
+    if (params?.organizationId) query.set('organization_id', params.organizationId)
+    if (params?.filter) query.set('filter', params.filter)
+    const qs = query.toString()
+    return api.get(`/investigations${qs ? `?${qs}` : ''}`).then(r => r.data)
+  },
   get:          (id)                => api.get(`/investigations/${id}`).then(r => r.data),
   debug:        (id)                => api.get(`/investigations/${id}/debug`).then(r => r.data),
   replay:       (id)                => api.post(`/investigations/${id}/replay`).then(r => r.data),
@@ -192,6 +205,42 @@ export const investigationsApi = {
     const queryString = params.toString()
     return `${BASE_URL}/api/v1/investigations/${id}/stream${queryString ? `?${queryString}` : ''}`
   },
+}
+
+// ── Organizations & Team ──────────────────────────────────────────────────────
+export const organizationsApi = {
+  list:             ()                  => api.get('/organizations').then(r => r.data),
+  create:           (data)              => api.post('/organizations', data).then(r => r.data),
+  get:              (id)                => api.get(`/organizations/${id}`).then(r => r.data),
+  update:           (id, data)          => api.patch(`/organizations/${id}`, data).then(r => r.data),
+  members:          (id)                => api.get(`/organizations/${id}/members`).then(r => r.data),
+  updateMemberRole: (orgId, uId, role)  => api.patch(`/organizations/${orgId}/members/${uId}`, { role }).then(r => r.data),
+  removeMember:     (orgId, uId)        => api.delete(`/organizations/${orgId}/members/${uId}`),
+  invitations:      (orgId)             => api.get(`/organizations/${orgId}/invitations`).then(r => r.data),
+  createInvitation: (orgId, data)       => api.post(`/organizations/${orgId}/invitations`, data).then(r => r.data),
+  revokeInvitation: (orgId, inviteId)   => api.delete(`/organizations/${orgId}/invitations/${inviteId}`),
+  getInvitation:    (token)             => api.get(`/invitations/${token}`).then(r => r.data),
+  acceptInvitation: (token)             => api.post(`/invitations/${token}/accept`).then(r => r.data),
+  auditLogs:        (orgId, limit = 100)=> api.get(`/organizations/${orgId}/audit-logs?limit=${limit}`).then(r => r.data),
+}
+
+// ── Collaboration & Investigation Sharing ─────────────────────────────────────
+export const collaborationApi = {
+  getMembers:       (investigationId)   => api.get(`/investigations/${investigationId}/members`).then(r => r.data),
+  addMember:        (investigationId, data) => api.post(`/investigations/${investigationId}/members`, data).then(r => r.data),
+  removeMember:     (investigationId, uId)  => api.delete(`/investigations/${investigationId}/members/${uId}`),
+  getComments:      (investigationId)   => api.get(`/investigations/${investigationId}/comments`).then(r => r.data),
+  postComment:      (investigationId, data) => api.post(`/investigations/${investigationId}/comments`, data).then(r => r.data),
+  triggerFollowUp:  (investigationId, commentId) => api.post(`/investigations/${investigationId}/comments/${commentId}/follow-up`).then(r => r.data),
+  getReviews:       (investigationId)   => api.get(`/investigations/${investigationId}/reviews`).then(r => r.data),
+  submitReview:     (investigationId, data) => api.post(`/investigations/${investigationId}/reviews`, data).then(r => r.data),
+}
+
+// ── In-App Notifications ──────────────────────────────────────────────────────
+export const notificationsApi = {
+  list:             (limit = 50)        => api.get(`/notifications?limit=${limit}`).then(r => r.data),
+  markRead:         (id)                => api.patch(`/notifications/${id}/read`).then(r => r.data),
+  markAllRead:      ()                  => api.post('/notifications/read-all').then(r => r.data),
 }
 
 // ── Documents ─────────────────────────────────────────────────────────────────
