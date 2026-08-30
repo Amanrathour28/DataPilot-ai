@@ -534,9 +534,168 @@ def test_scenario_22_unmappable_missing_column():
     print("[PASSED] Scenario 22: Unmappable concepts honestly acknowledged with zero column fabrication")
 
 
+# ── Test 23: Earliest Required-by Dates Top 10 with Outstanding Qty ──────────
+def test_scenario_23_earliest_dates_top_10():
+    # Build 15 items with dates out of order
+    df = pd.DataFrame({
+        "item_name": [f"Material_{i}" for i in range(1, 16)],
+        "required_by_date": [
+            "2026-04-15", "2026-01-10", "2026-03-20", "2026-01-05", "2026-02-14",
+            "2026-05-01", "2026-01-12", "2026-02-01", "2026-03-01", "2026-01-25",
+            "2026-04-01", "2026-02-28", "2026-01-18", "2026-06-01", "2026-05-15"
+        ],
+        "required_qty": [100, 50, 80, 200, 150, 70, 90, 120, 60, 300, 110, 40, 250, 85, 95],
+        "ordered_qty":  [20,  10, 0,  50,  100, 70, 0,  20,  60, 100, 10,  0,  50,  85, 0]
+    })
+    # Earliest 10 sorted by date:
+    # 1. 2026-01-05 (Material_4): req 200 - ord 50 = 150 outstanding
+    # 2. 2026-01-10 (Material_2): req 50 - ord 10 = 40 outstanding
+    # 3. 2026-01-12 (Material_7): req 90 - ord 0 = 90 outstanding
+    # 4. 2026-01-18 (Material_13): req 250 - ord 50 = 200 outstanding
+    # 5. 2026-01-25 (Material_10): req 300 - ord 100 = 200 outstanding
+    # 6. 2026-02-01 (Material_8): req 120 - ord 20 = 100 outstanding
+    # 7. 2026-02-14 (Material_5): req 150 - ord 100 = 50 outstanding
+    # 8. 2026-02-28 (Material_12): req 40 - ord 0 = 40 outstanding
+    # 9. 2026-03-01 (Material_9): req 60 - ord 60 = 0 outstanding
+    # 10. 2026-03-20 (Material_3): req 80 - ord 0 = 80 outstanding
+
+    ctx = _make_context(df, "Which items have the earliest required-by dates? Show the top 10 items with their required-by date and outstanding quantity.", name="Indent_part_5.xlsx")
+    result = perform_question_driven_analysis(ctx)
+
+    assert result["success"] is True
+    assert result["analysis_type"] == "RANKING_BY_DATE"
+    table = result["primary_table"]
+    assert len(table) == 10
+    assert table[0]["Item"] == "Material_4"
+    assert table[0]["Required-by Date"] == "2026-01-05"
+    assert table[0]["Outstanding Quantity"] == 150.0
+
+    assert table[1]["Item"] == "Material_2"
+    assert table[1]["Required-by Date"] == "2026-01-10"
+    assert table[1]["Outstanding Quantity"] == 40.0
+
+    assert table[9]["Item"] == "Material_3"
+    assert table[9]["Required-by Date"] == "2026-03-20"
+    assert table[9]["Outstanding Quantity"] == 80.0
+    print("[PASSED] Scenario 23 (TEST 1): 10 earliest items accurately ranked with real dates and calculated outstanding quantities")
+
+
+# ── Test 24: Total Quantity Still Pending to be Ordered ──────────────────────
+def test_scenario_24_total_pending_quantity():
+    df = pd.DataFrame({
+        "item": ["A", "B", "C"],
+        "required_qty": [100, 200, 300],
+        "ordered_qty":  [40,  100, 150],  # Gaps: 60 + 100 + 150 = 310
+    })
+    ctx = _make_context(df, "What is the total quantity still pending to be ordered?")
+    result = perform_question_driven_analysis(ctx)
+
+    assert result["success"] is True
+    assert result["analysis_type"] == "TOTAL_PENDING_QUANTITY"
+    assert result["aggregations"]["total_pending_quantity"] == 310.0
+    print("[PASSED] Scenario 24 (TEST 2): Single calculated total pending quantity (310 units) verified")
+
+
+# ── Test 25: Category with Highest Outstanding Quantity ───────────────────────
+def test_scenario_25_category_highest_outstanding():
+    df = pd.DataFrame({
+        "category": ["Hardware", "Hardware", "Electrical", "Chemical"],
+        "required_qty": [500, 300, 200, 100],
+        "ordered_qty":  [100, 100, 50,  100], # Outstanding: Hardware=600, Electrical=150, Chemical=0
+    })
+    ctx = _make_context(df, "Which category has the highest outstanding quantity?")
+    result = perform_question_driven_analysis(ctx)
+
+    assert result["success"] is True
+    assert result["aggregations"]["top_group"] == "Hardware"
+    assert result["aggregations"]["top_group_total"] == 600.0
+    print("[PASSED] Scenario 25 (TEST 3): Category with highest outstanding quantity ('Hardware': 600) verified")
+
+
+# ── Test 26: Dataset Record Count ─────────────────────────────────────────────
+def test_scenario_26_dataset_record_count():
+    df = pd.DataFrame({"col_x": range(85), "col_y": range(85)})
+    ctx = _make_context(df, "How many records are in the dataset?")
+    result = perform_question_driven_analysis(ctx)
+
+    assert result["success"] is True
+    assert result["analysis_type"] == "DATASET_VOLUME_ANALYSIS"
+    assert result["aggregations"]["total_records"] == 85
+    print("[PASSED] Scenario 26 (TEST 4): Exact row count (85 records) verified")
+
+
+# ── Test 27: Missing Required-by Dates ────────────────────────────────────────
+def test_scenario_27_missing_required_dates():
+    df = pd.DataFrame({
+        "item_name": ["Pipe", "Valve", "Flange", "Pump"],
+        "required_by_date": ["2026-01-01", None, "2026-02-01", None]
+    })
+    ctx = _make_context(df, "Which items have missing required-by dates?")
+    result = perform_question_driven_analysis(ctx)
+
+    assert result["success"] is True
+    assert result["analysis_type"] == "MISSING_DATES_ANALYSIS"
+    assert result["aggregations"]["missing_date_count"] == 2
+    assert len(result["primary_table"]) == 2
+    assert result["primary_table"][0]["Item"] == "Valve"
+    assert result["primary_table"][1]["Item"] == "Pump"
+    print("[PASSED] Scenario 27 (TEST 5): Items with missing required-by dates (2 records) identified accurately")
+
+
+# ── Test 28: 10 Items with Largest Outstanding Quantity (TEST 6 vs TEST 1) ────
+def test_scenario_28_largest_outstanding_ranking():
+    # Same df as Scenario 23, but sorted by quantity descending
+    df = pd.DataFrame({
+        "item_name": [f"Material_{i}" for i in range(1, 16)],
+        "required_by_date": [
+            "2026-04-15", "2026-01-10", "2026-03-20", "2026-01-05", "2026-02-14",
+            "2026-05-01", "2026-01-12", "2026-02-01", "2026-03-01", "2026-01-25",
+            "2026-04-01", "2026-02-28", "2026-01-18", "2026-06-01", "2026-05-15"
+        ],
+        "required_qty": [100, 50, 80, 200, 150, 70, 90, 120, 60, 300, 110, 40, 250, 85, 95],
+        "ordered_qty":  [20,  10, 0,  50,  100, 70, 0,  20,  60, 100, 10,  0,  50,  85, 0]
+    })
+    # Largest outstanding:
+    # 1. Material_10 (300 - 100 = 200) or Material_13 (250 - 50 = 200)
+    # 3. Material_4 (200 - 50 = 150)
+    # 4. Material_8 (120 - 20 = 100)
+    ctx = _make_context(df, "Show the 10 items with the largest outstanding quantity.")
+    result = perform_question_driven_analysis(ctx)
+
+    assert result["success"] is True
+    assert result["analysis_type"] == "RANKING_BY_METRIC"
+    table = result["primary_table"]
+    assert len(table) == 10
+    # Top item by quantity is Material_10 or Material_13 (200 outstanding), NOT Material_4 (earliest date)
+    assert table[0]["Outstanding Quantity"] == 200.0
+    assert table[0]["Item"] in ["Material_10", "Material_13"]
+    print("[PASSED] Scenario 28 (TEST 6): Largest outstanding items correctly ranked by quantity descending (distinct from earliest date ranking)")
+
+
+# ── Test 29: Revenue Column Schema Check ──────────────────────────────────────
+def test_scenario_29_revenue_column_check():
+    df_no_rev = pd.DataFrame({"item_code": [1, 2], "qty": [10, 20]})
+    ctx_no_rev = _make_context(df_no_rev, "Does this dataset contain a revenue column?")
+    res_no_rev = perform_question_driven_analysis(ctx_no_rev)
+
+    assert res_no_rev["success"] is True
+    assert res_no_rev["analysis_type"] == "SCHEMA_COLUMN_CHECK"
+    assert res_no_rev["aggregations"]["contains_column"] is False
+    assert "does NOT contain a 'revenue' column" in res_no_rev["findings"][0]
+
+    df_with_rev = pd.DataFrame({"item_code": [1, 2], "revenue": [100.0, 200.0]})
+    ctx_with_rev = _make_context(df_with_rev, "Does this dataset contain a revenue column?")
+    res_with_rev = perform_question_driven_analysis(ctx_with_rev)
+
+    assert res_with_rev["success"] is True
+    assert res_with_rev["aggregations"]["contains_column"] is True
+    assert "contains column 'revenue'" in res_with_rev["findings"][0]
+    print("[PASSED] Scenario 29 (TEST 7): Schema column checks honestly answered for present and absent columns")
+
+
 if __name__ == "__main__":
     print("=" * 70)
-    print("RUNNING ALL 22 EMPIRICAL INVESTIGATION VERIFICATION TESTS")
+    print("RUNNING ALL 29 EMPIRICAL INVESTIGATION VERIFICATION TESTS")
     print("=" * 70)
     test_scenario_1_revenue_decline()
     test_scenario_2_premise_challenge_increase()
@@ -560,7 +719,14 @@ if __name__ == "__main__":
     test_scenario_20_revenue_percentage_by_region()
     test_scenario_21_missing_values_audit()
     test_scenario_22_unmappable_missing_column()
+    test_scenario_23_earliest_dates_top_10()
+    test_scenario_24_total_pending_quantity()
+    test_scenario_25_category_highest_outstanding()
+    test_scenario_26_dataset_record_count()
+    test_scenario_27_missing_required_dates()
+    test_scenario_28_largest_outstanding_ranking()
+    test_scenario_29_revenue_column_check()
     print("=" * 70)
-    print("ALL 22 VERIFICATION SCENARIOS PASSED WITH ZERO HALLUCINATIONS!")
+    print("ALL 29 VERIFICATION SCENARIOS PASSED WITH ZERO HALLUCINATIONS!")
     print("=" * 70)
 

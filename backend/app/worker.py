@@ -428,6 +428,22 @@ class InvestigationWorker:
         if not ctx:
             return {"hypotheses": []}
 
+        analytics = exec_context.analytics or {}
+        a_type = analytics.get("analysis_type", "")
+        deterministic_types = [
+            "RANKING_BY_DATE", "RANKING_BY_METRIC", "GROUPED_AGGREGATION",
+            "DATASET_VOLUME_ANALYSIS", "MISSING_VALUES_ANALYSIS", "TOTAL_PENDING_QUANTITY",
+            "MISSING_DATES_ANALYSIS", "SCHEMA_COLUMN_CHECK"
+        ]
+
+        if a_type in deterministic_types:
+            await self.record_event(
+                db, inv.id, "Hypothesis Agent", "COMPLETED",
+                f"Deterministic query ('{a_type}'): causal hypothesis generation is not required for direct data extraction.",
+                {"hypotheses_count": 0, "status": "NOT_REQUIRED"}
+            )
+            return {"hypotheses": [], "status": "NOT_REQUIRED", "message": "Deterministic query: causal hypothesis generation not required."}
+
         hypotheses_specs = generate_grounded_hypotheses(ctx, analytics)
 
         for h in hypotheses_specs:
@@ -491,8 +507,24 @@ class InvestigationWorker:
         total_n = ctx.row_count
         is_small_sample = total_n < 30
 
+        analytics = exec_context.analytics or {}
+        a_type = analytics.get("analysis_type", "")
+        deterministic_types = [
+            "RANKING_BY_DATE", "RANKING_BY_METRIC", "GROUPED_AGGREGATION",
+            "DATASET_VOLUME_ANALYSIS", "MISSING_VALUES_ANALYSIS", "TOTAL_PENDING_QUANTITY",
+            "MISSING_DATES_ANALYSIS", "SCHEMA_COLUMN_CHECK"
+        ]
+
         h_res = await db.execute(select(Hypothesis).where(Hypothesis.investigation_id == inv.id))
         hyps = h_res.scalars().all()
+
+        if a_type in deterministic_types or len(hyps) == 0:
+            await self.record_event(
+                db, inv.id, "Hypothesis Tester", "COMPLETED",
+                f"Deterministic query ('{a_type}'): statistical significance tests are not required for direct data extractions.",
+                {"tests_count": 0, "status": "NOT_REQUIRED"}
+            )
+            return {"tests": [], "sample_size": total_n, "status": "NOT_REQUIRED", "message": "Statistical testing not required."}
 
         executed_tests = []
         for h in hyps:
@@ -924,7 +956,37 @@ class InvestigationWorker:
 
         # ── 6. Executive Answer ──
         analysis_type = analytics.get("analysis_type", "")
-        if analysis_type == "GROUPED_AGGREGATION":
+        if analysis_type == "RANKING_BY_DATE":
+            rows_md = []
+            for r in primary_table:
+                rows_md.append(f"| {r.get('Rank', '')} | **{r.get('Item', '')}** | `{r.get('Required-by Date', '')}` | **{r.get('Outstanding Quantity', 0):,.0f}** |")
+            date_table_md = "| Rank | Item | Required-by Date | Outstanding Quantity |\n| :--- | :--- | :--- | :--- |\n" + "\n".join(rows_md)
+            
+            invalid_note = f"\n\n> ℹ **Date Coverage**: {agg.get('invalid_date_records', 0)} records had missing/unparseable required-by dates and were excluded from chronological ranking." if agg.get('invalid_date_records', 0) > 0 else ""
+            primary_finding = (
+                f"The **{len(primary_table)} earliest required-by items** in `{ds_name}` are ranked below:\n\n"
+                f"{date_table_md}{invalid_note}"
+            )
+        elif analysis_type == "RANKING_BY_METRIC":
+            rows_md = []
+            for r in primary_table:
+                rows_md.append(f"| {r.get('Rank', '')} | **{r.get('Item', '')}** | **{r.get('Outstanding Quantity', 0):,.0f}** |")
+            metric_table_md = "| Rank | Item | Outstanding Quantity |\n| :--- | :--- | :--- |\n" + "\n".join(rows_md)
+            primary_finding = (
+                f"The **{len(primary_table)} items with the largest outstanding quantity** in `{ds_name}` (formula: `{agg.get('formula', '')}`) are:\n\n"
+                f"{metric_table_md}"
+            )
+        elif analysis_type == "TOTAL_PENDING_QUANTITY":
+            tot_qty = agg.get("total_pending_quantity", 0)
+            form_str = agg.get("formula", "")
+            primary_finding = (
+                f"The total quantity still pending to be ordered in dataset `{ds_name}` is **{tot_qty:,.0f} units** across **{total_rows}** total records (calculation: `{form_str}`)."
+            )
+        elif analysis_type == "MISSING_DATES_ANALYSIS":
+            primary_finding = findings[0] if findings else f"Checked date completeness for `{ds_name}`."
+        elif analysis_type == "SCHEMA_COLUMN_CHECK":
+            primary_finding = findings[0] if findings else f"Audited schema columns for `{ds_name}`."
+        elif analysis_type == "GROUPED_AGGREGATION":
             g_tot = agg.get("grand_total", 0.0)
             m_col = agg.get("metric_column", "metric")
             d_col = agg.get("dimension_column", "dimension")

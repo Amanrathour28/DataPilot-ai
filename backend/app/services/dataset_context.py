@@ -452,19 +452,26 @@ def perform_question_driven_analysis(ctx: DatasetContext) -> Dict[str, Any]:
     qty_col_keywords = ["qty", "quantity", "count", "amount", "units", "num", "number"]
     qty_cols = [c for c in num_cols if any(k in c.lower() for k in qty_col_keywords)]
 
-    # Detect ordered/received/required column pairs
+    # Detect ordered/received/required/outstanding column pairs
     ordered_col = _find_col(qty_cols + num_cols, ["ordered", "order_qty", "orderedqty", "qty_order", "qty ordered", "po_qty"])
-    required_col = _find_col(qty_cols + num_cols, ["required", "require", "qty_req", "needed", "demand", "requested"])
+    required_col = _find_col(qty_cols + num_cols, ["required", "require", "qty_req", "needed", "demand", "requested", "req_qty"])
     received_col = _find_col(qty_cols + num_cols, ["received", "delivered", "fulfilled", "receipt", "qty_rec"])
+    outstanding_col = _find_col(qty_cols + num_cols, ["outstanding", "pending_qty", "pending", "balance", "gap", "open_qty", "remaining"])
 
     # Detect item identifier columns
     item_name_col = _find_col(cat_cols, ["item name", "item_name", "itemname", "product name", "name", "description", "desc", "material", "item"])
-    item_code_col = _find_col(cat_cols, ["item code", "item_code", "itemcode", "sku", "code", "ref", "no", "indent no", "indent_no"])
+    item_code_col = _find_col(cat_cols, ["item code", "item_code", "itemcode", "sku", "code", "ref", "no", "indent no", "indent_no", "part"])
 
     # Detect grouping/dimension columns
     category_col = _find_col(cat_cols, ["category", "cat", "type", "group"])
     section_col = _find_col(cat_cols, ["section", "department", "dept", "division", "unit"])
     priority_col = _find_col(cat_cols, ["priority", "urgency", "importance"])
+
+    # Detect required-by / due date column
+    date_col = _find_col(date_cols + cat_cols, [
+        "required_by", "required by", "by_date", "by date", "due_date", "due date",
+        "needed_by", "delivery_date", "delivery date", "date", "dt", "created_at"
+    ]) or (date_cols[0] if date_cols else None)
 
     # Detect revenue/metric columns for period analysis
     revenue_keywords = ["revenue", "sales", "income", "amount", "value", "transaction_value",
@@ -476,28 +483,118 @@ def perform_question_driven_analysis(ctx: DatasetContext) -> Dict[str, Any]:
     segment_col = _find_col(cat_cols, ["segment", "customer_segment", "customer_type", "tier"])
     product_col = _find_col(cat_cols, ["product", "item", "sku", "material", "item_name", "product_name"])
 
-    # ── Route to appropriate analysis based on question intent ──
+    # Extract limit n
+    n_match = re.search(r"\btop\s+(\d+)\b|\b(\d+)\s+(?:items?|records?|rows?)\b", q_lower)
+    limit_n = int(n_match.group(1) or n_match.group(2)) if n_match else 10
+
+    # ── High-Precision Question Intent Routing ──
+
+    # 1. Schema Column Check (e.g. "Does this dataset contain a revenue column?")
+    is_schema_check = any(k in q_lower for k in [
+        "does this dataset contain", "does the dataset contain", "is there a",
+        "contain a revenue", "have a revenue", "does this dataset have", "contain column", "has column"
+    ])
+    if is_schema_check:
+        target_check_concept = "revenue" if "revenue" in q_lower else ("sales" if "sales" in q_lower else "date")
+        return _analyze_schema_column_check(df, ctx, target_check_concept)
+
+    # 2. Missing Dates Query (e.g. "Which items have missing required-by dates?")
+    is_missing_dates = any(k in q_lower for k in [
+        "missing required-by", "missing required by", "missing due", "missing date", "missing dates", "null date", "null dates"
+    ])
+    if is_missing_dates:
+        return _analyze_missing_dates(df, ctx, date_col, item_name_col)
+
+    # 3. Earliest / Chronological Date Ranking (e.g. "Which items have the earliest required-by dates? Show the top 10...")
+    is_earliest_date_ranking = any(k in q_lower for k in [
+        "earliest required", "earliest by date", "earliest date", "earliest dates", "earliest due",
+        "first required", "oldest date", "chronological", "earliest required-by", "earliest"
+    ]) and date_col is not None
+    if is_earliest_date_ranking:
+        return _analyze_date_ranking(
+            df, ctx, date_col, item_name_col, item_code_col,
+            required_col, ordered_col, outstanding_col,
+            limit=limit_n, ascending=True
+        )
+
+    # 4. Category with Highest Outstanding Quantity (e.g. "Which category has the highest outstanding quantity?")
+    is_category_highest_pending = any(k in q_lower for k in [
+        "which category has the highest outstanding", "which category has the highest pending",
+        "which section has the highest outstanding", "category has the highest", "by category"
+    ]) and (category_col or section_col)
+    if is_category_highest_pending:
+        dim_target = category_col or section_col
+        df_copy = df.copy()
+        if outstanding_col and outstanding_col in df_copy.columns:
+            target_metric_col = outstanding_col
+        elif required_col and ordered_col:
+            req = pd.to_numeric(df_copy[required_col], errors="coerce").fillna(0)
+            ord_q = pd.to_numeric(df_copy[ordered_col], errors="coerce").fillna(0)
+            df_copy["_computed_outstanding"] = np.maximum(req - ord_q, 0)
+            target_metric_col = "_computed_outstanding"
+        elif required_col:
+            target_metric_col = required_col
+        else:
+            target_metric_col = qty_cols[0] if qty_cols else num_cols[0]
+        return _analyze_grouped_metric_by_dimension(df_copy, ctx, target_metric_col, dim_target)
+
+    # 5. Total Pending Quantity Lookup (e.g. "What is the total quantity still pending to be ordered?")
+    is_total_pending_quantity = any(k in q_lower for k in [
+        "total quantity still pending", "total pending quantity", "total outstanding quantity",
+        "how much is pending", "how much quantity is pending", "total quantity pending"
+    ])
+    if is_total_pending_quantity:
+        return _analyze_total_pending_quantity(df, ctx, required_col, ordered_col, outstanding_col)
+
+    # 6. Largest Outstanding Quantity Ranking (e.g. "Show the 10 items with the largest outstanding quantity.")
+    is_largest_outstanding_ranking = any(k in q_lower for k in [
+        "largest outstanding", "highest outstanding", "most outstanding", "greatest outstanding",
+        "largest pending quantity", "highest pending quantity", "top 10 items with the largest",
+        "items with the largest outstanding"
+    ]) and not ("category" in q_lower or "section" in q_lower)
+    if is_largest_outstanding_ranking:
+        return _analyze_largest_outstanding(
+            df, ctx, item_name_col, item_code_col,
+            required_col, ordered_col, outstanding_col,
+            limit=limit_n
+        )
+
+    # 7. Volume Query (e.g. "How many records are in the dataset?")
     is_volume = any(k in q_lower for k in [
         "how many records", "how many rows", "row count", "how many entries",
         "dataset size", "number of rows", "number of records", "total rows", "total records"
     ])
-    is_missing = any(k in q_lower for k in [
-        "missing value", "missing values", "null count", "null values", "nulls",
-        "empty cells", "completeness", "nan values", "what are the missing"
-    ])
-    is_pending = any(k in q_lower for k in [
-        "pending", "not ordered", "unordered", "unfulfilled", "outstanding",
-        "open", "yet to order", "still to order", "pending to be ordered",
-        "still pending", "not yet ordered", "to be ordered",
-    ])
-    is_overdue = any(k in q_lower for k in ["overdue", "late", "past due", "delayed", "missed", "due date"])
-    is_top_n = any(k in q_lower for k in ["top", "highest", "largest", "most", "greatest", "maximum", "max"])
-    is_bottom_n = any(k in q_lower for k in ["bottom", "lowest", "smallest", "least", "minimum", "min"])
-    is_gap = any(k in q_lower for k in ["gap", "difference", "shortfall", "deficit", "shortage"])
-    is_category = any(k in q_lower for k in ["category", "which category", "by category", "section", "by section", "which section", "group"])
-    is_priority = any(k in q_lower for k in ["priority", "high priority", "urgent", "critical"])
+    if is_volume:
+        return _analyze_dataset_volume(df, ctx)
 
-    # Detect grouped aggregation / breakdown intent
+    # 8. Missing Values Query (e.g. "What are the missing values in the dataset?")
+    is_missing = any(k in q_lower for k in [
+        "what are the missing values", "missing value", "missing values", "null count",
+        "null values", "nulls", "empty cells", "completeness", "nan values"
+    ])
+    if is_missing:
+        return _analyze_missing_values(df, ctx)
+
+    # 9. Period-over-Period Comparison
+    is_period_comparison = any(k in q_lower for k in [
+        "decline", "decrease", "drop", "fell", "fall", "increase", "growth", "grew",
+        "change", "trend", "q1", "q2", "q3", "q4", "quarter", "month",
+        "year over year", "yoy", "period", "compare", "versus", "vs",
+        "why did", "what caused", "what drove", "explain the",
+    ])
+    if is_period_comparison and metric_col:
+        return _analyze_period_comparison(
+            df, ctx, metric_col, date_cols, cat_cols,
+            region_col, segment_col, category_col, section_col,
+        )
+
+    # 10. Check for explicitly unmappable critical concepts requested in question
+    if ctx.unmappable_concepts:
+        critical_unmapped = [c for c in ctx.unmappable_concepts if c in ["revenue", "sales", "cost", "profit", "price", "region", "product", "segment"]]
+        if critical_unmapped and not metric_col:
+            return _analyze_unmappable_question(df, ctx, critical_unmapped)
+
+    # 11. Grouped aggregation (e.g. "What is the total revenue in the dataset, and how does it vary by region?")
     is_grouped_breakdown = any(k in q_lower for k in [
         "by region", "by product", "by category", "by section", "by department",
         "vary by", "varies by", "vary across", "variation", "breakdown",
@@ -506,75 +603,364 @@ def perform_question_driven_analysis(ctx: DatasetContext) -> Dict[str, Any]:
         "total sales", "total amount", "what is the total", "which region", "which product",
         "highest revenue", "highest sales", "lowest revenue", "lowest sales"
     ])
-
-    # Detect period-over-period / change analysis intent
-    is_period_comparison = any(k in q_lower for k in [
-        "decline", "decrease", "drop", "fell", "fall", "increase", "growth", "grew",
-        "change", "trend", "q1", "q2", "q3", "q4", "quarter", "month",
-        "year over year", "yoy", "period", "compare", "versus", "vs",
-        "why did", "what caused", "what drove", "explain the",
-    ])
-
-    # 1. Volume query
-    if is_volume:
-        return _analyze_dataset_volume(df, ctx)
-
-    # 2. Missing values query
-    if is_missing:
-        return _analyze_missing_values(df, ctx)
-
-    # 3. Period comparison (e.g., "Why did sales decline from Q2 to Q3?")
-    if is_period_comparison and metric_col:
-        return _analyze_period_comparison(
-            df, ctx, metric_col, date_cols, cat_cols,
-            region_col, segment_col, category_col, section_col,
-        )
-
-    # 4. Check for explicitly unmappable critical concepts requested in question
-    if ctx.unmappable_concepts:
-        critical_unmapped = [c for c in ctx.unmappable_concepts if c in ["revenue", "sales", "cost", "profit", "price", "region", "product", "segment"]]
-        if critical_unmapped and not metric_col and not is_pending and not is_overdue:
-            return _analyze_unmappable_question(df, ctx, critical_unmapped)
-
-    # 5. Grouped aggregation (e.g. "What is the total revenue in the dataset, and how does it vary by region?")
     target_metric = metric_col or (qty_cols[0] if qty_cols else (num_cols[0] if num_cols else None))
     target_dim = region_col or category_col or section_col or segment_col or product_col or (cat_cols[0] if cat_cols else None)
 
     if is_grouped_breakdown and target_metric and target_dim:
         return _analyze_grouped_metric_by_dimension(df, ctx, target_metric, target_dim)
 
-    # 6. Pending & gap items
+    # 12. Pending items audit (general)
+    is_pending = any(k in q_lower for k in [
+        "pending items", "items pending", "not ordered", "unordered", "unfulfilled",
+        "yet to order", "still to order", "pending to be ordered", "to be ordered",
+        "pending quantities", "pending quantity", "pending"
+    ])
+    is_gap = any(k in q_lower for k in ["gap", "difference", "shortfall", "deficit", "shortage"])
     if is_pending or is_gap:
         return _analyze_pending_items(df, ctx, ordered_col, required_col, received_col,
                                        item_name_col, item_code_col, category_col, section_col,
                                        priority_col, date_cols)
 
-    # 7. Overdue items
+    # 13. Overdue items
+    is_overdue = any(k in q_lower for k in ["overdue", "late", "past due", "delayed", "missed", "due date"])
     if is_overdue:
         return _analyze_overdue_items(df, ctx, date_cols, item_name_col, item_code_col,
                                        ordered_col, required_col, priority_col)
 
-    # 8. Top-N Ranking
-    n_match = re.search(r"\btop\s+(\d+)\b|\b(\d+)\s+(?:items?|records?|rows?)\b", q_lower)
-    n = int(n_match.group(1) or n_match.group(2)) if n_match else 10
-
+    # 14. Top-N Ranking (by general quantity/metric)
+    is_top_n = any(k in q_lower for k in ["top", "highest", "largest", "most", "greatest", "maximum", "max"])
+    is_bottom_n = any(k in q_lower for k in ["bottom", "lowest", "smallest", "least", "minimum", "min"])
     if is_top_n or is_bottom_n:
-        return _analyze_top_n(df, ctx, n, is_top_n, qty_cols, ordered_col, required_col,
+        return _analyze_top_n(df, ctx, limit_n, is_top_n, qty_cols, ordered_col, required_col,
                                item_name_col, category_col, section_col)
 
+    is_priority = any(k in q_lower for k in ["priority", "high priority", "urgent", "critical"])
     if is_priority and priority_col:
         return _analyze_by_dimension(df, ctx, priority_col, qty_cols, ordered_col, required_col)
 
+    is_category = any(k in q_lower for k in ["category", "which category", "by category", "section", "by section", "which section", "group"])
     if is_category and (category_col or section_col):
         dim_col = section_col if "section" in q_lower and section_col else (category_col or section_col)
         return _analyze_by_dimension(df, ctx, dim_col, qty_cols, ordered_col, required_col)
 
-    # 9. If target metric and dimension exist, default to grouped metric analysis
+    # 15. If target metric and dimension exist, default to grouped metric analysis
     if target_metric and target_dim:
         return _analyze_grouped_metric_by_dimension(df, ctx, target_metric, target_dim)
 
-    # 10. General analysis
+    # 16. General analysis
     return _analyze_general(df, ctx, qty_cols, ordered_col, required_col, item_name_col)
+
+
+def _analyze_date_ranking(
+    df: pd.DataFrame,
+    ctx: DatasetContext,
+    date_col: str,
+    item_name_col: Optional[str],
+    item_code_col: Optional[str],
+    required_col: Optional[str],
+    ordered_col: Optional[str],
+    outstanding_col: Optional[str],
+    limit: int = 10,
+    ascending: bool = True,
+) -> Dict[str, Any]:
+    """
+    Rank items chronologically by parsed datetime.
+    Calculates actual outstanding quantity as:
+      outstanding_quantity = max(required_quantity - ordered_quantity, 0)
+    All dates are converted to real datetimes (avoiding string-sorting errors).
+    """
+    df = df.copy()
+    total_records = len(df)
+
+    # 1. Parse date column to real datetime
+    df["_parsed_date"] = pd.to_datetime(df[date_col], errors="coerce")
+    valid_date_df = df.dropna(subset=["_parsed_date"]).copy()
+    invalid_date_count = total_records - len(valid_date_df)
+
+    if len(valid_date_df) == 0:
+        return {
+            "success": True,
+            "analysis_type": "RANKING_BY_DATE",
+            "analysis_description": f"No valid dates found in date column '{date_col}' across {total_records} records in '{ctx.dataset_name}'.",
+            "columns_used": [date_col],
+            "findings": [f"Column '{date_col}' contains no valid dates to perform chronological ranking."],
+            "primary_table": [],
+            "aggregations": {"total_records": total_records, "invalid_dates": invalid_date_count},
+            "total_records": total_records,
+        }
+
+    # 2. Compute outstanding quantity
+    if outstanding_col and outstanding_col in df.columns:
+        valid_date_df["_outstanding_qty"] = pd.to_numeric(valid_date_df[outstanding_col], errors="coerce").fillna(0)
+        qty_calc_formula = f"Column '{outstanding_col}'"
+    elif required_col and ordered_col:
+        req_series = pd.to_numeric(valid_date_df[required_col], errors="coerce").fillna(0)
+        ord_series = pd.to_numeric(valid_date_df[ordered_col], errors="coerce").fillna(0)
+        valid_date_df["_outstanding_qty"] = np.maximum(req_series - ord_series, 0)
+        qty_calc_formula = f"max('{required_col}' - '{ordered_col}', 0)"
+    elif required_col:
+        valid_date_df["_outstanding_qty"] = pd.to_numeric(valid_date_df[required_col], errors="coerce").fillna(0)
+        qty_calc_formula = f"'{required_col}'"
+    else:
+        num_cols = ctx.numeric_columns
+        if num_cols:
+            valid_date_df["_outstanding_qty"] = pd.to_numeric(valid_date_df[num_cols[0]], errors="coerce").fillna(0)
+            qty_calc_formula = f"'{num_cols[0]}'"
+        else:
+            valid_date_df["_outstanding_qty"] = 0
+            qty_calc_formula = "0 (No numeric quantity column)"
+
+    # 3. Sort by parsed datetime
+    sorted_df = valid_date_df.sort_values("_parsed_date", ascending=ascending).head(limit).copy()
+    sorted_df["Rank"] = range(1, len(sorted_df) + 1)
+    sorted_df["Formatted_Date"] = sorted_df["_parsed_date"].dt.strftime("%Y-%m-%d")
+
+    # Format Item label
+    item_col = item_name_col or item_code_col or (ctx.categorical_columns[0] if ctx.categorical_columns else "Item")
+    if item_col in sorted_df.columns:
+        sorted_df["Item_Display"] = sorted_df[item_col].fillna("Unknown Item").astype(str)
+    else:
+        sorted_df["Item_Display"] = [f"Record {idx+1}" for idx in range(len(sorted_df))]
+
+    # Build primary table
+    table_rows = []
+    for _, row in sorted_df.iterrows():
+        table_rows.append({
+            "Rank": int(row["Rank"]),
+            "Item": str(row["Item_Display"]),
+            "Required-by Date": str(row["Formatted_Date"]),
+            "Outstanding Quantity": float(row["_outstanding_qty"]),
+        })
+
+    direction_label = "earliest" if ascending else "latest"
+    findings = [
+        f"The {len(table_rows)} {direction_label} required-by items in '{ctx.dataset_name}' are ranked below chronologically.",
+        f"Sorted {len(valid_date_df)} records with valid dates by '{date_col}' ascending."
+    ]
+    if invalid_date_count > 0:
+        findings.append(f"{invalid_date_count} records had missing or unparseable required-by dates and were excluded from date ranking.")
+
+    for r in table_rows:
+        findings.append(f"Rank {r['Rank']}: {r['Item']} | Date: {r['Required-by Date']} | Outstanding Qty: {r['Outstanding Quantity']:,.0f}")
+
+    columns_used = [date_col] + ([item_col] if item_col in df.columns else []) + ([required_col] if required_col else []) + ([ordered_col] if ordered_col else [])
+
+    return {
+        "success": True,
+        "analysis_type": "RANKING_BY_DATE",
+        "analysis_description": f"Ranked records by {direction_label} '{date_col}' and extracted top {limit} items with outstanding quantities ({qty_calc_formula}).",
+        "columns_used": columns_used,
+        "findings": findings,
+        "primary_table": table_rows,
+        "aggregations": {
+            "sort_column": date_col,
+            "sort_direction": "ascending" if ascending else "descending",
+            "limit": limit,
+            "total_records": total_records,
+            "valid_date_records": len(valid_date_df),
+            "invalid_date_records": invalid_date_count,
+            "quantity_formula": qty_calc_formula,
+        },
+        "total_records": total_records,
+        "data_sufficiency": {"temporal_analysis": True, "metric_available": True},
+    }
+
+
+def _analyze_largest_outstanding(
+    df: pd.DataFrame,
+    ctx: DatasetContext,
+    item_name_col: Optional[str],
+    item_code_col: Optional[str],
+    required_col: Optional[str],
+    ordered_col: Optional[str],
+    outstanding_col: Optional[str],
+    limit: int = 10,
+) -> Dict[str, Any]:
+    """Rank items by largest outstanding/pending quantity descending."""
+    df = df.copy()
+    total_records = len(df)
+
+    if outstanding_col and outstanding_col in df.columns:
+        df["_outstanding_qty"] = pd.to_numeric(df[outstanding_col], errors="coerce").fillna(0)
+        formula = f"Column '{outstanding_col}'"
+    elif required_col and ordered_col:
+        req = pd.to_numeric(df[required_col], errors="coerce").fillna(0)
+        ord_q = pd.to_numeric(df[ordered_col], errors="coerce").fillna(0)
+        df["_outstanding_qty"] = np.maximum(req - ord_q, 0)
+        formula = f"max('{required_col}' - '{ordered_col}', 0)"
+    elif required_col:
+        df["_outstanding_qty"] = pd.to_numeric(df[required_col], errors="coerce").fillna(0)
+        formula = f"'{required_col}'"
+    else:
+        df["_outstanding_qty"] = 0
+        formula = "0 (No quantity column)"
+
+    sorted_df = df.sort_values("_outstanding_qty", ascending=False).head(limit).copy()
+    sorted_df["Rank"] = range(1, len(sorted_df) + 1)
+    item_col = item_name_col or item_code_col or (ctx.categorical_columns[0] if ctx.categorical_columns else "Item")
+    if item_col in sorted_df.columns:
+        sorted_df["Item_Display"] = sorted_df[item_col].fillna("Unknown Item").astype(str)
+    else:
+        sorted_df["Item_Display"] = [f"Record {idx+1}" for idx in range(len(sorted_df))]
+
+    table_rows = []
+    for _, row in sorted_df.iterrows():
+        table_rows.append({
+            "Rank": int(row["Rank"]),
+            "Item": str(row["Item_Display"]),
+            "Outstanding Quantity": float(row["_outstanding_qty"]),
+        })
+
+    findings = [
+        f"The {len(table_rows)} items with the largest outstanding quantity in '{ctx.dataset_name}' (formula: {formula}) are ranked below."
+    ]
+    for r in table_rows:
+        findings.append(f"Rank {r['Rank']}: {r['Item']} | Outstanding Qty: {r['Outstanding Quantity']:,.0f}")
+
+    return {
+        "success": True,
+        "analysis_type": "RANKING_BY_METRIC",
+        "analysis_description": f"Ranked {total_records} records by largest outstanding quantity ({formula}) and extracted top {limit}.",
+        "columns_used": ([item_col] if item_col in df.columns else []) + ([required_col] if required_col else []) + ([ordered_col] if ordered_col else []),
+        "findings": findings,
+        "primary_table": table_rows,
+        "aggregations": {
+            "sort_column": "outstanding_quantity",
+            "sort_direction": "descending",
+            "limit": limit,
+            "formula": formula,
+            "total_records": total_records,
+        },
+        "total_records": total_records,
+    }
+
+
+def _analyze_total_pending_quantity(
+    df: pd.DataFrame,
+    ctx: DatasetContext,
+    required_col: Optional[str],
+    ordered_col: Optional[str],
+    outstanding_col: Optional[str],
+) -> Dict[str, Any]:
+    """Calculate the single grand total quantity pending to be ordered."""
+    df = df.copy()
+    total_records = len(df)
+    if outstanding_col and outstanding_col in df.columns:
+        tot_pending = float(pd.to_numeric(df[outstanding_col], errors="coerce").fillna(0).sum())
+        formula = f"SUM('{outstanding_col}')"
+        cols = [outstanding_col]
+    elif required_col and ordered_col:
+        req = pd.to_numeric(df[required_col], errors="coerce").fillna(0)
+        ord_q = pd.to_numeric(df[ordered_col], errors="coerce").fillna(0)
+        tot_pending = float(np.maximum(req - ord_q, 0).sum())
+        formula = f"SUM(max('{required_col}' - '{ordered_col}', 0))"
+        cols = [required_col, ordered_col]
+    elif required_col:
+        tot_pending = float(pd.to_numeric(df[required_col], errors="coerce").fillna(0).sum())
+        formula = f"SUM('{required_col}')"
+        cols = [required_col]
+    else:
+        tot_pending = 0.0
+        formula = "0 (No quantity columns found)"
+        cols = []
+
+    findings = [
+        f"The total quantity still pending to be ordered across all {total_records} records in '{ctx.dataset_name}' is {tot_pending:,.0f} units (formula: {formula})."
+    ]
+    return {
+        "success": True,
+        "analysis_type": "TOTAL_PENDING_QUANTITY",
+        "analysis_description": f"Calculated total pending quantity across {total_records} records: {tot_pending:,.0f} units.",
+        "columns_used": cols,
+        "findings": findings,
+        "primary_table": [{"Metric": "Total Pending Quantity", "Value": f"{tot_pending:,.0f} units", "Formula": formula, "Total Records": total_records}],
+        "aggregations": {"total_pending_quantity": tot_pending, "formula": formula, "total_records": total_records},
+        "total_records": total_records,
+    }
+
+
+def _analyze_missing_dates(
+    df: pd.DataFrame,
+    ctx: DatasetContext,
+    date_col: Optional[str],
+    item_name_col: Optional[str],
+) -> Dict[str, Any]:
+    """Find and return records with missing or invalid date values."""
+    df = df.copy()
+    total_records = len(df)
+    if not date_col or date_col not in df.columns:
+        return {
+            "success": True,
+            "analysis_type": "MISSING_DATES_ANALYSIS",
+            "analysis_description": f"No date column found in '{ctx.dataset_name}'.",
+            "columns_used": [],
+            "findings": [f"The dataset '{ctx.dataset_name}' contains no date or required-by column."],
+            "primary_table": [],
+            "aggregations": {"missing_date_count": total_records, "total_records": total_records},
+            "total_records": total_records,
+        }
+
+    parsed = pd.to_datetime(df[date_col], errors="coerce")
+    missing_df = df[parsed.isna()].copy()
+    missing_count = len(missing_df)
+
+    item_col = item_name_col or (ctx.categorical_columns[0] if ctx.categorical_columns else "Item")
+    table_rows = []
+    if missing_count > 0:
+        for idx, row in missing_df.head(20).iterrows():
+            item_val = str(row.get(item_col, f"Record {idx+1}"))
+            table_rows.append({"Record Index": int(idx + 1), "Item": item_val, "Date Column Value": str(row.get(date_col, "NaN"))})
+        findings = [
+            f"Found {missing_count} records ({missing_count / total_records * 100:.1f}%) with missing or invalid dates in column '{date_col}' out of {total_records} total records in '{ctx.dataset_name}'."
+        ]
+    else:
+        findings = [
+            f"All {total_records} records in '{ctx.dataset_name}' have valid required-by dates in column '{date_col}' (0 missing dates found)."
+        ]
+
+    return {
+        "success": True,
+        "analysis_type": "MISSING_DATES_ANALYSIS",
+        "analysis_description": f"Checked missing dates in column '{date_col}': {missing_count} missing records found.",
+        "columns_used": [date_col] + ([item_col] if item_col in df.columns else []),
+        "findings": findings,
+        "primary_table": table_rows,
+        "aggregations": {"missing_date_count": missing_count, "total_records": total_records, "date_column": date_col},
+        "total_records": total_records,
+    }
+
+
+def _analyze_schema_column_check(
+    df: pd.DataFrame,
+    ctx: DatasetContext,
+    target_column_name: str,
+) -> Dict[str, Any]:
+    """Verify if a specific column exists in the dataset schema."""
+    matched_col = None
+    for c in df.columns:
+        if target_column_name.lower() in c.lower():
+            matched_col = c
+            break
+
+    if matched_col:
+        findings = [
+            f"Yes, the dataset '{ctx.dataset_name}' contains column '{matched_col}' (dtype: {df[matched_col].dtype}) matching concept '{target_column_name}'."
+        ]
+    else:
+        findings = [
+            f"No, the dataset '{ctx.dataset_name}' does NOT contain a '{target_column_name}' column. Available columns are: {', '.join(ctx.all_columns)}."
+        ]
+
+    return {
+        "success": True,
+        "analysis_type": "SCHEMA_COLUMN_CHECK",
+        "analysis_description": f"Audited dataset schema for presence of '{target_column_name}' column.",
+        "columns_used": list(df.columns),
+        "findings": findings,
+        "primary_table": [{"Column Name": c, "Data Type": str(df[c].dtype)} for c in df.columns],
+        "aggregations": {"contains_column": matched_col is not None, "matched_column": matched_col, "available_columns": ctx.all_columns},
+        "total_records": len(df),
+    }
 
 
 def _find_col(columns: List[str], keywords: List[str]) -> Optional[str]:
