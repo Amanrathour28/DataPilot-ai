@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Play, AlertTriangle, Sparkles, Database, FileText } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Play, Sparkles, Database, FileText, Loader2, AlertCircle } from 'lucide-react'
 import { Button, IconButton } from '../../components/ui/Button'
 import { CardSkeleton } from '../../components/ui/Skeleton'
 import { PageShell } from '../../components/layout/PageShell'
@@ -12,7 +12,7 @@ import { useToast } from '../../components/ui/Toast'
 const SUGGESTED_PROMPTS = [
   {
     title: 'Analyze Q3 revenue drop',
-    desc: 'Investigate sales segments, average transaction values, and regional drops.',
+    desc: 'Investigate sales cohorts, regional contribution, and transaction delta.',
     prompt: 'Why did our revenue decline in Q3? Analyze regional trends and customer transaction values.',
   },
   {
@@ -21,8 +21,8 @@ const SUGGESTED_PROMPTS = [
     prompt: 'Identify the primary drivers of customer churn. Segment active vs churned user counts.',
   },
   {
-    title: 'Evaluate marketing lead conversion',
-    desc: 'Compare campaign budgets against generated sales volume.',
+    title: 'Evaluate marketing conversion',
+    desc: 'Compare campaign spend against generated sales volume across regions.',
     prompt: 'How did marketing campaign spend affect sales conversions across product categories?',
   }
 ]
@@ -54,7 +54,7 @@ export default function NewInvestigation() {
     }
 
     if (!activeWorkspace?.id) {
-      toast?.show('Failed to start investigation: 400 - No active workspace selected.', 'error')
+      toast?.show('No active workspace selected. Please select a workspace first.', 'error')
       return
     }
 
@@ -86,13 +86,8 @@ export default function NewInvestigation() {
         detailMsg = err.message
       }
 
-      const fullError = status ? `Failed to start investigation: ${status} - ${detailMsg}` : `Failed to start investigation: ${detailMsg}`
-      console.error('Investigation creation failed', {
-        status,
-        response: data,
-        payload: { workspace_id: activeWorkspace.id, objective: objective.trim() },
-        error: err
-      })
+      const fullError = status ? `Investigation initiation failed: ${detailMsg}` : `Investigation initiation failed: ${detailMsg}`
+      console.warn('Investigation error:', err)
       toast?.show(fullError, 'error')
       setLoading(false)
     }
@@ -101,131 +96,173 @@ export default function NewInvestigation() {
   if (!activeWorkspace) {
     return (
       <PageShell>
-        <p className="text-slate-500 text-sm">Select a workspace to start an investigation.</p>
+        <p className="font-mono text-xs text-[#f2f2ef]/50">Select a workspace to start an investigation.</p>
       </PageShell>
     )
   }
 
   return (
-    <PageShell className="max-w-3xl">
-      {/* Back Header */}
-      <div className="flex items-center gap-3 mb-8">
-        <IconButton icon={ArrowLeft} label="Back" onClick={() => navigate('/investigations')} />
-        <div>
-          <h1 className="text-xl font-bold text-slate-100">Start Investigation</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Define your goal and deploy specialized data agents</p>
+    <PageShell className="max-w-4xl">
+      
+      {/* Top Header */}
+      <div className="flex items-center justify-between pb-6 border-b border-white/[0.08]">
+        <div className="flex items-center gap-4">
+          <IconButton icon={ArrowLeft} label="Back" onClick={() => navigate('/investigations')} />
+          <div>
+            <div className="editorial-label m-0">
+              <span className="num">/</span>
+              <span>New Task</span>
+            </div>
+            <h1 className="font-display font-extrabold text-2xl sm:text-3xl uppercase tracking-tight text-[#f2f2ef]">
+              Deploy Investigation
+            </h1>
+          </div>
         </div>
       </div>
 
       {isLoading ? (
-        <CardSkeleton />
-      ) : profiledDatasets.length === 0 ? (
-        <div className="card p-6 border-red-500/20 bg-red-500/5 mb-6 text-center space-y-4">
-          <AlertTriangle size={32} className="mx-auto text-amber-500" />
-          <h3 className="text-sm font-semibold text-slate-200">No profiled datasets available</h3>
-          <p className="text-xs text-slate-400 max-w-md mx-auto">
-            Investigations require structured data. Please upload a dataset on the Datasets page and wait for profiling to complete before running investigations.
-          </p>
-          <Button variant="primary" onClick={() => navigate('/datasets')} className="mx-auto">
-            Go to Datasets
-          </Button>
+        <div className="space-y-4">
+          <CardSkeleton /><CardSkeleton />
         </div>
       ) : (
-        <div className="space-y-6">
-          {/* Active datasets info */}
-          <div className="card p-4 flex items-center justify-between border-emerald-500/15 bg-emerald-500/5">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400">
-                <Database size={16} />
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-slate-300">Data Sources Active</p>
-                <p className="text-xs text-slate-500">{profiledDatasets.length} profiled dataset(s) will be analyzed</p>
-              </div>
+        <form onSubmit={handleLaunch} className="space-y-10">
+          
+          {/* Main Question Studio */}
+          <div className="border border-white/[0.08] bg-[#0c0c0c] p-6 sm:p-10 space-y-6">
+            <div>
+              <span className="font-mono text-xs text-[#d4ff58] uppercase tracking-widest block mb-2">
+                Step 01 / Objective
+              </span>
+              <h2 className="font-display font-extrabold text-2xl sm:text-3xl uppercase tracking-tight text-[#f2f2ef]">
+                What Do You Want To Investigate<span className="text-[#d4ff58]">?</span>
+              </h2>
+              <p className="text-xs sm:text-sm text-[#f2f2ef]/50 font-sans mt-1">
+                Ask a natural business question. DataPilot will determine the multi-agent investigation path.
+              </p>
             </div>
-            <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-              Ready
-            </span>
-          </div>
-
-          <form onSubmit={handleLaunch} className="space-y-5">
-            {profiledDatasets.length > 1 && (
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-300 flex items-center justify-between">
-                  <span>Target Dataset</span>
-                  <span className="text-[11px] text-slate-500 font-normal">Optional — defaults to all active datasets</span>
-                </label>
-                <select
-                  value={selectedDatasetId}
-                  onChange={(e) => setSelectedDatasetId(e.target.value)}
-                  className="input text-xs py-2 bg-[#0c0c18] border-slate-800 text-slate-200"
-                >
-                  <option value="">All active datasets ({profiledDatasets.length} datasets)</option>
-                  {profiledDatasets.map((ds) => (
-                    <option key={ds.id} value={ds.id}>
-                      {ds.original_filename || ds.name} ({ds.row_count || 0} rows)
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
 
             <div className="space-y-2">
-              <label className="text-xs font-semibold text-slate-400">
-                What would you like the agents to investigate?
-              </label>
               <textarea
+                rows={4}
                 value={objective}
                 onChange={(e) => setObjective(e.target.value)}
-                placeholder="Ask a question (e.g. Why did our Q3 revenue decline? Segment sales by product category...)"
-                rows={4}
-                className="input text-sm p-4 leading-relaxed"
-                required
+                placeholder="e.g. Why did revenue decline in Q3? Analyze regional sales trends, conversion drops, and marketing budget changes."
+                className="input text-base sm:text-lg leading-relaxed p-4 resize-none bg-[#080808]"
+                autoFocus
+                disabled={loading}
               />
+              <span className="font-mono text-[10px] text-[#f2f2ef]/40 block text-right">
+                Natural Language &middot; Auto-Parsed by Supervisor Agent
+              </span>
             </div>
 
-            {/* Suggestions */}
-            <div>
-              <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2.5">
-                Suggested Scenarios
-              </p>
-              <div className="grid grid-cols-1 gap-3">
-                {SUGGESTED_PROMPTS.map((item, idx) => (
+            {/* Prompt Starter Chips */}
+            <div className="pt-2">
+              <span className="font-mono text-[10px] uppercase tracking-widest text-[#f2f2ef]/40 block mb-3">
+                Suggested Prompts
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {SUGGESTED_PROMPTS.map((p) => (
                   <button
-                    key={idx}
+                    key={p.title}
                     type="button"
-                    onClick={() => setObjective(item.prompt)}
-                    className="card p-3.5 text-left hover:border-brand-500/35 hover:bg-[#1b1b36] transition-all group flex items-start justify-between"
+                    onClick={() => setObjective(p.prompt)}
+                    className="p-3 border border-white/[0.06] bg-[#080808] hover:border-[#d4ff58]/40 hover:bg-white/[0.02] text-left transition-all cursor-pointer group"
                   >
-                    <div className="pr-4">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <Sparkles size={12} className="text-brand-400" />
-                        <h4 className="text-xs font-semibold text-slate-200 group-hover:text-brand-400 transition-colors">
-                          {item.title}
-                        </h4>
-                      </div>
-                      <p className="text-xs text-slate-500 leading-normal">{item.desc}</p>
-                    </div>
-                    <Play size={12} className="text-slate-600 mt-1 opacity-0 group-hover:opacity-100 group-hover:text-brand-400 transition-all transform group-hover:translate-x-1" />
+                    <span className="font-display font-bold text-xs uppercase tracking-tight text-[#f2f2ef] group-hover:text-[#d4ff58] block transition-colors">
+                      {p.title}
+                    </span>
+                    <span className="text-[11px] text-[#f2f2ef]/50 font-sans mt-1 block leading-normal line-clamp-2">
+                      {p.desc}
+                    </span>
                   </button>
                 ))}
               </div>
             </div>
+          </div>
 
-            {/* Launch button */}
-            <div className="pt-2">
-              <Button
-                variant="primary"
-                type="submit"
-                loading={loading}
-                className="w-full justify-center text-sm py-2.5"
-              >
-                <Sparkles size={14} className="animate-pulse" /> Launch AI Investigation Team
-              </Button>
+          {/* Dataset & Document Context Selection */}
+          <div className="border border-white/[0.08] bg-[#0c0c0c] p-6 sm:p-10 space-y-6">
+            <div>
+              <span className="font-mono text-xs text-[#d4ff58] uppercase tracking-widest block mb-2">
+                Step 02 / Data Context
+              </span>
+              <h3 className="font-display font-extrabold text-xl sm:text-2xl uppercase tracking-tight text-[#f2f2ef]">
+                Select Primary Dataset
+              </h3>
+              <p className="text-xs text-[#f2f2ef]/50 font-sans mt-1">
+                Attach a profiled tabular dataset for sandboxed Python and statistical analysis.
+              </p>
             </div>
-          </form>
-        </div>
+
+            {profiledDatasets.length === 0 ? (
+              <div className="p-6 border border-amber-400/20 bg-amber-400/5 text-amber-300 text-xs font-mono flex items-center justify-between gap-4">
+                <span>No profiled datasets available in this workspace. Upload a CSV first.</span>
+                <Button variant="secondary" size="sm" onClick={() => navigate('/datasets')}>
+                  Upload Dataset
+                </Button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {profiledDatasets.map((d) => {
+                  const isSelected = selectedDatasetId === d.id
+                  return (
+                    <div
+                      key={d.id}
+                      onClick={() => setSelectedDatasetId(isSelected ? '' : d.id)}
+                      className={`p-4 border transition-all cursor-pointer ${
+                        isSelected
+                          ? 'border-[#d4ff58] bg-[#d4ff58]/5'
+                          : 'border-white/[0.06] bg-[#080808] hover:border-white/[0.2]'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono text-xs font-bold text-[#f2f2ef] truncate">
+                          {d.original_filename || d.name}
+                        </span>
+                        {isSelected && (
+                          <span className="font-mono text-[10px] text-[#d4ff58] font-bold uppercase">
+                            Selected
+                          </span>
+                        )}
+                      </div>
+                      <div className="font-mono text-[10px] text-[#f2f2ef]/40 mt-2 flex items-center gap-3">
+                        <span>{d.row_count ? `${d.row_count.toLocaleString()} rows` : 'Table'}</span>
+                        <span>&middot;</span>
+                        <span>{d.column_count ? `${d.column_count} columns` : 'Profiled'}</span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Action Launch Bar */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-white/[0.08]">
+            <span className="font-mono text-xs text-[#f2f2ef]/40">
+              {profiledDatasets.length > 0
+                ? 'Ready to deploy 7 autonomous data agents'
+                : 'Dataset profiling required before launch'}
+            </span>
+
+            <button
+              type="submit"
+              disabled={loading || !objective.trim() || profiledDatasets.length === 0}
+              className="btn-dn-primary py-4 px-8 flex items-center gap-2 group cursor-pointer w-full sm:w-auto justify-center"
+            >
+              <span>{loading ? 'Launching Agents…' : 'Start Investigation'}</span>
+              {loading ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" />
+              )}
+            </button>
+          </div>
+
+        </form>
       )}
+
     </PageShell>
   )
 }

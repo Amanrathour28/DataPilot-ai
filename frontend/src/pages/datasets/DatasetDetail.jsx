@@ -18,33 +18,33 @@ import { clsx } from 'clsx'
 function StatusMessage({ dataset }) {
   if (dataset.status === 'PROFILING') {
     return (
-      <div className="flex items-center gap-3 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20">
-        <Loader2 size={16} className="text-amber-400 animate-spin flex-shrink-0" />
+      <div className="flex items-center gap-3 p-4 border border-amber-400/20 bg-amber-400/5 font-mono text-xs text-amber-300">
+        <Loader2 size={15} className="animate-spin flex-shrink-0" />
         <div>
-          <p className="text-sm font-medium text-amber-400">Profiling in progress</p>
-          <p className="text-xs text-slate-500 mt-0.5">Analyzing column types, statistics, and data quality…</p>
+          <p className="font-bold uppercase">Profiling in Progress</p>
+          <p className="text-[11px] opacity-80 mt-0.5">Analyzing column distributions, null ratios, and statistical variances…</p>
         </div>
       </div>
     )
   }
   if (dataset.status === 'UPLOADED') {
     return (
-      <div className="flex items-center gap-3 p-4 rounded-xl bg-brand-500/10 border border-brand-500/20">
-        <Clock size={16} className="text-brand-400 flex-shrink-0" />
+      <div className="flex items-center gap-3 p-4 border border-sky-400/20 bg-sky-400/5 font-mono text-xs text-sky-300">
+        <Clock size={15} className="flex-shrink-0" />
         <div>
-          <p className="text-sm font-medium text-brand-400">Profiling queued</p>
-          <p className="text-xs text-slate-500 mt-0.5">Analysis will begin shortly.</p>
+          <p className="font-bold uppercase">Profiling Queued</p>
+          <p className="text-[11px] opacity-80 mt-0.5">Analysis job queued for Profiler Agent.</p>
         </div>
       </div>
     )
   }
   if (dataset.status === 'ERROR') {
     return (
-      <div className="flex items-center gap-3 p-4 rounded-xl bg-red-500/10 border border-red-500/20">
-        <AlertCircle size={16} className="text-red-400 flex-shrink-0" />
+      <div className="flex items-center gap-3 p-4 border border-[#ff4e4e]/30 bg-[#ff4e4e]/10 font-mono text-xs text-[#ff4e4e]">
+        <AlertCircle size={15} className="flex-shrink-0" />
         <div>
-          <p className="text-sm font-medium text-red-400">Profiling failed</p>
-          <p className="text-xs text-slate-500 mt-0.5">{dataset.error_message || 'An error occurred during profiling.'}</p>
+          <p className="font-bold uppercase">Profiling Exception</p>
+          <p className="text-[11px] opacity-80 mt-0.5">{dataset.error_message || 'An error occurred during dataset analysis.'}</p>
         </div>
       </div>
     )
@@ -58,150 +58,166 @@ export default function DatasetDetail() {
   const toast = useToast()
   const queryClient = useQueryClient()
   const [deleting, setDeleting] = useState(false)
-  const [activeTab, setActiveTab] = useState('profile')
+  const [activeTab, setActiveTab] = useState('profile') // 'profile' | 'explorer'
 
-  const { data: dataset, isLoading: loadingDs } = useQuery({
+  const { data: dataset, isLoading, error } = useQuery({
     queryKey: ['dataset', id],
     queryFn: () => datasetsApi.get(id),
-    refetchInterval: (data) => {
-      return ['UPLOADING', 'PROFILING', 'UPLOADED'].includes(data?.status) ? 3000 : false
+    enabled: !!id,
+    refetchInterval: (query) => {
+      const d = query.state.data
+      return d && (d.status === 'PROFILING' || d.status === 'UPLOADING') ? 3000 : false
     },
   })
 
-  const { data: profile, isLoading: loadingProfile } = useQuery({
-    queryKey: ['dataset-profile', id],
-    queryFn: () => datasetsApi.profile(id),
-    enabled: dataset?.status === 'PROFILED',
-    retry: false,
-  })
-
-  const handleReprofile = async () => {
-    await datasetsApi.reprofile(id)
-    queryClient.invalidateQueries(['dataset', id])
-    queryClient.invalidateQueries(['dataset-profile', id])
-    toast?.show('Profiling restarted', 'info')
-  }
-
   const handleDelete = async () => {
-    if (!confirm(`Delete dataset "${dataset?.name}"? This cannot be undone.`)) return
+    if (!confirm('Are you sure you want to delete this dataset?')) return
     setDeleting(true)
     try {
       await datasetsApi.delete(id)
-      toast?.show('Dataset deleted', 'success')
+      toast?.show('Dataset deleted successfully', 'success')
+      queryClient.invalidateQueries({ queryKey: ['datasets'] })
       navigate('/datasets')
-    } catch {
+    } catch (err) {
       toast?.show('Failed to delete dataset', 'error')
       setDeleting(false)
     }
   }
 
-  if (loadingDs) {
+  if (isLoading) {
+    return (
+      <PageShell className="space-y-6">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-16 w-full" />
+        <Skeleton className="h-96 w-full" />
+      </PageShell>
+    )
+  }
+
+  if (error || !dataset) {
     return (
       <PageShell>
-        <Skeleton className="h-8 w-48 rounded mb-6" />
-        <Skeleton className="h-24 w-full rounded-xl mb-4" />
-        <Skeleton className="h-64 w-full rounded-xl" />
+        <div className="p-8 border border-white/[0.08] bg-[#0c0c0c] text-center space-y-3 font-mono text-xs">
+          <p className="text-[#ff4e4e]">Failed to load dataset metadata.</p>
+          <Button variant="secondary" size="sm" onClick={() => navigate('/datasets')}>
+            &larr; Return to Datasets
+          </Button>
+        </div>
       </PageShell>
     )
   }
 
-  if (!dataset) {
-    return (
-      <PageShell className="text-center">
-        <p className="text-slate-500">Dataset not found.</p>
-        <Button variant="ghost" onClick={() => navigate('/datasets')} className="mt-3">
-          <ArrowLeft size={14} /> Back
-        </Button>
-      </PageShell>
-    )
-  }
+  const name = dataset.name || dataset.original_filename || 'Untitled Dataset'
 
   return (
-    <PageShell className="space-y-6">
+    <PageShell wide className="space-y-8">
+      
       {/* Header */}
-      <div className="flex items-start gap-4">
-        <IconButton icon={ArrowLeft} label="Back" onClick={() => navigate('/datasets')} />
-
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-3 mb-1 flex-wrap">
-            <h1 className="text-xl font-bold text-slate-100 truncate">{dataset.name}</h1>
-            <StatusBadge status={dataset.status} />
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 pb-6 border-b border-white/[0.08]">
+        <div className="flex items-start gap-4 min-w-0">
+          <IconButton icon={ArrowLeft} label="Back" onClick={() => navigate('/datasets')} className="mt-1" />
+          <div className="min-w-0 space-y-1.5">
+            <div className="flex items-center gap-3">
+              <span className="font-mono text-xs text-[#d4ff58] uppercase tracking-widest">
+                Dataset / {id.slice(0, 8)}
+              </span>
+              <StatusBadge status={dataset.status} />
+            </div>
+            <h1 className="font-display font-extrabold text-2xl sm:text-3xl uppercase tracking-tight text-[#f2f2ef] truncate">
+              {name}
+            </h1>
+            <p className="font-mono text-xs text-[#f2f2ef]/40">
+              {dataset.original_filename} &middot; Ingested {new Date(dataset.created_at).toLocaleDateString()}
+            </p>
           </div>
-          <p className="text-sm text-slate-500">
-            {dataset.original_filename} ·{' '}
-            {(dataset.file_size_bytes / 1024 / 1024).toFixed(2)} MB ·{' '}
-            Uploaded {new Date(dataset.created_at).toLocaleDateString()}
-          </p>
         </div>
 
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {dataset.status === 'PROFILED' && (
-            <IconButton icon={RefreshCw} label="Re-profile" onClick={handleReprofile} />
-          )}
-          <IconButton icon={Trash2} label="Delete" onClick={handleDelete} variant="danger" />
+        <div className="flex items-center gap-3 flex-shrink-0">
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => navigate('/investigations/new')}
+          >
+            Investigate Dataset &rarr;
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
+            disabled={deleting}
+            onClick={handleDelete}
+          >
+            <Trash2 size={13} />
+            <span>{deleting ? 'Deleting…' : 'Delete'}</span>
+          </Button>
         </div>
       </div>
 
-      {/* Status indicator */}
-      {dataset.status !== 'PROFILED' && (
-        <div>
-          <StatusMessage dataset={dataset} />
+      <StatusMessage dataset={dataset} />
+
+      {/* Dataset Metadata Strip */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 font-mono text-xs">
+        <div className="p-4 border border-white/[0.08] bg-[#0c0c0c]">
+          <span className="text-[#f2f2ef]/40 uppercase text-[10px] block mb-1">Total Records</span>
+          <span className="text-[#f2f2ef] font-bold text-lg">
+            {dataset.row_count != null ? dataset.row_count.toLocaleString() : '—'}
+          </span>
         </div>
-      )}
+
+        <div className="p-4 border border-white/[0.08] bg-[#0c0c0c]">
+          <span className="text-[#f2f2ef]/40 uppercase text-[10px] block mb-1">Column Attributes</span>
+          <span className="text-[#f2f2ef] font-bold text-lg">
+            {dataset.column_count != null ? dataset.column_count : '—'}
+          </span>
+        </div>
+
+        <div className="p-4 border border-white/[0.08] bg-[#0c0c0c]">
+          <span className="text-[#f2f2ef]/40 uppercase text-[10px] block mb-1">File Storage</span>
+          <span className="text-[#f2f2ef] font-bold text-lg">
+            {dataset.file_size_bytes ? `${(dataset.file_size_bytes / 1024).toFixed(1)} KB` : '—'}
+          </span>
+        </div>
+
+        <div className="p-4 border border-white/[0.08] bg-[#0c0c0c]">
+          <span className="text-[#f2f2ef]/40 uppercase text-[10px] block mb-1">DuckDB Profiling</span>
+          <span className="text-[#d4ff58] font-bold text-lg uppercase">
+            {dataset.status}
+          </span>
+        </div>
+      </div>
 
       {/* Tabs */}
-      {dataset.status === 'PROFILED' && (
-        <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
-          <button
-            onClick={() => setActiveTab('profile')}
-            className={clsx(
-              'flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all',
-              activeTab === 'profile'
-                ? 'bg-brand-500/20 text-brand-300 border border-brand-500/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
-            )}
-          >
-            <BarChart2 size={14} /> Statistical Profile & Insights
-          </button>
+      <div className="flex items-center gap-0 border-b border-white/[0.08]">
+        {[
+          { id: 'profile',  label: 'Schema & Profiling Analysis', icon: BarChart2 },
+          { id: 'explorer', label: 'Raw Tabular Explorer',        icon: Table },
+        ].map((tab) => {
+          const Icon = tab.icon
+          const active = activeTab === tab.id
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={clsx(
+                'flex items-center gap-2 px-5 py-3 font-mono text-xs uppercase tracking-wider border-b-2 -mb-px transition-all cursor-pointer',
+                active
+                  ? 'text-[#d4ff58] border-[#d4ff58] font-bold'
+                  : 'text-[#f2f2ef]/50 border-transparent hover:text-[#f2f2ef]'
+              )}
+            >
+              <Icon size={13} />
+              <span>{tab.label}</span>
+            </button>
+          )
+        })}
+      </div>
 
-          <button
-            onClick={() => setActiveTab('explorer')}
-            className={clsx(
-              'flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all',
-              activeTab === 'explorer'
-                ? 'bg-brand-500/20 text-brand-300 border border-brand-500/30'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
-            )}
-          >
-            <Table size={14} /> Data Explorer & SQL Runner
-          </button>
-        </div>
+      {/* Tab Panels */}
+      {activeTab === 'profile' ? (
+        <ProfileView dataset={dataset} />
+      ) : (
+        <DataExplorer datasetId={dataset.id} />
       )}
 
-      {/* Profile Tab */}
-      {dataset.status === 'PROFILED' && activeTab === 'profile' && (
-        loadingProfile ? (
-          <div className="flex items-center gap-2 text-slate-500 py-8">
-            <Loader2 size={16} className="animate-spin" />
-            <span className="text-sm">Loading profile…</span>
-          </div>
-        ) : profile ? (
-          <ProfileView profile={profile} />
-        ) : (
-          <div className="text-center py-12">
-            <p className="text-slate-500 text-sm">Profile not available.</p>
-            <Button variant="secondary" onClick={handleReprofile} className="mt-3">
-              <RefreshCw size={13} /> Run profiling
-            </Button>
-          </div>
-        )
-      )}
-
-      {/* Data Explorer Tab */}
-      {dataset.status === 'PROFILED' && activeTab === 'explorer' && (
-        <DataExplorer datasetId={id} />
-      )}
     </PageShell>
   )
 }
-

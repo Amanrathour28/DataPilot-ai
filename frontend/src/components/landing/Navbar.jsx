@@ -1,145 +1,150 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Menu, X, ArrowRight } from 'lucide-react'
+import { ArrowUpRight, Menu, X } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import useAuthStore from '../../stores/authStore'
-import { BrandWordmark } from '../ui/Logo'
 
 const NAV_LINKS = [
-  { label: 'Product',      href: '#hero' },
-  { label: 'How it works', href: '#workflow' },
+  { label: 'Product',      href: '#what-we-do' },
+  { label: 'How it works', href: '#how-it-works' },
   { label: 'Agents',       href: '#agents' },
   { label: 'Evidence',     href: '#evidence' },
-  { label: 'Technology',   href: '#architecture' },
-  { label: 'Security',     href: '#security' },
+  { label: 'Metrics',      href: '#metrics' },
+  { label: 'FAQ',          href: '#faq' },
 ]
 
 export default function Navbar() {
-  const [scrolled, setScrolled]   = useState(false)
+  const [scrolled, setScrolled] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const { user, token } = useAuthStore()
   const navigate = useNavigate()
 
   useEffect(() => {
-    const handleScroll = () => {
-      setScrolled(window.scrollY > 20)
-    }
-    window.addEventListener('scroll', handleScroll)
-    return () => window.removeEventListener('scroll', handleScroll)
+    const onScroll = () => setScrolled(window.scrollY > 20)
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
-  const scrollTo = (id) => {
+  const scrollTo = (href) => {
     setMobileOpen(false)
-    const el = document.querySelector(id)
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth' })
-    }
+    const el = document.querySelector(href)
+    if (el) el.scrollIntoView({ behavior: 'smooth' })
   }
 
   return (
     <header
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
         scrolled
-          ? 'bg-[#06070b]/80 backdrop-blur-xl border-b border-white/[0.06] py-3 shadow-2xl shadow-black/40'
-          : 'bg-transparent py-5'
+          ? 'bg-[#080808]/92 backdrop-blur-md border-b border-white/[0.08] py-4'
+          : 'bg-transparent py-6'
       }`}
     >
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between">
-        <Link to="/">
-          <BrandWordmark compact />
+      <div className="dn-container flex items-center justify-between">
+
+        {/* Brand Logo */}
+        <Link to="/" className="flex items-center gap-2 group">
+          <div className="w-2.5 h-2.5 bg-[#d4ff58] transition-transform duration-300 group-hover:scale-125" />
+          <span className="font-display font-extrabold text-base md:text-lg tracking-tight uppercase text-[#f2f2ef]">
+            DataPilot<span className="text-[#d4ff58]">.</span>ai
+          </span>
         </Link>
 
-        <nav className="hidden md:flex items-center gap-1 glass px-2 py-1 rounded-full">
+        {/* Desktop Nav Items */}
+        <nav className="hidden lg:flex items-center gap-8" aria-label="Main navigation">
           {NAV_LINKS.map((link) => (
             <button
               key={link.label}
               onClick={() => scrollTo(link.href)}
-              className="text-xs font-medium text-slate-400 hover:text-slate-100 px-3 py-1.5 rounded-full hover:bg-white/[0.05] transition-colors"
+              className="text-[11px] font-mono uppercase tracking-[0.16em] text-[#f2f2ef]/60 hover:text-[#d4ff58] transition-colors cursor-pointer"
             >
               {link.label}
             </button>
           ))}
         </nav>
 
-        <div className="hidden md:flex items-center gap-3">
+        {/* Desktop CTA / Auth */}
+        <div className="hidden lg:flex items-center gap-4">
           {token && user ? (
             <button
               onClick={() => navigate('/dashboard')}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-gradient-to-b from-cyan-300 to-cyan-600 text-cyan-950 shadow-lg shadow-cyan-500/20 transition-all hover:brightness-110"
+              className="btn-dn-primary text-xs py-2 px-4 flex items-center gap-1.5"
             >
-              Open workspace
-              <ArrowRight size={14} />
+              <span>Workspace</span>
+              <ArrowUpRight size={14} />
             </button>
           ) : (
             <>
               <Link
                 to="/login"
-                className="text-xs font-semibold text-slate-300 hover:text-white px-3.5 py-2 rounded-xl hover:bg-white/[0.05] transition-colors"
+                className="text-[11px] font-mono uppercase tracking-[0.16em] text-[#f2f2ef]/60 hover:text-[#f2f2ef] px-3 py-2 transition-colors"
               >
-                Sign in
+                Sign In
               </Link>
               <Link
                 to="/register"
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-gradient-to-b from-cyan-300 to-cyan-600 text-cyan-950 shadow-lg shadow-cyan-500/20 transition-all hover:brightness-110"
+                className="btn-dn-outline text-xs py-2 px-4 flex items-center gap-1.5"
               >
-                Get started
-                <ArrowRight size={14} />
+                <span>Get Started</span>
+                <ArrowUpRight size={14} />
               </Link>
             </>
           )}
         </div>
 
+        {/* Mobile Toggle */}
         <button
           onClick={() => setMobileOpen(!mobileOpen)}
-          className="md:hidden text-slate-400 hover:text-white p-2 rounded-lg bg-white/[0.04] border border-white/[0.08]"
-          aria-label="Toggle menu"
+          className="lg:hidden text-[#f2f2ef] p-1 cursor-pointer"
+          aria-label={mobileOpen ? 'Close navigation' : 'Open navigation'}
         >
-          {mobileOpen ? <X size={20} /> : <Menu size={20} />}
+          {mobileOpen ? <X size={22} /> : <Menu size={22} />}
         </button>
       </div>
 
+      {/* Mobile Drawer */}
       <AnimatePresence>
         {mobileOpen && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            className="md:hidden bg-[#07090e] border-b border-white/[0.06] px-4 pt-3 pb-6 overflow-hidden"
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+            className="lg:hidden overflow-hidden bg-[#0a0a0a] border-b border-white/[0.08]"
           >
-            <div className="flex flex-col gap-2">
+            <div className="dn-container py-8 space-y-4">
               {NAV_LINKS.map((link) => (
                 <button
                   key={link.label}
                   onClick={() => scrollTo(link.href)}
-                  className="text-left text-sm font-medium text-slate-300 hover:text-white py-2 px-3 rounded-lg hover:bg-white/[0.04]"
+                  className="block w-full text-left font-display font-bold text-xl uppercase tracking-tight text-[#f2f2ef] hover:text-[#d4ff58] transition-colors py-2"
                 >
                   {link.label}
                 </button>
               ))}
 
-              <div className="border-t border-white/[0.06] my-2 pt-3 flex flex-col gap-2">
+              <div className="pt-6 border-t border-white/[0.08] flex flex-col gap-3">
                 {token && user ? (
                   <button
                     onClick={() => { setMobileOpen(false); navigate('/dashboard') }}
-                    className="w-full text-center py-2.5 rounded-xl text-xs font-semibold bg-cyan-500 text-cyan-950"
+                    className="btn-dn-primary w-full justify-center"
                   >
-                    Open workspace
+                    Open Workspace
                   </button>
                 ) : (
                   <>
                     <Link
                       to="/login"
                       onClick={() => setMobileOpen(false)}
-                      className="w-full text-center py-2.5 rounded-xl text-xs font-semibold bg-white/[0.04] text-slate-200 border border-white/[0.08]"
+                      className="block text-center py-3 font-mono text-xs uppercase tracking-widest text-[#f2f2ef]/70 hover:text-white"
                     >
-                      Sign in
+                      Sign In
                     </Link>
                     <Link
                       to="/register"
                       onClick={() => setMobileOpen(false)}
-                      className="w-full text-center py-2.5 rounded-xl text-xs font-semibold bg-cyan-500 text-cyan-950"
+                      className="btn-dn-primary w-full justify-center"
                     >
-                      Get started →
+                      Get Started
                     </Link>
                   </>
                 )}

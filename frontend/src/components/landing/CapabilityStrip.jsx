@@ -1,45 +1,30 @@
-import { motion } from 'framer-motion'
-import { Cpu, Database, FileSearch, GitBranch, ShieldCheck, LineChart, Layers, Terminal } from 'lucide-react'
-
-const CAPABILITIES = [
-  { icon: Cpu,         label: 'Multi-Agent Orchestration' },
-  { icon: Database,    label: 'Structured Data Analysis' },
-  { icon: FileSearch,  label: 'RAG Contextual Retrieval' },
-  { icon: GitBranch,   label: 'Hypothesis Testing' },
-  { icon: LineChart,   label: 'Root Cause Analysis' },
-  { icon: ShieldCheck, label: 'Evidence Verification' },
-  { icon: Terminal,    label: 'Python Sandbox Execution' },
-  { icon: Layers,      label: 'Interactive Hypothesis Tree' },
+const TICKER_ITEMS = [
+  'AI INVESTIGATION',
+  'MULTI-AGENT ORCHESTRATION',
+  'STRUCTURED DATA ANALYSIS',
+  'PYTHON SANDBOX EXECUTION',
+  'VECTOR RAG RETRIEVAL',
+  'HYPOTHESIS TESTING',
+  'EVIDENCE VERIFICATION',
+  'ROOT CAUSE ANALYSIS',
+  'CRITIC CAUSAL AUDITING',
+  'STATISTICAL PROFILING',
 ]
+
+const ITEMS = [...TICKER_ITEMS, ...TICKER_ITEMS]
 
 export default function CapabilityStrip() {
   return (
-    <div className="w-full border-y border-white/[0.06] py-6 overflow-hidden">
-      <div className="max-w-7xl mx-auto px-4 mb-3 text-center">
-        <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-widest">
-          AUTONOMOUS INVESTIGATION ENGINE CAPABILITIES
-        </p>
-      </div>
-
-      <div className="relative flex overflow-x-hidden">
-        <motion.div
-          animate={{ x: ['0%', '-50%'] }}
-          transition={{ repeat: Infinity, duration: 25, ease: 'linear' }}
-          className="flex items-center gap-8 whitespace-nowrap"
-        >
-          {[...CAPABILITIES, ...CAPABILITIES].map((item, idx) => {
-            const Icon = item.icon
-            return (
-              <div
-                key={idx}
-                className="flex items-center gap-2.5 px-4 py-2 rounded-xl bg-white/[0.03] border border-white/[0.08] text-xs font-semibold text-slate-300 shadow-sm"
-              >
-                <Icon size={14} className="text-cyan-400" />
-                <span>{item.label}</span>
-              </div>
-            )
-          })}
-        </motion.div>
+    <div className="w-full border-b border-white/[0.08] py-5 overflow-hidden bg-[#0a0a0a]">
+      <div className="animate-marquee flex items-center whitespace-nowrap">
+        {ITEMS.map((item, idx) => (
+          <div key={idx} className="flex items-center group cursor-default">
+            <span className="font-display font-bold text-xs md:text-sm uppercase tracking-[0.2em] text-[#f2f2ef]/40 px-6 group-hover:text-[#d4ff58] transition-colors duration-200">
+              {item}
+            </span>
+            <span className="text-[#d4ff58]/40 font-mono text-xs">/</span>
+          </div>
+        ))}
       </div>
     </div>
   )

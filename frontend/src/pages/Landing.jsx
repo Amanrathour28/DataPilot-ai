@@ -2,69 +2,55 @@ import Navbar from '../components/landing/Navbar'
 import Hero from '../components/landing/Hero'
 import CapabilityStrip from '../components/landing/CapabilityStrip'
 import ProblemComparison from '../components/landing/ProblemComparison'
-import InvestigationWorkflow from '../components/landing/InvestigationWorkflow'
+import HeroInvestigationDemo from '../components/landing/HeroInvestigationDemo'
 import AgentNetwork from '../components/landing/AgentNetwork'
-import HypothesisTree from '../components/landing/HypothesisTree'
-import RagDataSection from '../components/landing/RagDataSection'
 import EvidenceExplorer from '../components/landing/EvidenceExplorer'
-import CorrelationSection from '../components/landing/CorrelationSection'
-import InvestigationTimeline from '../components/landing/InvestigationTimeline'
-import MemorySection from '../components/landing/MemorySection'
-import SecuritySection from '../components/landing/SecuritySection'
-import TechArchitecture from '../components/landing/TechArchitecture'
+import MetricsSection from '../components/landing/MetricsSection'
+import InvestigationWorkflow from '../components/landing/InvestigationWorkflow'
+import FAQSection from '../components/landing/FAQSection'
 import FinalCTA from '../components/landing/FinalCTA'
 import Footer from '../components/landing/Footer'
 
 export default function Landing() {
   return (
-    <div className="app-canvas text-slate-100 min-h-screen font-sans antialiased selection:bg-cyan-500/30 selection:text-white">
-      {/* Premium Sticky Navigation Bar */}
+    <div className="bg-[#080808] text-[#f2f2ef] min-h-screen font-sans antialiased selection:bg-[#d4ff58] selection:text-black">
+      
+      {/* Navigation */}
       <Navbar />
 
-      {/* Hero Section */}
+      {/* Hero */}
       <Hero />
 
-      {/* Capability Strip */}
+      {/* Capability Marquee Ticker */}
       <CapabilityStrip />
 
-      {/* Problem Section ( dashboards vs investigation comparison ) */}
+      {/* (01) What DataPilot Does */}
       <ProblemComparison />
 
-      {/* Investigation Pipeline (How It Works) */}
-      <InvestigationWorkflow />
+      {/* (02) The Investigation Experience / Case Study */}
+      <HeroInvestigationDemo />
 
-      {/* Agent Network Visualization */}
+      {/* (03) The Specialized Agents */}
       <AgentNetwork />
 
-      {/* Hypothesis Tree Visualization */}
-      <HypothesisTree />
-
-      {/* Rag + Data streams fusion section */}
-      <RagDataSection />
-
-      {/* Evidence Explorer Result Cards */}
+      {/* (04) The Evidence Trail */}
       <EvidenceExplorer />
 
-      {/* Correlation vs Causation Analysis Section */}
-      <CorrelationSection />
+      {/* (05) System Metrics */}
+      <MetricsSection />
 
-      {/* Real-time Investigation Event Timeline */}
-      <InvestigationTimeline />
+      {/* (06) How DataPilot Investigates */}
+      <InvestigationWorkflow />
 
-      {/* Memory & Personalization Section */}
-      <MemorySection />
+      {/* (07) Questions, Answered (FAQ) */}
+      <FAQSection />
 
-      {/* Security Features */}
-      <SecuritySection />
-
-      {/* Technology Architecture Layer Stack */}
-      <TechArchitecture />
-
-      {/* Final Call to Action */}
+      {/* (08) Final CTA */}
       <FinalCTA />
 
-      {/* Landing Footer */}
+      {/* Footer */}
       <Footer />
+
     </div>
   )
 }

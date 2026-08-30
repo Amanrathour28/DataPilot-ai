@@ -38,7 +38,7 @@ export default function Investigations() {
   if (!activeWorkspace) {
     return (
       <PageShell>
-        <PageHeader eyebrow="Agents" title="Investigations" description="Loading workspace…" />
+        <PageHeader eyebrow="Workspace" title="Investigations" description="Loading workspace…" />
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3].map(i => <CardSkeleton key={i} />)}
         </div>
@@ -49,14 +49,15 @@ export default function Investigations() {
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Agents"
+        eyebrow="Registry"
         title="Investigations"
-        description={`${investigations.length} investigation${investigations.length !== 1 ? 's' : ''} in “${activeWorkspace.name}”`}
+        description={`${investigations.length} recorded investigation${investigations.length !== 1 ? 's' : ''} in workspace “${activeWorkspace.name}”`}
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <IconButton icon={RefreshCw} label="Refresh" onClick={() => refetch()} />
             <Button variant="primary" onClick={() => navigate('/investigations/new')}>
-              <Plus size={15} /> New Investigation
+              <Plus size={15} />
+              <span>New Investigation</span>
             </Button>
           </div>
         }
@@ -64,87 +65,86 @@ export default function Investigations() {
 
       {/* Error state alert */}
       {isError && (
-        <div className="card p-5 border border-red-500/30 bg-red-500/10 mb-6 flex items-center justify-between">
+        <div className="p-4 border border-[#ff4e4e]/30 bg-[#ff4e4e]/10 text-xs font-mono text-[#ff4e4e] flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <AlertCircle size={20} className="text-red-400 flex-shrink-0" />
-            <div>
-              <h3 className="text-sm font-semibold text-red-300">Failed to load investigations</h3>
-              <p className="text-xs text-slate-400 mt-0.5">
-                {error?.response?.data?.detail || error?.message || 'Could not connect to backend server.'}
-              </p>
-            </div>
+            <AlertCircle size={18} className="flex-shrink-0" />
+            <span>{error?.response?.data?.detail || error?.message || 'Could not connect to backend server.'}</span>
           </div>
           <Button variant="secondary" size="sm" onClick={() => refetch()}>
-            <RefreshCw size={14} /> Retry
+            Retry
           </Button>
         </div>
       )}
 
-      {/* Search Bar */}
+      {/* Search Input Bar */}
       {investigations.length > 0 && (
-        <div className="relative max-w-md mb-6">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+        <div className="relative max-w-lg">
+          <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#f2f2ef]/40" />
           <input
             type="text"
-            placeholder="Search investigations by title or objective…"
+            placeholder="Search by question, objective, or ID…"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="input pl-9 text-sm"
+            className="input pl-10 text-xs font-mono"
           />
         </div>
       )}
 
-      {/* Content */}
+      {/* Content List */}
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[1, 2, 3].map(i => <CardSkeleton key={i} />)}
+        <div className="space-y-3">
+          {[1, 2, 3, 4].map(i => <CardSkeleton key={i} />)}
         </div>
-      ) : filtered.length === 0 && investigations.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <EmptyState
           icon={Search}
-          title="No investigations yet"
-          description="Ask a business question and let AI agents autonomously investigate your data."
+          title={search ? 'No matching investigations' : 'No investigations recorded'}
+          description={search ? `No results matching "${search}". Try another query.` : 'Start an autonomous investigation to analyze anomalies and test hypotheses.'}
           action={
-            <Button variant="primary" onClick={() => navigate('/investigations/new')}>
-              <Plus size={15} /> Start first investigation
-            </Button>
+            !search && (
+              <Button variant="primary" onClick={() => navigate('/investigations/new')}>
+                Start First Investigation &rarr;
+              </Button>
+            )
           }
         />
-      ) : filtered.length === 0 ? (
-        <div className="text-center py-16">
-          <p className="text-slate-500 text-sm">No investigations match &ldquo;{search}&rdquo;</p>
-        </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered.map(inv => (
+        <div className="border border-white/[0.08] bg-[#0c0c0c] divide-y divide-white/[0.06]">
+          {filtered.map((inv) => (
             <div
               key={inv.id}
               onClick={() => navigate(`/investigations/${inv.id}`)}
-              className="card p-5 hover:border-cyan-400/30 cursor-pointer transition-all duration-200 group flex flex-col justify-between"
+              className="p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-white/[0.02] transition-colors cursor-pointer group"
             >
-              <div>
-                <div className="flex items-center justify-between gap-2 mb-3">
-                  <StatusBadge status={inv.status} />
-                  <span className="text-xs text-slate-500 flex items-center gap-1">
-                    <Clock size={12} />
-                    {inv.created_at ? new Date(inv.created_at).toLocaleDateString() : '—'}
+              <div className="min-w-0 space-y-1.5 flex-1 pr-4">
+                <div className="flex items-center gap-3">
+                  <span className="font-mono text-[10px] text-[#f2f2ef]/40 uppercase tracking-widest">
+                    ID {inv.id.slice(0, 8)}
                   </span>
+                  <StatusBadge status={inv.status} />
                 </div>
-                <h3 className="font-semibold text-slate-100 text-sm group-hover:text-cyan-300 transition-colors line-clamp-2">
-                  {inv.title || inv.objective || 'Untitled Investigation'}
+                <h3 className="font-display font-bold text-base sm:text-lg uppercase tracking-tight text-[#f2f2ef] group-hover:text-[#d4ff58] transition-colors">
+                  {inv.objective || inv.title || 'Untitled Investigation'}
                 </h3>
-                <p className="text-xs text-slate-400 mt-2 line-clamp-3 leading-relaxed">
-                  {inv.objective || '—'}
-                </p>
+                <div className="flex items-center gap-4 font-mono text-[11px] text-[#f2f2ef]/40">
+                  <span>Started {new Date(inv.created_at).toLocaleString()}</span>
+                  {inv.dataset_name && (
+                    <>
+                      <span>&middot;</span>
+                      <span>Dataset: {inv.dataset_name}</span>
+                    </>
+                  )}
+                </div>
               </div>
 
-              <div className="mt-5 pt-4 border-t border-white/[0.06] flex items-center justify-between text-xs text-slate-500">
-                <span>
-                  Confidence: <strong className="text-slate-300 font-semibold">{Math.round(((inv.confidence_score || 0)) * 100)}%</strong>
-                </span>
-                <span className="flex items-center gap-1 text-cyan-400 group-hover:translate-x-0.5 transition-transform">
-                  View Report <ArrowRight size={13} />
-                </span>
+              <div className="flex items-center gap-4 flex-shrink-0">
+                <div className="text-right font-mono text-xs hidden sm:block">
+                  <span className="text-[#f2f2ef]/40 block text-[10px] uppercase">Confidence</span>
+                  <span className="font-bold text-[#d4ff58]">
+                    {inv.confidence_score ? `${Math.round(inv.confidence_score * 100)}%` : 'Calibrated'}
+                  </span>
+                </div>
+                <ArrowRight size={16} className="text-[#f2f2ef]/30 group-hover:text-[#d4ff58] group-hover:translate-x-1 transition-all" />
               </div>
             </div>
           ))}

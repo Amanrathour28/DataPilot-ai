@@ -1,214 +1,214 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import {
-  Sparkles, Cpu, Terminal, GitBranch, ShieldCheck, FileSearch,
-  LineChart, CheckCircle2, ChevronRight, Layers, Check
-} from 'lucide-react'
+import { ArrowUpRight } from 'lucide-react'
 
 const AGENTS = [
   {
-    id: 'supervisor',
+    n: '01',
     name: 'Investigation Orchestrator',
-    role: 'Central Orchestration & Dynamic Task Routing',
-    icon: Sparkles,
-    color: 'from-cyan-500 to-purple-600',
-    borderColor: 'border-cyan-500/50',
-    description: 'Understands the objective, monitors investigation graph state, dynamically creates follow-up tasks, and determines when sufficient evidence exists.',
-    exampleInput: 'Objective: "Identify primary drivers of Q3 revenue decline"',
-    exampleOutput: 'Delegated Task 1 -> Profiler, Task 2 -> Data Analyst, Task 3 -> RAG Agent',
-    tools: ['Graph Router', 'State Monitor', 'Task Evaluator'],
-    isCentral: true,
+    role: 'Central Graph Router & Goal Formulation',
+    summary: 'Parses the business question, sets the objective boundary, dynamically generates tasks, and coordinates the multi-agent graph until sufficient empirical proof is established.',
+    sampleInput: 'Objective: "Determine primary cause of Q3 gross margin compression."',
+    sampleOutput: 'Delegated 4 concurrent sub-tasks: Profiler, Python Analyst, RAG Search, Hypothesis Tester.',
+    tools: ['Graph Routing Engine', 'State Tree Monitor', 'Convergence Gatekeeper'],
   },
   {
-    id: 'analyst',
+    n: '02',
     name: 'Data Analyst Agent',
-    role: 'Metrics, Segment Slicing & Anomaly Detection',
-    icon: LineChart,
-    color: 'from-sky-500 to-cyan-600',
-    borderColor: 'border-sky-500/40',
-    description: 'Explores datasets, compares time periods, ranks segment contributions, and flags statistical anomalies.',
-    exampleInput: 'Compare Q2 vs Q3 sales grouped by territory & channel',
-    exampleOutput: 'Finding: West Region revenue declined 41% (contributed 78% of overall drop)',
-    tools: ['Metric Slicer', 'Anomaly Detector', 'Statistical Test'],
+    role: 'Statistical Slicing & Metric Variance',
+    summary: 'Analyzes tabular datasets, compares time periods, detects outliers, and isolates statistical variance across regional, product, and customer cohort dimensions.',
+    sampleInput: 'Group transaction records by region, product category, and discount band.',
+    sampleOutput: 'Isolated anomaly: West region signup contraction (-42.8%) accounts for 78% of overall drop.',
+    tools: ['Metric Variance Calculator', 'Cohort Slicer', 'Outlier Detector'],
   },
   {
-    id: 'python',
+    n: '03',
     name: 'Python Execution Agent',
-    role: 'Sandboxed Python & DuckDB Analysis',
-    icon: Terminal,
-    color: 'from-emerald-500 to-teal-600',
-    borderColor: 'border-emerald-500/40',
-    description: 'Executes pandas/duckdb code in a restricted execution environment with resource limits and filesystem isolation.',
-    exampleInput: 'df.groupby(["quarter","region"])["revenue"].sum().pct_change()',
-    exampleOutput: 'Execution output: Pandas DataFrame [4 rows x 3 cols] in 42ms',
-    tools: ['Pandas Sandbox', 'DuckDB Engine', 'NumPy Stats'],
+    role: 'Sandboxed Python & DuckDB Execution',
+    summary: 'Executes verifiable Python/Pandas/DuckDB analytical scripts within a secure, isolated sandbox environment with strict execution bounds.',
+    sampleInput: 'df.groupby(["quarter", "region"])["revenue"].sum().pct_change()',
+    sampleOutput: 'Generated DataFrame [4 rows x 3 cols] executed in 38ms with verified checksum.',
+    tools: ['DuckDB OLAP Engine', 'Pandas Sandbox', 'Statistical Test Suite'],
   },
   {
-    id: 'hypothesis_gen',
+    n: '04',
     name: 'Hypothesis Generator',
-    role: 'Formulates Candidate Explanations',
-    icon: GitBranch,
-    color: 'from-amber-500 to-orange-600',
-    borderColor: 'border-amber-500/40',
-    description: 'Receives preliminary findings and formulates testable candidate explanations with required evidence criteria.',
-    exampleInput: 'Findings: Revenue -23%, West Region -41%',
-    exampleOutput: 'Formulated H1 (Customer Acquisition drop), H2 (AOV decline), H3 (Supply chain)',
-    tools: ['Reasoning Engine', 'Prior Generator', 'Criterion Builder'],
+    role: 'Causal Candidate Formulation',
+    summary: 'Formulates prioritized testable candidate explanations for observed anomalies, establishing required evidentiary criteria for falsification.',
+    sampleInput: 'Observed anomalies: Revenue down 23.4%, West region down 41%, AOV flat.',
+    sampleOutput: 'Formulated H1 (Acquisition contraction), H2 (AOV decline), H3 (Cancellation spike).',
+    tools: ['Causal Prior Generator', 'Falsification Criteria Builder', 'Hypothesis Matrix'],
   },
   {
-    id: 'hypothesis_test',
-    name: 'Hypothesis Testing Agent',
-    role: 'Validates Hypotheses Against Data',
-    icon: Cpu,
-    color: 'from-purple-500 to-pink-600',
-    borderColor: 'border-purple-500/40',
-    description: 'Attempts to prove or disprove candidate hypotheses by executing targeted calculations against metrics.',
-    exampleInput: 'Test H1: Evaluate new customer signup count Q2 vs Q3',
-    exampleOutput: 'Verdict: SUPPORTED (Confidence: 91%, Q2: 12.4k -> Q3: 7.1k)',
-    tools: ['Hypothesis Validator', 'Cohort Compare', 'Significance Test'],
-  },
-  {
-    id: 'rag',
+    n: '05',
     name: 'RAG Context Agent',
-    role: 'Retrieves Document Evidence & Citations',
-    icon: FileSearch,
-    color: 'from-blue-500 to-cyan-600',
-    borderColor: 'border-blue-500/40',
-    description: 'Searches uploaded PDFs, strategy docs, and marketing reports to provide qualitative explanation for quantitative data.',
-    exampleInput: 'Search query: "August marketing budget changes West territory"',
-    exampleOutput: 'Retrieved text segment from q3_report.pdf (Page 14, Chunk #12)',
-    tools: ['Vector Store', 'Hybrid Search', 'Reranker', 'Citation Extractor'],
+    role: 'Semantic Document Intelligence',
+    summary: 'Cross-references qualitative corporate PDFs, strategy decks, and operational meeting notes to provide semantic context for quantitative anomalies.',
+    sampleInput: 'Vector search: "Q3 marketing budget changes and West territory campaigns"',
+    sampleOutput: 'Matched 3 chunks in q3_marketing_report.pdf (Page 14, 94% semantic similarity).',
+    tools: ['Hybrid Vector Index', 'Contextual Reranker', 'Citation Extractor'],
   },
   {
-    id: 'critic',
+    n: '06',
     name: 'Critic & Verification Agent',
-    role: 'Audits Logic & Distinguishes Causation',
-    icon: ShieldCheck,
-    color: 'from-rose-500 to-red-600',
-    borderColor: 'border-rose-500/40',
-    description: 'Independently evaluates findings, checks for unsupported claims, flags correlation vs causation, and challenges confidence scores.',
-    exampleInput: 'Claim: "Marketing cuts caused revenue decline"',
-    exampleOutput: 'Audit: Supported association (87%). Causation plausible but unproven.',
-    tools: ['Claim Checker', 'Contradiction Detector', 'Correlation Audit'],
+    role: 'Causal Auditing & Rigor Evaluation',
+    summary: 'Independently evaluates every hypothesis, checks for unsupported conclusions, challenges correlation versus causation, and calculates analytical confidence scores.',
+    sampleInput: 'Claim: "Marketing budget pause caused West territory revenue decline."',
+    sampleOutput: 'Audit: Supported causal link (91% confidence). Uncertainty: 3 open sales vacancies.',
+    tools: ['Causal Claim Checker', 'Contradiction Detector', 'Confidence Calculator'],
   },
 ]
 
 export default function AgentNetwork() {
-  const [selectedAgent, setSelectedAgent] = useState(AGENTS[0])
+  const [activeIdx, setActiveIdx] = useState(0)
+  const activeAgent = AGENTS[activeIdx]
 
   return (
-    <section id="agents" className="py-24 bg-[#0a0a14] relative overflow-hidden border-t border-[#181830]">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Section Header */}
-        <div className="text-center max-w-3xl mx-auto mb-16">
-          <span className="text-xs font-semibold px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 uppercase tracking-wider">
-            MULTI-AGENT ORCHESTRATION
-          </span>
-          <h2 className="text-3xl sm:text-5xl font-extrabold text-slate-100 mt-4 tracking-tight">
-            One investigation.{' '}
-            <span className="text-cyan-400">A team of specialized agents.</span>
-          </h2>
-          <p className="mt-4 text-base sm:text-lg text-slate-400">
-            DataPilot coordinates a team of autonomous AI agents that collaborate, analyze, hypothesize, search context, and verify conclusions.
-          </p>
+    <section id="agents" className="py-24 md:py-36 border-b border-white/[0.08]">
+      <div className="dn-container">
+
+        {/* Section Marker */}
+        <div className="editorial-label">
+          <span className="num">(03)</span>
+          <span>The Specialized Agents</span>
         </div>
 
-        {/* Interactive Layout: Left Node Selection Grid, Right Inspector Panel */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          {/* Node Grid */}
-          <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {AGENTS.map((agent) => {
-              const Icon = agent.icon
-              const isSelected = selectedAgent.id === agent.id
+        {/* Section Headline */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-16 md:mb-24">
+          <div className="lg:col-span-8">
+            <h2 className="font-display font-extrabold text-3xl sm:text-5xl md:text-6xl uppercase tracking-tight text-[#f2f2ef] leading-[1.05]">
+              One investigation<span className="text-[#d4ff58]">.</span>
+              <br />
+              <span className="text-[#f2f2ef]/40">A team of specialized agents.</span>
+            </h2>
+          </div>
+          <div className="lg:col-span-4 flex flex-col justify-end">
+            <p className="text-sm md:text-base text-[#f2f2ef]/60 leading-relaxed font-sans">
+              DataPilot does not rely on a single generic prompt. Seven specialized AI agents collaborate,
+              challenge findings, execute code, and audit conclusions.
+            </p>
+          </div>
+        </div>
+
+        {/* Editorial Agent Roster & Live Detail Split */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start border-t border-white/[0.08] pt-8">
+
+          {/* Left Column: Interactive List (DayNight Style) */}
+          <div className="lg:col-span-7 divide-y divide-white/[0.08]">
+            {AGENTS.map((agent, idx) => {
+              const isActive = activeIdx === idx
               return (
-                <motion.div
-                  key={agent.id}
-                  onClick={() => setSelectedAgent(agent)}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  className={`p-4 rounded-xl cursor-pointer transition-all border ${
-                    agent.isCentral ? 'sm:col-span-2' : ''
-                  } ${
-                    isSelected
-                      ? 'bg-[#151532] border-cyan-500 shadow-xl shadow-cyan-600/20 ring-1 ring-cyan-500/50'
-                      : 'bg-[#0e0e1c] border-[#1e1e3b] hover:border-[#2f2f58]'
-                  }`}
+                <div
+                  key={agent.n}
+                  onMouseEnter={() => setActiveIdx(idx)}
+                  onClick={() => setActiveIdx(idx)}
+                  className="py-6 md:py-8 group cursor-pointer transition-all duration-200"
                 >
-                  <div className="flex items-center gap-3">
-                    <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${agent.color} flex items-center justify-center shadow-md flex-shrink-0`}>
-                      <Icon size={18} className="text-white" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs font-bold text-slate-100 truncate">{agent.name}</p>
-                        {isSelected && <Check size={14} className="text-cyan-400 flex-shrink-0" />}
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-4 md:gap-6">
+                      <span className={`font-mono text-xs pt-1 transition-colors ${
+                        isActive ? 'text-[#d4ff58]' : 'text-[#f2f2ef]/30 group-hover:text-[#f2f2ef]/60'
+                      }`}>
+                        {agent.n}
+                      </span>
+                      <div>
+                        <h3 className={`font-display font-bold text-xl sm:text-2xl md:text-3xl uppercase tracking-tight transition-all duration-200 ${
+                          isActive
+                            ? 'text-[#d4ff58] translate-x-2'
+                            : 'text-[#f2f2ef] group-hover:text-[#f2f2ef]/80 group-hover:translate-x-1'
+                        }`}>
+                          {agent.name}
+                        </h3>
+                        <p className="font-mono text-xs text-[#f2f2ef]/50 mt-1 uppercase tracking-wider">
+                          {agent.role}
+                        </p>
                       </div>
-                      <p className="text-[11px] text-slate-400 truncate">{agent.role}</p>
+                    </div>
+
+                    <div className="pt-1">
+                      <div className={`w-7 h-7 rounded-full border flex items-center justify-center transition-all duration-200 ${
+                        isActive
+                          ? 'border-[#d4ff58] bg-[#d4ff58] text-black'
+                          : 'border-white/[0.1] text-[#f2f2ef]/40 group-hover:border-white/[0.3]'
+                      }`}>
+                        <ArrowUpRight size={14} />
+                      </div>
                     </div>
                   </div>
-                </motion.div>
+                </div>
               )
             })}
           </div>
 
-          {/* Inspector Drawer */}
-          <div className="lg:col-span-5">
+          {/* Right Column: Active Agent Inspection Panel */}
+          <div className="lg:col-span-5 sticky top-28">
             <AnimatePresence mode="wait">
               <motion.div
-                key={selectedAgent.id}
-                initial={{ opacity: 0, x: 12 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -12 }}
-                transition={{ duration: 0.2 }}
-                className="p-6 rounded-2xl bg-[#0f0f24] border border-cyan-500/30 shadow-2xl space-y-5"
+                key={activeAgent.n}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -12 }}
+                transition={{ duration: 0.25 }}
+                className="border border-white/[0.1] bg-[#0c0c0c] p-6 sm:p-8 space-y-6"
               >
-                {/* Agent Title Header */}
-                <div className="flex items-center gap-3 border-b border-[#202042] pb-4">
-                  <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${selectedAgent.color} flex items-center justify-center shadow-lg`}>
-                    <selectedAgent.icon size={22} className="text-white" />
-                  </div>
+                {/* Header */}
+                <div className="flex items-center justify-between pb-4 border-b border-white/[0.08]">
                   <div>
-                    <h3 className="text-base font-bold text-slate-100">{selectedAgent.name}</h3>
-                    <p className="text-xs text-cyan-400 font-medium">{selectedAgent.role}</p>
+                    <span className="font-mono text-xs text-[#d4ff58] uppercase tracking-widest block">
+                      Agent Profile {activeAgent.n} / 06
+                    </span>
+                    <h4 className="font-display font-bold text-xl uppercase text-[#f2f2ef] mt-1">
+                      {activeAgent.name}
+                    </h4>
                   </div>
+                  <span className="w-2 h-2 rounded-full bg-[#d4ff58] animate-pulse" />
                 </div>
 
-                {/* Description */}
-                <p className="text-xs text-slate-300 leading-relaxed">
-                  {selectedAgent.description}
+                {/* Summary */}
+                <p className="text-sm text-[#f2f2ef]/70 leading-relaxed font-sans">
+                  {activeAgent.summary}
                 </p>
 
-                {/* Example Input / Output */}
-                <div className="space-y-2.5">
-                  <div className="p-3 rounded-xl bg-[#080816] border border-[#1b1b36]">
-                    <p className="text-[10px] font-mono font-semibold text-slate-500 uppercase">EXAMPLE AGENT INPUT</p>
-                    <p className="text-xs font-mono text-slate-300 mt-1">{selectedAgent.exampleInput}</p>
+                {/* Sample I/O */}
+                <div className="space-y-3 font-mono text-xs">
+                  <div className="p-3.5 bg-[#080808] border border-white/[0.06] space-y-1">
+                    <span className="text-[#f2f2ef]/40 uppercase tracking-widest text-[10px] block">
+                      Sample Agent Input
+                    </span>
+                    <p className="text-[#f2f2ef]/90">{activeAgent.sampleInput}</p>
                   </div>
 
-                  <div className="p-3 rounded-xl bg-[#080816] border border-[#1b1b36]">
-                    <p className="text-[10px] font-mono font-semibold text-cyan-400 uppercase">EXAMPLE AGENT OUTPUT</p>
-                    <p className="text-xs font-mono text-slate-200 mt-1">{selectedAgent.exampleOutput}</p>
+                  <div className="p-3.5 bg-[#080808] border border-[#d4ff58]/20 space-y-1">
+                    <span className="text-[#d4ff58] uppercase tracking-widest text-[10px] block">
+                      Autonomous Analytical Output
+                    </span>
+                    <p className="text-[#f2f2ef]/90">{activeAgent.sampleOutput}</p>
                   </div>
                 </div>
 
-                {/* Tools used */}
-                <div>
-                  <p className="text-[10px] font-mono font-semibold text-slate-400 uppercase mb-2">Tools & Capabilities</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {selectedAgent.tools.map((tool) => (
+                {/* Tool Suite */}
+                <div className="pt-2">
+                  <span className="font-mono text-[10px] uppercase tracking-widest text-[#f2f2ef]/40 block mb-2">
+                    Integrated Tool Suite
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    {activeAgent.tools.map((tool) => (
                       <span
                         key={tool}
-                        className="px-2.5 py-1 rounded-md bg-cyan-500/15 border border-cyan-500/30 text-[11px] font-mono text-cyan-300"
+                        className="px-2.5 py-1 text-[11px] font-mono border border-white/[0.1] text-[#f2f2ef]/70 bg-white/[0.02]"
                       >
                         {tool}
                       </span>
                     ))}
                   </div>
                 </div>
+
               </motion.div>
             </AnimatePresence>
           </div>
+
         </div>
+
       </div>
     </section>
   )

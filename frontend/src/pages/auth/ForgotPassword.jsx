@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, Mail, CheckCircle2, ArrowRight, Loader2 } from 'lucide-react'
-import { Button } from '../../components/ui/Button'
-import { Input } from '../../components/ui/Input'
+import { ArrowLeft, ArrowRight, Loader2, CheckCircle2 } from 'lucide-react'
+import { motion } from 'framer-motion'
 import { BrandWordmark } from '../../components/ui/Logo'
 import { authApi } from '../../services/api'
 import { useToast } from '../../components/ui/Toast'
@@ -34,7 +33,6 @@ export default function ForgotPassword() {
       await authApi.forgotPassword(email.trim().toLowerCase())
       setSubmitted(true)
     } catch (apiErr) {
-      // Security: Even if API throws or rate limits, show generic response or specific server error
       const msg = apiErr.response?.data?.detail || 'Request processed. Please check your email.'
       toast?.show(msg, 'info')
       setSubmitted(true)
@@ -44,100 +42,134 @@ export default function ForgotPassword() {
   }
 
   return (
-    <div className="min-h-screen app-canvas flex items-center justify-center p-4">
-      <div className="w-full max-w-md relative z-10">
-        <div className="flex justify-center mb-8">
-          <Link to="/"><BrandWordmark /></Link>
-        </div>
+    <div className="min-h-screen bg-[#080808] text-[#f2f2ef] flex flex-col justify-between p-6 sm:p-10 font-sans selection:bg-[#d4ff58] selection:text-black">
+      
+      {/* Top Header */}
+      <div className="w-full max-w-5xl mx-auto flex items-center justify-between pb-8 border-b border-white/[0.08]">
+        <Link to="/" className="inline-block group">
+          <BrandWordmark compact />
+        </Link>
+        <Link
+          to="/login"
+          className="font-mono text-xs uppercase tracking-widest text-[#f2f2ef]/50 hover:text-[#d4ff58] transition-colors"
+        >
+          &larr; Back to Sign In
+        </Link>
+      </div>
 
-        <div className="card p-8 shadow-2xl border border-slate-800 rounded-2xl bg-[#0e0e1a]">
+      {/* Main Container */}
+      <div className="w-full max-w-[460px] mx-auto py-12 md:py-16">
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+          className="space-y-8"
+        >
           {!submitted ? (
-            <div>
-              <div className="text-center mb-6">
-                <div className="inline-flex p-3 rounded-full bg-brand-500/10 text-brand-400 border border-brand-500/20 mb-3">
-                  <Mail size={22} />
+            <div className="space-y-8">
+              <div>
+                <div className="editorial-label mb-3">
+                  <span className="num">/</span>
+                  <span>Recovery</span>
                 </div>
-                <h1 className="text-2xl font-display text-slate-50 font-bold">Reset your password</h1>
-                <p className="text-slate-400 mt-1.5 text-xs leading-relaxed">
-                  Enter the email address associated with your account and we&apos;ll send you a link to reset your password.
+                <h1 className="font-display font-extrabold text-4xl sm:text-5xl uppercase tracking-tight text-[#f2f2ef] leading-[0.95]">
+                  Reset<br />Password<span className="text-[#d4ff58]">.</span>
+                </h1>
+                <p className="text-sm text-[#f2f2ef]/55 font-sans mt-3">
+                  Enter your email address and we&apos;ll dispatch a secure recovery token.
                 </p>
               </div>
 
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <Input
-                  id="email"
-                  type="email"
-                  label="Email address"
-                  placeholder="you@company.com"
-                  value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value)
-                    if (error) setError('')
-                  }}
-                  error={error}
-                  autoComplete="email"
-                  autoFocus
-                  disabled={loading}
-                />
+              <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+                <div className="space-y-1.5">
+                  <label htmlFor="email" className="label">
+                    Email Address
+                  </label>
+                  <input
+                    id="email"
+                    type="email"
+                    placeholder="you@company.com"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value)
+                      if (error) setError('')
+                    }}
+                    autoComplete="email"
+                    autoFocus
+                    disabled={loading}
+                    className={`input ${error ? 'border-[#ff4e4e]' : ''}`}
+                  />
+                  {error && (
+                    <p className="font-mono text-[11px] text-[#ff4e4e] mt-1">{error}</p>
+                  )}
+                </div>
 
-                <Button
+                <button
                   type="submit"
-                  variant="primary"
-                  loading={loading}
                   disabled={loading}
-                  className="w-full mt-4"
-                  size="lg"
+                  className="btn-dn-primary w-full py-4 flex items-center justify-between px-6 group cursor-pointer mt-4"
                 >
-                  {loading ? 'Sending link…' : 'Send Reset Link'}
-                  {!loading && <ArrowRight size={15} />}
-                </Button>
+                  <span>{loading ? 'Sending link…' : 'Send Reset Link'}</span>
+                  {loading ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : (
+                    <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" />
+                  )}
+                </button>
               </form>
 
-              <div className="mt-6 pt-6 border-t border-slate-800/80 text-center">
+              <div className="pt-6 border-t border-white/[0.08] text-center font-mono text-xs text-[#f2f2ef]/50">
                 <Link
                   to="/login"
-                  className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors font-medium"
+                  className="text-[#f2f2ef]/60 hover:text-[#d4ff58] transition-colors uppercase tracking-wider"
                 >
-                  <ArrowLeft size={13} /> Back to Sign in
+                  &larr; Return to Sign In
                 </Link>
               </div>
             </div>
           ) : (
-            <div className="text-center py-2 space-y-5">
-              <div className="inline-flex p-3.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                <CheckCircle2 size={26} />
+            <div className="space-y-6">
+              <div className="editorial-label mb-3">
+                <span className="num">✓</span>
+                <span>Dispatched</span>
               </div>
-              <div className="space-y-2">
-                <h2 className="text-xl font-bold text-slate-100">Check your inbox</h2>
-                <p className="text-xs text-slate-400 leading-relaxed max-w-sm mx-auto">
-                  If an account exists for <span className="font-semibold text-slate-200">{email}</span>, we&apos;ve sent a secure password reset link.
-                </p>
-                <p className="text-[11px] text-slate-500">
-                  The link will expire in 15 minutes. Be sure to check your spam folder.
-                </p>
-              </div>
+              <h2 className="font-display font-extrabold text-3xl sm:text-4xl uppercase tracking-tight text-[#f2f2ef]">
+                Check Your Inbox<span className="text-[#d4ff58]">.</span>
+              </h2>
+              <p className="text-sm text-[#f2f2ef]/60 leading-relaxed font-sans">
+                If an account exists for <span className="text-[#f2f2ef] font-mono">{email}</span>, a secure password reset link has been sent.
+              </p>
 
-              <div className="pt-4 space-y-3">
-                <Link to="/login">
-                  <Button variant="outline" className="w-full" size="md">
-                    <ArrowLeft size={14} /> Return to Sign in
-                  </Button>
+              <div className="pt-4 space-y-4">
+                <Link
+                  to="/login"
+                  className="btn-dn-primary w-full py-3.5 text-center justify-center block"
+                >
+                  Return to Sign In
                 </Link>
+
                 <button
                   type="button"
                   onClick={() => {
                     setSubmitted(false)
                     setEmail('')
                   }}
-                  className="text-xs text-brand-400 hover:text-brand-300 transition-colors block mx-auto pt-1"
+                  className="font-mono text-xs text-[#d4ff58] hover:underline uppercase tracking-wider block mx-auto pt-2 cursor-pointer"
                 >
-                  Didn&apos;t receive it? Try another email
+                  Try another email &rarr;
                 </button>
               </div>
             </div>
           )}
-        </div>
+        </motion.div>
       </div>
+
+      {/* Bottom Footer Metadata */}
+      <div className="w-full max-w-5xl mx-auto pt-8 border-t border-white/[0.08] flex flex-col sm:flex-row items-center justify-between gap-4 font-mono text-[11px] text-[#f2f2ef]/40">
+        <span>&copy; {new Date().getFullYear()} DataPilot AI. All rights reserved.</span>
+        <span>Secure Password Recovery</span>
+      </div>
+
     </div>
   )
 }

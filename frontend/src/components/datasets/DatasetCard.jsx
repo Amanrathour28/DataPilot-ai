@@ -31,44 +31,38 @@ export default function DatasetCard({ dataset }) {
   return (
     <div
       onClick={() => navigate(`/datasets/${dataset.id}`)}
-      className="card p-5 cursor-pointer hover:border-cyan-400/30 hover:-translate-y-0.5 transition-all group"
+      className="border border-white/[0.08] bg-[#0c0c0c] p-6 cursor-pointer hover:border-white/[0.2] transition-all group space-y-4"
     >
-      <div className="flex items-start gap-4">
-        {/* Icon */}
-        <div className="w-10 h-10 rounded-xl bg-brand-500/10 border border-brand-500/20 flex items-center justify-center flex-shrink-0 group-hover:bg-brand-500/20 transition-colors">
-          <Database size={18} className="text-brand-400" />
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-start justify-between gap-2 mb-1">
-            <h3 className="text-sm font-semibold text-slate-200 truncate">{name}</h3>
-            <StatusBadge status={dataset.status} />
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-7 h-7 border border-white/[0.1] bg-white/[0.02] flex items-center justify-center flex-shrink-0 text-[#f2f2ef]/60 group-hover:text-[#d4ff58] group-hover:border-[#d4ff58]/30 transition-colors">
+            <Database size={13} />
           </div>
-
-          <p className="text-xs text-slate-500 mb-3 truncate">
-            {originalFile} · {formatBytes(dataset.file_size_bytes)} · {formatDate(dataset.created_at)}
-          </p>
-
-          {/* Stats row */}
-          <div className="flex items-center gap-4 text-xs text-slate-500">
-            {dataset.row_count != null && (
-              <span className="flex items-center gap-1">
-                <Rows size={11} />
-                {Number(dataset.row_count).toLocaleString()} rows
-              </span>
-            )}
-            {dataset.column_count != null && (
-              <span className="flex items-center gap-1">
-                <Columns size={11} />
-                {dataset.column_count} cols
-              </span>
-            )}
-            <span className="flex items-center gap-1 ml-auto text-brand-400 opacity-0 group-hover:opacity-100 transition-opacity">
-              View details <ArrowRight size={11} />
-            </span>
+          <div className="min-w-0">
+            <h3 className="font-display font-bold text-sm uppercase tracking-tight text-[#f2f2ef] group-hover:text-[#d4ff58] transition-colors truncate">
+              {name}
+            </h3>
+            <p className="font-mono text-[10px] text-[#f2f2ef]/40 truncate mt-0.5">
+              {originalFile} &middot; {formatBytes(dataset.file_size_bytes)}
+            </p>
           </div>
         </div>
+        <StatusBadge status={dataset.status} />
+      </div>
+
+      <div className="pt-3 border-t border-white/[0.06] flex items-center justify-between font-mono text-[11px] text-[#f2f2ef]/40">
+        <div className="flex items-center gap-3">
+          {dataset.row_count != null && (
+            <span>{Number(dataset.row_count).toLocaleString()} rows</span>
+          )}
+          {dataset.column_count != null && (
+            <>
+              <span>&middot;</span>
+              <span>{dataset.column_count} cols</span>
+            </>
+          )}
+        </div>
+        <ArrowRight size={13} className="text-[#f2f2ef]/30 group-hover:text-[#d4ff58] group-hover:translate-x-0.5 transition-transform" />
       </div>
     </div>
   )

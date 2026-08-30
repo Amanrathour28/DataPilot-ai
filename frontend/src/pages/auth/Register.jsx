@@ -1,20 +1,12 @@
 import { useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, ArrowRight, Check, AlertCircle } from 'lucide-react'
-import { Button } from '../../components/ui/Button'
-import { Input } from '../../components/ui/Input'
-import { useToast } from '../../components/ui/Toast'
+import { Eye, EyeOff, ArrowRight, AlertCircle, Loader2 } from 'lucide-react'
+import { motion } from 'framer-motion'
 import { BrandWordmark } from '../../components/ui/Logo'
 import useAuthStore from '../../stores/authStore'
 import GoogleAuthButton from '../../components/auth/GoogleAuthButton'
 import PasswordStrengthIndicator, { checkPasswordCriteria } from '../../components/auth/PasswordStrengthIndicator'
-
-const FEATURES = [
-  'Autonomous multi-agent data investigation',
-  'Hypothesis generation & testing',
-  'Evidence-backed root cause analysis',
-  'Real-time agent activity tracking',
-]
+import { useToast } from '../../components/ui/Toast'
 
 export default function Register() {
   const [name, setName]         = useState('')
@@ -47,7 +39,7 @@ export default function Register() {
     if (!criteria.minLength) {
       e.password = 'Password must be at least 8 characters long'
     } else if (!criteria.hasUpper || !criteria.hasLower || !criteria.hasNumber) {
-      e.password = 'Password must include uppercase, lowercase, and numeric characters'
+      e.password = 'Password must include uppercase, lowercase, and numbers'
     }
 
     setErrors(e)
@@ -70,145 +62,188 @@ export default function Register() {
   }
 
   return (
-    <div className="min-h-screen app-canvas flex items-center justify-center p-4">
-      <div className="w-full max-w-4xl relative z-10 flex gap-12 items-center">
-        {/* Left side brand banner */}
-        <div className="hidden lg:flex flex-col gap-6 flex-1">
+    <div className="min-h-screen bg-[#080808] text-[#f2f2ef] flex flex-col justify-between p-6 sm:p-10 font-sans selection:bg-[#d4ff58] selection:text-black">
+      
+      {/* Top Header */}
+      <div className="w-full max-w-5xl mx-auto flex items-center justify-between pb-8 border-b border-white/[0.08]">
+        <Link to="/" className="inline-block group">
+          <BrandWordmark compact />
+        </Link>
+        <Link
+          to="/"
+          className="font-mono text-xs uppercase tracking-widest text-[#f2f2ef]/50 hover:text-[#d4ff58] transition-colors"
+        >
+          &larr; Back to Home
+        </Link>
+      </div>
+
+      {/* Main Container */}
+      <div className="w-full max-w-[480px] mx-auto py-12 md:py-16">
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+          className="space-y-8"
+        >
+          {/* Eyebrow & Headline */}
           <div>
-            <BrandWordmark />
-            <h1 className="text-4xl font-display text-slate-50 leading-tight mt-8 font-bold">
-              Evidence, not dashboards.
+            <div className="editorial-label mb-3">
+              <span className="num">/</span>
+              <span>New Account</span>
+            </div>
+            <h1 className="font-display font-extrabold text-4xl sm:text-5xl uppercase tracking-tight text-[#f2f2ef] leading-[0.95]">
+              Get Started<span className="text-[#d4ff58]">.</span>
             </h1>
-            <p className="text-slate-400 mt-3 text-sm leading-relaxed">
-              An autonomous multi-agent platform that investigates your tabular datasets, generates hypotheses, runs statistical tests, and delivers evidence-backed root cause analysis.
+            <p className="text-sm text-[#f2f2ef]/55 font-sans mt-3">
+              Start autonomous multi-agent data investigations in seconds.
             </p>
           </div>
 
-          <div className="space-y-3 pt-2">
-            {FEATURES.map((f) => (
-              <div key={f} className="flex items-center gap-3">
-                <div className="w-5 h-5 rounded-full bg-cyan-500/15 border border-cyan-400/30 flex items-center justify-center flex-shrink-0">
-                  <Check size={11} className="text-cyan-300" />
-                </div>
-                <span className="text-xs text-slate-300 font-medium">{f}</span>
-              </div>
-            ))}
-          </div>
-        </div>
+          {/* Google Sign-Up */}
+          <div className="space-y-6">
+            <GoogleAuthButton mode="signup" disabled={isLoading} />
 
-        {/* Right side form */}
-        <div className="w-full max-w-md">
-          <div className="text-center mb-6 lg:hidden">
-            <div className="flex justify-center mb-4"><BrandWordmark compact /></div>
-            <h1 className="text-2xl font-display text-slate-50 font-bold">Create your account</h1>
-          </div>
-          <div className="hidden lg:block mb-6">
-            <h2 className="text-xl font-bold text-slate-100">Create your account</h2>
-            <p className="text-xs text-slate-400 mt-1">Start autonomous data investigations in seconds.</p>
-          </div>
-
-          <div className="card p-8 shadow-2xl border border-slate-800 rounded-2xl bg-[#0e0e1a]">
-            {/* Google Sign-Up */}
-            <div className="space-y-4">
-              <GoogleAuthButton mode="signup" disabled={isLoading} />
-
-              <div className="flex items-center gap-3 my-4">
-                <div className="h-px flex-1 bg-slate-800" />
-                <span className="text-[11px] text-slate-500 uppercase tracking-wider font-semibold">Or sign up with email</span>
-                <div className="h-px flex-1 bg-slate-800" />
-              </div>
+            <div className="flex items-center gap-4">
+              <div className="h-px flex-1 bg-white/[0.08]" />
+              <span className="font-mono text-[10px] text-[#f2f2ef]/40 uppercase tracking-widest">
+                Or Register With Email
+              </span>
+              <div className="h-px flex-1 bg-white/[0.08]" />
             </div>
+          </div>
 
-            {errors.form && (
-              <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 flex items-start gap-2.5 mb-4">
-                <AlertCircle size={16} className="text-rose-400 flex-shrink-0 mt-0.5" />
-                <span className="leading-relaxed">{errors.form}</span>
-              </div>
-            )}
+          {/* Form Error Banner */}
+          {errors.form && (
+            <div className="p-3.5 bg-[#ff4e4e]/10 border border-[#ff4e4e]/20 text-xs font-mono text-[#ff4e4e] flex items-start gap-2.5">
+              <AlertCircle size={15} className="flex-shrink-0 mt-0.5" />
+              <span>{errors.form}</span>
+            </div>
+          )}
 
-            <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-              <Input
+          {/* Form Fields */}
+          <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+            
+            {/* Name Field */}
+            <div className="space-y-1.5">
+              <label htmlFor="name" className="label">
+                Full Name
+              </label>
+              <input
                 id="name"
                 type="text"
-                label="Full name"
                 placeholder="Jane Smith"
                 value={name}
-                onChange={e => {
+                onChange={(e) => {
                   setName(e.target.value)
-                  if (errors.name || errors.form) setErrors(prev => ({ ...prev, name: '', form: '' }))
+                  if (errors.name || errors.form) setErrors((prev) => ({ ...prev, name: '', form: '' }))
                 }}
-                error={errors.name}
                 autoComplete="name"
                 autoFocus
                 disabled={isLoading}
+                className={`input ${errors.name ? 'border-[#ff4e4e]' : ''}`}
               />
+              {errors.name && (
+                <p className="font-mono text-[11px] text-[#ff4e4e] mt-1">{errors.name}</p>
+              )}
+            </div>
 
-              <Input
+            {/* Email Field */}
+            <div className="space-y-1.5">
+              <label htmlFor="email" className="label">
+                Email Address
+              </label>
+              <input
                 id="email"
                 type="email"
-                label="Email address"
                 placeholder="you@company.com"
                 value={email}
-                onChange={e => {
+                onChange={(e) => {
                   setEmail(e.target.value)
-                  if (errors.email || errors.form) setErrors(prev => ({ ...prev, email: '', form: '' }))
+                  if (errors.email || errors.form) setErrors((prev) => ({ ...prev, email: '', form: '' }))
                 }}
-                error={errors.email}
                 autoComplete="email"
                 disabled={isLoading}
+                className={`input ${errors.email ? 'border-[#ff4e4e]' : ''}`}
               />
+              {errors.email && (
+                <p className="font-mono text-[11px] text-[#ff4e4e] mt-1">{errors.email}</p>
+              )}
+            </div>
 
-              <div className="w-full">
-                <label htmlFor="password" className="label text-xs font-semibold text-slate-300">Password</label>
-                <div className="relative">
-                  <input
-                    id="password"
-                    type={showPass ? 'text' : 'password'}
-                    placeholder="Minimum 8 characters"
-                    value={password}
-                    onChange={e => {
-                      setPassword(e.target.value)
-                      if (errors.password || errors.form) setErrors(prev => ({ ...prev, password: '', form: '' }))
-                    }}
-                    autoComplete="new-password"
-                    disabled={isLoading}
-                    className={`input pr-10 ${errors.password ? 'border-red-500/60' : ''}`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPass(!showPass)}
-                    tabIndex={-1}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
-                  >
-                    {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
-                  </button>
-                </div>
-                {errors.password && <p className="text-[11px] text-red-400 mt-1">{errors.password}</p>}
-                <PasswordStrengthIndicator password={password} />
+            {/* Password Field */}
+            <div className="space-y-1.5">
+              <label htmlFor="password" className="label">
+                Password
+              </label>
+              <div className="relative">
+                <input
+                  id="password"
+                  type={showPass ? 'text' : 'password'}
+                  placeholder="Minimum 8 characters"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value)
+                    if (errors.password || errors.form) setErrors((prev) => ({ ...prev, password: '', form: '' }))
+                  }}
+                  autoComplete="new-password"
+                  disabled={isLoading}
+                  className={`input pr-10 ${errors.password ? 'border-[#ff4e4e]' : ''}`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPass(!showPass)}
+                  tabIndex={-1}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#f2f2ef]/40 hover:text-[#f2f2ef] transition-colors cursor-pointer"
+                  aria-label={showPass ? 'Hide password' : 'Show password'}
+                >
+                  {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
               </div>
+              {errors.password && (
+                <p className="font-mono text-[11px] text-[#ff4e4e] mt-1">{errors.password}</p>
+              )}
+              <PasswordStrengthIndicator password={password} />
+            </div>
 
-              <Button
-                type="submit"
-                variant="primary"
-                loading={isLoading}
-                disabled={isLoading}
-                className="w-full mt-6"
-                size="lg"
-              >
-                {isLoading ? 'Creating account…' : 'Create account'}
-                {!isLoading && <ArrowRight size={16} />}
-              </Button>
-            </form>
+            {/* Submit Button */}
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="btn-dn-primary w-full py-4 flex items-center justify-between px-6 group cursor-pointer mt-6"
+            >
+              <span>{isLoading ? 'Creating account…' : 'Create Account'}</span>
+              {isLoading ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" />
+              )}
+            </button>
+          </form>
 
-            <p className="text-center text-xs text-slate-400 mt-6 pt-5 border-t border-slate-800/80">
-              Already have an account?{' '}
-              <Link to="/login" className="text-brand-400 hover:text-brand-300 font-semibold transition-colors">
-                Sign in
-              </Link>
-            </p>
+          {/* Sign In Link */}
+          <div className="pt-6 border-t border-white/[0.08] text-center font-mono text-xs text-[#f2f2ef]/50">
+            <span>Already have an account? </span>
+            <Link
+              to="/login"
+              className="text-[#d4ff58] hover:underline font-semibold ml-1 uppercase tracking-wider"
+            >
+              Sign in &rarr;
+            </Link>
           </div>
+
+        </motion.div>
+      </div>
+
+      {/* Bottom Footer Metadata */}
+      <div className="w-full max-w-5xl mx-auto pt-8 border-t border-white/[0.08] flex flex-col sm:flex-row items-center justify-between gap-4 font-mono text-[11px] text-[#f2f2ef]/40">
+        <span>&copy; {new Date().getFullYear()} DataPilot AI. All rights reserved.</span>
+        <div className="flex items-center gap-4">
+          <span>Encrypted Auth</span>
+          <span>·</span>
+          <span>Zero-Knowledge Tokens</span>
         </div>
       </div>
+
     </div>
   )
 }

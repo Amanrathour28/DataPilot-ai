@@ -2,32 +2,31 @@ import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  ArrowLeft, RefreshCw, CheckCircle2, XCircle, AlertCircle, Clock,
-  Play, Pause, ShieldAlert, Sparkles, Terminal, FileText, Database,
-  GitMerge, Award, RotateCcw, Brain, CheckSquare, Zap, Calculator,
-  TrendingUp, TrendingDown, Layers, ChevronRight, Download, ShieldCheck,
-  BarChart3, Scale, Info, Check
+  ArrowLeft, RotateCcw, Pause, Play, XCircle, CheckCircle2,
+  Terminal, ShieldCheck, Database, Zap, FileText, CheckSquare,
+  Award, Sparkles, Scale, Info, AlertCircle, ChevronRight,
+  TrendingUp, BarChart3, Check, ShieldAlert
 } from 'lucide-react'
-import { IconButton, Button } from '../../components/ui/Button'
+import { Button, IconButton } from '../../components/ui/Button'
 import { StatusBadge } from '../../components/ui/Badge'
 import { Skeleton } from '../../components/ui/Skeleton'
-import { investigationsApi } from '../../services/api'
+import { PageShell } from '../../components/layout/PageShell'
 import { useToast } from '../../components/ui/Toast'
+import { investigationsApi } from '../../services/api'
+import AgentReasoningPanel from '../../components/investigations/AgentReasoningPanel'
 import EvidenceLedger from '../../components/investigations/EvidenceLedger'
 import HypothesisScorecard from '../../components/investigations/HypothesisScorecard'
 import RootCausePanel from '../../components/investigations/RootCausePanel'
-import AgentReasoningPanel from '../../components/investigations/AgentReasoningPanel'
 import MarkdownReport from '../../components/investigations/MarkdownReport'
-import { PageShell } from '../../components/layout/PageShell'
 import { clsx } from 'clsx'
 
 const STAGES = [
-  { id: 'PLANNING', label: '1. Planning' },
-  { id: 'ANALYZING', label: '2. Analyzing' },
-  { id: 'TESTING', label: '3. Testing' },
-  { id: 'RETRIEVING', label: '4. Knowledge RAG' },
-  { id: 'VERIFYING', label: '5. Critic Audit' },
-  { id: 'REPORTING', label: '6. Report' },
+  { id: 'PLANNING',    label: '01 Plan',        desc: 'Decompose objective' },
+  { id: 'ANALYZING',   label: '02 Investigate', desc: 'Isolate anomalies' },
+  { id: 'TESTING',     label: '03 Hypothesize', desc: 'Formulate explanations' },
+  { id: 'RETRIEVING',  label: '04 Retrieve',    desc: 'Cross-reference documents' },
+  { id: 'VERIFYING',   label: '05 Verify',      desc: 'Critic causal audit' },
+  { id: 'REPORTING',   label: '06 Explain',     desc: 'Root cause synthesis' },
 ]
 
 export default function InvestigationDetail() {
@@ -36,82 +35,72 @@ export default function InvestigationDetail() {
   const toast = useToast()
   const queryClient = useQueryClient()
 
-  const [activeTab, setActiveTab] = useState('overview') // overview | report | findings | evidence | hypotheses | root_cause | plan | timeline
+  const [activeTab, setActiveTab] = useState('overview')
+  const [isPaused, setIsPaused] = useState(false)
+  const [connectionStatus, setConnectionStatus] = useState('connecting')
 
-  // Streaming State
+  // Real-time SSE event states
+  const [streamStatus, setStreamStatus] = useState(null)
+  const [streamStage, setStreamStage] = useState(null)
   const [streamTasks, setStreamTasks] = useState([])
   const [streamFindings, setStreamFindings] = useState([])
   const [streamHypotheses, setStreamHypotheses] = useState([])
   const [streamEvidence, setStreamEvidence] = useState([])
-  const [streamStatus, setStreamStatus] = useState(null)
-  const [streamStage, setStreamStage] = useState('PLANNING')
+  const [streamActivities, setStreamActivities] = useState([])
   const [streamSummary, setStreamSummary] = useState(null)
   const [streamConfidence, setStreamConfidence] = useState(null)
-  const [streamPlan, setStreamPlan] = useState([])
-  const [streamRootCauses, setStreamRootCauses] = useState([])
-  const [streamCriticReviews, setStreamCriticReviews] = useState([])
   const [streamConfBreakdown, setStreamConfBreakdown] = useState(null)
+  const [streamRootCauses, setStreamRootCauses] = useState([])
+  const [streamPlan, setStreamPlan] = useState([])
+  const [streamCriticReviews, setStreamCriticReviews] = useState([])
   const [streamAppliedMemories, setStreamAppliedMemories] = useState([])
-  const [streamActivities, setStreamActivities] = useState([])
   const [streamFailureReason, setStreamFailureReason] = useState(null)
   const [streamExecutionId, setStreamExecutionId] = useState(null)
-  const [connectionStatus, setConnectionStatus] = useState('connected')
-  const [isPaused, setIsPaused] = useState(false)
 
-  // Fetch full details with active polling when running
+  const eventSourceRef = useRef(null)
+  const lastEventIdRef = useRef(0)
+  const seenEventIdsRef = useRef(new Set())
+
+  // Initial Fetch & Regular Polling Fallback
   const { data: detail, isLoading, refetch } = useQuery({
     queryKey: ['investigation-detail', id],
     queryFn: () => investigationsApi.get(id),
-    refetchInterval: (data, query) => {
-      if (query?.state?.error) return false
-      const running = ['PENDING', 'RUNNING', 'PLANNING', 'ANALYZING', 'TESTING', 'RETRIEVING', 'VERIFYING', 'REPORTING', 'REINVESTIGATING'].includes(data?.status)
-      return running ? 3000 : false
+    enabled: !!id,
+    staleTime: 3000,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status
+      if (['COMPLETED', 'COMPLETED_WITH_LIMITATIONS', 'INSUFFICIENT_DATA', 'FAILED', 'CANCELLED'].includes(status)) {
+        return false
+      }
+      return 4000
     },
-    refetchOnWindowFocus: false
   })
 
-  // Synchronize stream state with DB record
+  // Hydrate state from DB payload when detail query resolves
   useEffect(() => {
-    if (detail) {
-      setStreamTasks(detail.tasks || [])
-      setStreamFindings(detail.findings || [])
-      setStreamHypotheses(detail.hypotheses || [])
-      setStreamEvidence(detail.evidence_ledger || [])
-      setStreamStatus(detail.status)
-      if (detail.last_completed_stage || detail.status) setStreamStage(detail.last_completed_stage || detail.status)
-      setStreamSummary(detail.summary)
-      setStreamConfidence(detail.confidence_score)
-      setStreamPlan(detail.plan || [])
-      setStreamRootCauses(detail.root_causes || [])
-      setStreamCriticReviews(detail.critic_reviews || [])
-      setStreamConfBreakdown(detail.confidence_breakdown)
-      setStreamAppliedMemories(detail.applied_memories || [])
-      setStreamActivities(detail.agent_activity || [])
-      setStreamFailureReason(detail.failure_reason)
-      setStreamExecutionId(detail.execution_id)
-      if (['RUNNING', 'PLANNING', 'ANALYZING', 'TESTING', 'RETRIEVING', 'VERIFYING', 'REPORTING'].includes(detail.status)) {
-        setActiveTab('timeline')
-      } else if (detail.status === 'FAILED') {
-        setActiveTab('timeline')
-      } else if (['COMPLETED', 'COMPLETED_WITH_LIMITATIONS', 'INSUFFICIENT_DATA'].includes(detail.status) && activeTab === 'timeline') {
-        setActiveTab('overview')
-      }
-    }
+    if (!detail) return
+    if (!streamStatus) setStreamStatus(detail.status)
+    if (!streamStage && detail.last_completed_stage) setStreamStage(detail.last_completed_stage)
+    if (detail.findings?.length > 0 && streamFindings.length === 0) setStreamFindings(detail.findings)
+    if (detail.hypotheses?.length > 0 && streamHypotheses.length === 0) setStreamHypotheses(detail.hypotheses)
+    if (detail.evidence_ledger?.length > 0 && streamEvidence.length === 0) setStreamEvidence(detail.evidence_ledger)
+    if (detail.summary && !streamSummary) setStreamSummary(detail.summary)
+    if (detail.confidence_score && !streamConfidence) setStreamConfidence(detail.confidence_score)
+    if (detail.confidence_breakdown && !streamConfBreakdown) setStreamConfBreakdown(detail.confidence_breakdown)
+    if (detail.root_causes?.length > 0 && streamRootCauses.length === 0) setStreamRootCauses(detail.root_causes)
+    if (detail.plan?.length > 0 && streamPlan.length === 0) setStreamPlan(detail.plan)
+    if (detail.critic_reviews?.length > 0 && streamCriticReviews.length === 0) setStreamCriticReviews(detail.critic_reviews)
+    if (detail.failure_reason && !streamFailureReason) setStreamFailureReason(detail.failure_reason)
+    if (detail.execution_id && !streamExecutionId) setStreamExecutionId(detail.execution_id)
   }, [detail])
 
-  const lastEventIdRef = useRef(0)
-  const seenEventIdsRef = useRef(new Set())
-  const eventSourceRef = useRef(null)
-
-  // Establish SSE connection if running
+  // Setup Server-Sent Events (SSE) Stream
   useEffect(() => {
     if (!id) return
-    const isRunning = ['PENDING', 'RUNNING', 'PLANNING', 'ANALYZING', 'TESTING', 'RETRIEVING', 'VERIFYING', 'REPORTING', 'REINVESTIGATING'].includes(detail?.status)
-    if (detail && !isRunning) {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close()
-        eventSourceRef.current = null
-      }
+
+    const terminalStatuses = ['COMPLETED', 'COMPLETED_WITH_LIMITATIONS', 'INSUFFICIENT_DATA', 'FAILED', 'CANCELLED']
+    if (detail?.status && terminalStatuses.includes(detail.status)) {
+      setConnectionStatus('disconnected')
       return
     }
 
@@ -200,7 +189,7 @@ export default function InvestigationDetail() {
           setStreamCriticReviews(prev => [...prev, data])
         }
       } catch (err) {
-        console.error('Failed to parse SSE payload:', err)
+        console.warn('Failed to parse SSE payload:', err)
       }
     }
 
@@ -257,17 +246,17 @@ export default function InvestigationDetail() {
   if (isLoading) {
     return (
       <PageShell className="space-y-6">
-        <Skeleton className="h-8 w-48 rounded" />
-        <Skeleton className="h-24 w-full rounded-2xl" />
-        <Skeleton className="h-96 w-full rounded-2xl" />
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-20 w-full" />
+        <Skeleton className="h-96 w-full" />
       </PageShell>
     )
   }
 
   if (!detail) {
     return (
-      <PageShell className="text-center text-slate-500">
-        Investigation not found.
+      <PageShell className="text-center font-mono text-xs text-[#f2f2ef]/40 py-20">
+        Investigation record not found.
       </PageShell>
     )
   }
@@ -275,7 +264,6 @@ export default function InvestigationDetail() {
   const currentStatus = streamStatus || detail.status
   const isRunning = ['PENDING', 'RUNNING', 'PLANNING', 'ANALYZING', 'TESTING', 'RETRIEVING', 'VERIFYING', 'REPORTING', 'REINVESTIGATING'].includes(currentStatus)
 
-  // Parse direct answer and reality check from summary if available
   const reportText = typeof streamSummary === 'string'
     ? (streamSummary.trim().startsWith('{') ? (() => { try { return JSON.parse(streamSummary).summary || streamSummary } catch { return streamSummary } })() : streamSummary)
     : (streamSummary?.summary || '')
@@ -287,64 +275,65 @@ export default function InvestigationDetail() {
   const executiveAnswerText = executiveAnswerMatch ? executiveAnswerMatch[1].trim() : null
 
   const reliabilityMatch = reportText.match(/- \*\*Statistical Reliability\*\*:\s*\*\*?(.*?)\*\*?/)
-  const reliabilityLabel = reliabilityMatch ? reliabilityMatch[1].trim() : (streamConfidence && streamConfidence < 0.75 ? 'EXPLORATORY ONLY' : 'HIGH')
+  const reliabilityLabel = reliabilityMatch ? reliabilityMatch[1].trim() : (streamConfidence && streamConfidence < 0.75 ? 'EXPLORATORY' : 'HIGH RIGOR')
 
   return (
-    <PageShell className="space-y-6" wide>
+    <PageShell wide className="space-y-8">
+      
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <IconButton icon={ArrowLeft} label="Back" onClick={() => navigate('/investigations')} />
-          <div>
-            <div className="flex items-center gap-2.5 flex-wrap">
-              <h1 className="text-xl font-bold text-slate-100">{detail.objective}</h1>
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-white/[0.08]">
+        <div className="flex items-start gap-4 min-w-0">
+          <IconButton icon={ArrowLeft} label="Back" onClick={() => navigate('/investigations')} className="mt-1" />
+          <div className="min-w-0 space-y-1.5">
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="font-mono text-xs text-[#d4ff58] uppercase tracking-widest">
+                ID / {id.slice(0, 10)}
+              </span>
               <StatusBadge status={currentStatus} />
-              
               {streamConfidence && (
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 flex items-center gap-1">
-                  <Scale size={12} />
-                  {Math.round(streamConfidence * 100)}% Analytical Confidence
+                <span className="font-mono text-[11px] font-bold text-[#d4ff58] border border-[#d4ff58]/30 bg-[#d4ff58]/10 px-2 py-0.5">
+                  {Math.round(streamConfidence * 100)}% Analytical Rigor
                 </span>
               )}
-
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-amber-500/10 text-amber-300 border border-amber-500/20">
-                {reliabilityLabel}
-              </span>
             </div>
-            <p className="text-xs text-slate-400 mt-1">
+            <h1 className="font-display font-extrabold text-xl sm:text-2xl md:text-3xl uppercase tracking-tight text-[#f2f2ef] leading-tight">
+              {detail.objective || detail.title}
+            </h1>
+            <p className="font-mono text-xs text-[#f2f2ef]/40">
               Started {new Date(detail.created_at).toLocaleString()}
-              {detail.parent_id && <span> · Replay of <code className="text-brand-400 font-mono">{detail.parent_id.slice(0, 8)}</code></span>}
+              {detail.parent_id && <span> &middot; Replay of {detail.parent_id.slice(0, 8)}</span>}
             </p>
           </div>
         </div>
 
         {/* Action Controls Toolbar */}
-        <div className="flex items-center gap-2 self-start sm:self-center">
+        <div className="flex items-center gap-2 flex-shrink-0">
           {isRunning ? (
             <>
               <Button variant="secondary" size="sm" onClick={handlePauseToggle}>
                 {isPaused ? <Play size={13} /> : <Pause size={13} />}
-                {isPaused ? 'Resume' : 'Pause'}
+                <span>{isPaused ? 'Resume' : 'Pause'}</span>
               </Button>
               <Button variant="danger" size="sm" onClick={handleCancel}>
-                <XCircle size={13} /> Cancel
+                <XCircle size={13} />
+                <span>Cancel</span>
               </Button>
             </>
           ) : (
             <Button variant="secondary" size="sm" onClick={handleReplay}>
-              <RotateCcw size={13} /> Replay Investigation
+              <RotateCcw size={13} />
+              <span>Replay Investigation</span>
             </Button>
           )}
         </div>
       </div>
 
-      {/* Investigation Lifecycle Stepper */}
-      <div className="card p-4 border border-slate-800/80 bg-[#10101e]">
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+      {/* 6-Stage Investigation Lifecycle Stepper (DayNight Rail) */}
+      <div className="border border-white/[0.08] bg-[#0c0c0c] p-4 sm:p-6">
+        <div className="flex items-center gap-0 overflow-x-auto">
           {STAGES.map((s, idx) => {
             const isCompleted = ['COMPLETED', 'COMPLETED_WITH_LIMITATIONS', 'INSUFFICIENT_DATA', 'INSUFFICIENT_EVIDENCE'].includes(currentStatus)
             
-            // Check individual task status for progressive completion
             let taskPassed = isCompleted
             let taskExecuting = false
             
@@ -369,98 +358,59 @@ export default function InvestigationDetail() {
             }
 
             return (
-              <div
-                key={s.id}
-                className={clsx(
-                  'p-2.5 rounded-xl text-center border transition-all',
-                  taskExecuting && 'bg-brand-500/20 border-brand-500/40 text-brand-300 shadow-sm shadow-brand-500/10 animate-pulse',
-                  taskPassed && 'bg-[#141426] border-slate-800 text-slate-300',
-                  !taskExecuting && !taskPassed && 'bg-[#0d0d1a] border-slate-900 text-slate-600'
+              <div key={s.id} className="flex items-center flex-1 min-w-[120px]">
+                <div className="flex-1 min-w-0 flex flex-col items-center gap-1.5 py-1 px-2">
+                  <div className={clsx(
+                    'w-5 h-5 rounded-none border flex items-center justify-center transition-all',
+                    taskExecuting && 'border-[#d4ff58] bg-[#d4ff58] text-black shadow-[0_0_8px_rgba(212,255,88,0.5)]',
+                    taskPassed && 'border-[#d4ff58]/60 bg-[#d4ff58]/10 text-[#d4ff58]',
+                    !taskExecuting && !taskPassed && 'border-white/[0.1] bg-transparent text-[#f2f2ef]/20'
+                  )}>
+                    {taskExecuting ? (
+                      <span className="w-1.5 h-1.5 bg-black animate-pulse" />
+                    ) : taskPassed ? (
+                      <Check size={11} className="text-[#d4ff58]" />
+                    ) : (
+                      <span className="w-1 h-1 bg-white/20" />
+                    )}
+                  </div>
+                  <span className={clsx(
+                    'font-mono text-[10px] uppercase tracking-wider whitespace-nowrap',
+                    taskExecuting && 'text-[#d4ff58] font-bold',
+                    taskPassed && 'text-[#f2f2ef]/70',
+                    !taskExecuting && !taskPassed && 'text-[#f2f2ef]/30'
+                  )}>
+                    {s.label}
+                  </span>
+                </div>
+                {idx < STAGES.length - 1 && (
+                  <div className={clsx('h-px flex-1 max-w-[28px] transition-colors', taskPassed ? 'bg-[#d4ff58]/40' : 'bg-white/[0.06]')} />
                 )}
-              >
-                <span className="text-[11px] font-bold block">{s.label}</span>
-                <span className="text-[10px] text-slate-400 mt-0.5 block">
-                  {taskExecuting ? 'Executing…' : (taskPassed ? 'Verified' : 'Pending')}
-                </span>
               </div>
             )
           })}
         </div>
       </div>
 
-      {/* Diagnostic Failure Card */}
+      {/* Failure Diagnostic Alert */}
       {currentStatus === 'FAILED' && (
-        <div className="card p-5 border border-rose-500/30 bg-rose-950/20 rounded-2xl space-y-4 shadow-xl">
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400">
-                <ShieldAlert size={22} className="text-rose-400" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 font-mono">
-                    FAILED
-                  </span>
-                  <h3 className="text-sm font-bold text-slate-100">
-                    Investigation Execution Failed
-                  </h3>
-                </div>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Detailed diagnostic context and stack trace captured from the autonomous worker.
-                </p>
-              </div>
+        <div className="p-6 border border-[#ff4e4e]/30 bg-[#ff4e4e]/10 text-xs font-mono space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-[#ff4e4e] font-bold uppercase">
+              <ShieldAlert size={16} />
+              <span>Execution Exception Diagnostic</span>
             </div>
             <Button variant="secondary" size="sm" onClick={handleReplay}>
-              <RotateCcw size={13} /> Replay Investigation
+              <RotateCcw size={13} /> Replay
             </Button>
           </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <div className="p-3 rounded-xl bg-[#141424] border border-slate-800 space-y-1">
-              <span className="text-[10px] text-slate-500 uppercase font-semibold tracking-wider block">Failed Stage</span>
-              <span className="text-xs font-bold text-amber-300 font-mono">
-                {streamStage || detail.last_completed_stage || 'PLANNING'}
-              </span>
-            </div>
-
-            <div className="p-3 rounded-xl bg-[#141424] border border-slate-800 space-y-1">
-              <span className="text-[10px] text-slate-500 uppercase font-semibold tracking-wider block">Failing Agent</span>
-              <span className="text-xs font-bold text-rose-300 font-mono">
-                {streamTasks.find(t => t.status === 'FAILED')?.agent || (streamFailureReason?.match(/\[(.*?)\]/)?.[1]) || 'Supervisor Agent'}
-              </span>
-            </div>
-
-            <div className="p-3 rounded-xl bg-[#141424] border border-slate-800 space-y-1">
-              <span className="text-[10px] text-slate-500 uppercase font-semibold tracking-wider block">Retry Status</span>
-              <span className="text-xs font-bold text-slate-200 font-mono">
-                {streamTasks.find(t => t.status === 'FAILED')?.retry_count !== undefined 
-                  ? `${streamTasks.find(t => t.status === 'FAILED')?.retry_count} / ${streamTasks.find(t => t.status === 'FAILED')?.max_retries || 2} retries`
-                  : 'Exceeded max retries'}
-              </span>
-            </div>
-
-            <div className="p-3 rounded-xl bg-[#141424] border border-slate-800 space-y-1">
-              <span className="text-[10px] text-slate-500 uppercase font-semibold tracking-wider block">Execution ID</span>
-              <span className="text-xs font-mono text-slate-300 truncate block">
-                {streamExecutionId || detail.execution_id || 'exec_worker'}
-              </span>
-            </div>
-          </div>
-
-          {/* Detailed Error Box */}
-          <div className="p-3.5 rounded-xl bg-[#0c0c18] border border-rose-500/20 space-y-1.5">
-            <div className="flex items-center gap-2 text-xs font-bold text-rose-300">
-              <AlertCircle size={14} />
-              <span>Error Diagnosis:</span>
-            </div>
-            <p className="text-xs text-rose-200/90 font-mono leading-relaxed break-words">
-              {streamFailureReason || streamTasks.find(t => t.status === 'FAILED')?.error || detail.failure_reason || 'Dataset or statistical execution encountered an unhandled exception.'}
-            </p>
-          </div>
+          <p className="text-[#ff4e4e]/90 leading-relaxed break-words">
+            {streamFailureReason || detail.failure_reason || 'Dataset computation encountered an unhandled exception.'}
+          </p>
         </div>
       )}
 
-      {/* Real-time Agent Reasoning & Activity Stream Panel */}
+      {/* Real-time Agent Reasoning Stream */}
       <AgentReasoningPanel
         activities={streamActivities}
         status={currentStatus}
@@ -468,17 +418,17 @@ export default function InvestigationDetail() {
         connectionStatus={connectionStatus}
       />
 
-      {/* Main Investigation Navigation Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-800 pb-3 overflow-x-auto">
+      {/* Navigation Tabs (Underline Editorial Style) */}
+      <div className="flex items-center gap-0 border-b border-white/[0.08] overflow-x-auto">
         {[
-          { id: 'overview', label: 'Overview', icon: Sparkles },
-          { id: 'report', label: 'Executive Report', icon: Award },
-          { id: 'findings', label: 'Key Findings', icon: FileText, badge: streamFindings.length || null },
-          { id: 'evidence', label: 'Evidence Ledger', icon: Database, badge: streamEvidence.length || null },
-          { id: 'hypotheses', label: 'Hypotheses Matrix', icon: Zap, badge: streamHypotheses.length || null },
+          { id: 'overview',   label: 'Overview',          icon: Sparkles },
+          { id: 'report',     label: 'Executive Report',   icon: Award },
+          { id: 'findings',   label: 'Key Findings',       icon: FileText,   badge: streamFindings.length || null },
+          { id: 'evidence',   label: 'Evidence Ledger',    icon: Database,   badge: streamEvidence.length || null },
+          { id: 'hypotheses', label: 'Hypotheses Matrix',  icon: Zap,        badge: streamHypotheses.length || null },
           { id: 'root_cause', label: 'Root Causes & Critic', icon: ShieldCheck },
-          { id: 'plan', label: 'Investigation Plan', icon: CheckSquare, badge: streamPlan.length || null },
-          { id: 'timeline', label: 'Live Timeline', icon: Terminal, badge: isRunning ? 'LIVE' : streamTasks.length },
+          { id: 'plan',       label: 'Investigation Plan', icon: CheckSquare, badge: streamPlan.length || null },
+          { id: 'timeline',   label: 'Live Timeline',      icon: Terminal,   badge: isRunning ? 'LIVE' : streamTasks.length },
         ].map((tab) => {
           const Icon = tab.icon
           const active = activeTab === tab.id
@@ -487,18 +437,18 @@ export default function InvestigationDetail() {
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={clsx(
-                'flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all whitespace-nowrap',
+                'flex items-center gap-2 px-5 py-3 font-mono text-xs uppercase tracking-wider border-b-2 -mb-px transition-all whitespace-nowrap cursor-pointer',
                 active
-                  ? 'bg-brand-500/20 text-brand-300 border border-brand-500/30 shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+                  ? 'text-[#d4ff58] border-[#d4ff58] font-bold'
+                  : 'text-[#f2f2ef]/50 border-transparent hover:text-[#f2f2ef] hover:border-white/[0.2]'
               )}
             >
-              <Icon size={14} />
-              {tab.label}
+              <Icon size={13} />
+              <span>{tab.label}</span>
               {tab.badge && (
                 <span className={clsx(
-                  'text-[10px] px-1.5 py-0.2 rounded font-mono',
-                  tab.badge === 'LIVE' ? 'bg-red-500 text-white animate-pulse' : 'bg-slate-800 text-slate-400'
+                  'text-[9px] px-1.5 py-px font-mono',
+                  tab.badge === 'LIVE' ? 'bg-[#ff4e4e] text-white animate-pulse' : 'bg-white/[0.08] text-[#f2f2ef]/70'
                 )}>
                   {tab.badge}
                 </span>
@@ -508,191 +458,119 @@ export default function InvestigationDetail() {
         })}
       </div>
 
-      {/* Terminal State Alert Banners */}
-      {currentStatus === 'CANCELLED' && (
-        <div className="p-4 rounded-xl bg-red-950/40 border border-red-500/40 text-red-200 flex items-center gap-3 shadow-lg">
-          <XCircle size={20} className="text-red-400 flex-shrink-0" />
-          <div>
-            <p className="font-bold text-sm text-red-200">Investigation Cancelled</p>
-            <p className="text-xs text-red-300/80">This investigation was cancelled before completion. Partial executions were halted safely.</p>
-          </div>
-        </div>
-      )}
-
-      {currentStatus === 'FAILED' && (
-        <div className="p-4 rounded-xl bg-rose-950/40 border border-rose-500/40 text-rose-200 flex items-center gap-3 shadow-lg">
-          <AlertCircle size={20} className="text-rose-400 flex-shrink-0" />
-          <div>
-            <p className="font-bold text-sm text-rose-200">Investigation Failed</p>
-            <p className="text-xs text-rose-300/80">{detail.failure_reason || "The investigation encountered an unrecoverable error during execution."}</p>
-          </div>
-        </div>
-      )}
-
       {/* ── TAB 1: OVERVIEW ──────────────────────────────────────────────── */}
       {activeTab === 'overview' && currentStatus !== 'CANCELLED' && (
         <div className="space-y-6">
+          
           {/* Direct Answer & Reality Check Card */}
-          <div className="card p-6 border border-brand-500/30 bg-gradient-to-br from-brand-950/30 via-[#101024] to-[#0c0c1a] rounded-2xl space-y-4 shadow-xl">
-            <div className="flex items-start justify-between gap-3">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <Sparkles size={16} className="text-amber-400" />
-                  <span className="text-xs font-extrabold uppercase tracking-wider text-brand-300">
-                    Executive Answer & Reality Check
-                  </span>
-                </div>
-                <div className="text-base font-bold text-slate-100 whitespace-pre-line">
-                  {executiveAnswerText || detail.summary || "Investigation completed. See detailed findings and dataset tables below."}
-                </div>
+          <div className="border border-white/[0.08] bg-[#0c0c0c] p-6 sm:p-8 space-y-4">
+            <div>
+              <span className="font-mono text-[10px] text-[#d4ff58] uppercase tracking-widest block mb-1">
+                Executive Synthesis & Reality Check
+              </span>
+              <div className="font-sans text-base sm:text-lg font-bold text-[#f2f2ef] whitespace-pre-line leading-relaxed">
+                {executiveAnswerText || detail.summary || "Investigation concluded. See empirical findings and evidence citations below."}
               </div>
             </div>
 
             {realityCheckNote && (
-              <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-start gap-2.5 text-xs text-amber-200">
-                <Info size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
-                <p className="leading-relaxed font-medium">
-                  {realityCheckNote}
-                </p>
+              <div className="p-4 border border-amber-400/20 bg-amber-400/5 font-mono text-xs text-amber-300 leading-relaxed">
+                <strong>Reality Check:</strong> {realityCheckNote}
               </div>
             )}
           </div>
 
-          {/* Top 3 Dynamic Key Insight KPI Cards */}
+          {/* Key Insight KPI Grid */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* KPI 1: Primary Finding Status */}
-            <div className="card p-5 border border-brand-500/30 bg-[#0e1224] rounded-2xl space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Primary Empirical Finding</span>
-                <span className="p-1.5 rounded-lg bg-brand-500/10 text-brand-400 border border-brand-500/20">
-                  <TrendingUp size={16} />
-                </span>
-              </div>
-              <div className="text-sm font-bold text-slate-100 line-clamp-2 leading-snug">
-                {streamFindings[0]?.statement || (executiveAnswerText ? executiveAnswerText.slice(0, 90) + '...' : 'Analysis completed')}
-              </div>
-              <p className="text-xs text-slate-400">
-                Source: <span className="text-brand-300 font-semibold">{streamFindings[0]?.source || 'Verified Dataset'}</span>
+            <div className="border border-white/[0.08] bg-[#0c0c0c] p-6 space-y-2">
+              <span className="font-mono text-[10px] uppercase tracking-widest text-[#f2f2ef]/40 block">
+                Primary Root Cause Driver
+              </span>
+              <p className="font-display font-bold text-base uppercase text-[#f2f2ef] line-clamp-2">
+                {streamFindings[0]?.statement || (executiveAnswerText ? executiveAnswerText.slice(0, 90) + '...' : 'Analysis verified')}
               </p>
-            </div>
-
-            {/* KPI 2: Evidence & Findings Count */}
-            <div className="card p-5 border border-blue-500/30 bg-[#0e1724] rounded-2xl space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Evidence Ledger</span>
-                <span className="p-1.5 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                  <Database size={16} />
-                </span>
-              </div>
-              <div className="text-2xl font-extrabold text-slate-100">
-                {streamFindings.length} <span className="text-xs font-normal text-slate-400">findings / {streamEvidence.length} items</span>
-              </div>
-              <p className="text-xs text-slate-400">
-                {streamEvidence.filter(e => e.source_type === 'dataset').length} dataset observations verified
-              </p>
-            </div>
-
-            {/* KPI 3: Hypotheses & Reliability */}
-            <div className="card p-5 border border-emerald-500/30 bg-[#0d1a16] rounded-2xl space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Statistical Verification</span>
-                <span className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  <ShieldCheck size={16} />
-                </span>
-              </div>
-              <div className="text-2xl font-extrabold text-slate-100">
-                {streamHypotheses.filter(h => h.status === 'SUPPORTED').length} <span className="text-xs font-normal text-slate-400">of {streamHypotheses.length || 0} supported</span>
-              </div>
-              <p className="text-xs text-slate-400">
-                {Math.round((streamConfidence || 0.85) * 100)}% Calibrated Analytical Confidence
-              </p>
-            </div>
-          </div>
-
-          {/* Data Quality & Sufficiency Summary Panel */}
-          <div className="card p-5 border border-slate-800 bg-[#0f0f1c] rounded-2xl space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-                <BarChart3 size={15} className="text-brand-400" />
-                Data Quality & Coverage Assessment
-              </h3>
-              <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-bold">
-                {reliabilityLabel}
+              <span className="font-mono text-xs text-[#d4ff58] block">
+                Source: {streamFindings[0]?.source || 'Dataset Slicing'}
               </span>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-              <div className="p-3 rounded-xl bg-[#141426] border border-slate-800/80 space-y-0.5">
-                <span className="text-[10px] text-slate-500 uppercase font-semibold">Findings Generated</span>
-                <span className="text-xs font-bold text-slate-200 block font-mono">{streamFindings.length} findings</span>
-              </div>
-              <div className="p-3 rounded-xl bg-[#141426] border border-slate-800/80 space-y-0.5">
-                <span className="text-[10px] text-slate-500 uppercase font-semibold">Hypotheses Tested</span>
-                <span className="text-xs font-bold text-slate-200 block font-mono">{streamHypotheses.length} hypotheses</span>
-              </div>
-              <div className="p-3 rounded-xl bg-[#141426] border border-slate-800/80 space-y-0.5">
-                <span className="text-[10px] text-slate-500 uppercase font-semibold">Evidence Items</span>
-                <span className="text-xs font-bold text-emerald-400 block font-mono">{streamEvidence.length} items logged</span>
-              </div>
-              <div className="p-3 rounded-xl bg-[#141426] border border-slate-800/80 space-y-0.5">
-                <span className="text-[10px] text-slate-500 uppercase font-semibold">Critic Status</span>
-                <span className="text-xs font-bold text-brand-300 block">
-                  {streamCriticReviews.length > 0 ? (streamCriticReviews[streamCriticReviews.length - 1].verdict || 'Audited') : 'Verified'}
-                </span>
-              </div>
+            <div className="border border-white/[0.08] bg-[#0c0c0c] p-6 space-y-2">
+              <span className="font-mono text-[10px] uppercase tracking-widest text-[#f2f2ef]/40 block">
+                Evidence Ledger
+              </span>
+              <p className="font-display font-extrabold text-3xl text-[#f2f2ef]">
+                {streamEvidence.length} <span className="text-xs font-mono font-normal text-[#f2f2ef]/40">verified entries</span>
+              </p>
+              <span className="font-mono text-xs text-[#f2f2ef]/50 block">
+                {streamFindings.length} analytical findings generated
+              </span>
+            </div>
+
+            <div className="border border-white/[0.08] bg-[#0c0c0c] p-6 space-y-2">
+              <span className="font-mono text-[10px] uppercase tracking-widest text-[#f2f2ef]/40 block">
+                Hypotheses Supported
+              </span>
+              <p className="font-display font-extrabold text-3xl text-[#d4ff58]">
+                {streamHypotheses.filter(h => h.status === 'SUPPORTED').length} <span className="text-xs font-mono font-normal text-[#f2f2ef]/40">of {streamHypotheses.length || 0}</span>
+              </p>
+              <span className="font-mono text-xs text-[#f2f2ef]/50 block">
+                {Math.round((streamConfidence || 0.85) * 100)}% Calibrated Confidence
+              </span>
             </div>
           </div>
 
-          {/* Quick Preview of Top Findings */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                Top Empirical Findings ({streamFindings.length})
-              </h3>
-              <button
-                onClick={() => setActiveTab('findings')}
-                className="text-xs text-brand-400 hover:text-brand-300 font-semibold flex items-center gap-1"
-              >
-                View all findings <ChevronRight size={13} />
-              </button>
-            </div>
+          {/* Quick Findings Preview */}
+          {streamFindings.length > 0 && (
+            <div className="border border-white/[0.08] bg-[#0c0c0c] p-6 space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+                <h3 className="font-display font-bold text-sm uppercase tracking-tight text-[#f2f2ef]">
+                  Empirical Findings ({streamFindings.length})
+                </h3>
+                <button
+                  onClick={() => setActiveTab('findings')}
+                  className="font-mono text-xs text-[#d4ff58] hover:underline uppercase tracking-wider cursor-pointer"
+                >
+                  View All &rarr;
+                </button>
+              </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {streamFindings.slice(0, 4).map((f, idx) => (
-                <div key={f.id || idx} className="card p-4 border border-slate-800 bg-[#101020] rounded-xl space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-brand-500/10 text-brand-300 border border-brand-500/20">
-                      {f.source || 'Dataset'}
-                    </span>
-                    <span className="text-[11px] font-bold text-slate-300">
-                      {Math.round((f.confidence || 0.9) * 100)}% Conf
-                    </span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {streamFindings.slice(0, 4).map((f, idx) => (
+                  <div key={f.id || idx} className="p-4 border border-white/[0.06] bg-[#080808] space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-[10px] text-[#d4ff58] uppercase">
+                        {f.source || 'Dataset'}
+                      </span>
+                      <span className="font-mono text-xs font-bold text-[#f2f2ef]/80">
+                        {Math.round((f.confidence || 0.9) * 100)}%
+                      </span>
+                    </div>
+                    <p className="text-xs text-[#f2f2ef] font-medium leading-relaxed">
+                      {f.statement}
+                    </p>
                   </div>
-                  <p className="text-xs text-slate-200 font-medium leading-relaxed">
-                    {f.statement}
-                  </p>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
+          )}
+
         </div>
       )}
 
-      {/* ── TAB 2: EXECUTIVE REPORT (MARKDOWN RENDERED) ────────────────────── */}
+      {/* ── TAB 2: EXECUTIVE REPORT ────────────────────────────────────────── */}
       {activeTab === 'report' && (
-        <div className="card p-6 border border-slate-800 bg-[#0d0d1a] rounded-2xl space-y-6 shadow-xl">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-4">
-            <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">
-              <Award size={20} className="text-brand-400" />
-              Executive Root Cause Report
+        <div className="space-y-6">
+          <div className="flex items-center justify-between pb-4 border-b border-white/[0.08]">
+            <h2 className="font-display font-bold text-lg uppercase tracking-tight text-[#f2f2ef] flex items-center gap-2">
+              <Award size={18} className="text-[#d4ff58]" />
+              <span>Audited Executive Report</span>
             </h2>
             {streamConfidence && (
-              <span className="text-xs font-mono text-emerald-400 font-bold px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-                Confidence Rating: {(streamConfidence * 100).toFixed(0)}%
+              <span className="font-mono text-xs text-[#d4ff58] font-bold border border-[#d4ff58]/30 bg-[#d4ff58]/10 px-3 py-1">
+                Confidence: {(streamConfidence * 100).toFixed(0)}%
               </span>
             )}
           </div>
-
           <MarkdownReport content={reportText} />
         </div>
       )}
@@ -700,35 +578,34 @@ export default function InvestigationDetail() {
       {/* ── TAB 3: KEY FINDINGS ──────────────────────────────────────────── */}
       {activeTab === 'findings' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold text-slate-200 flex items-center gap-2">
-              <FileText size={16} className="text-brand-400" />
+          <div className="border-b border-white/[0.08] pb-3">
+            <h3 className="font-display font-bold text-base uppercase tracking-tight text-[#f2f2ef]">
               Quantitative Findings Ledger ({streamFindings.length})
-            </h2>
+            </h3>
           </div>
 
           {streamFindings.length === 0 ? (
-            <div className="card text-center py-12 text-slate-500 text-xs border border-slate-800">
+            <div className="border border-white/[0.08] bg-[#0c0c0c] p-12 text-center text-xs font-mono text-[#f2f2ef]/40">
               No findings generated yet.
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {streamFindings.map((f, idx) => (
-                <div key={f.id || idx} className="card p-5 border border-slate-800 bg-[#101020] rounded-xl space-y-3">
+                <div key={f.id || idx} className="p-5 border border-white/[0.08] bg-[#0c0c0c] space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-mono px-2.5 py-0.5 rounded bg-brand-500/10 text-brand-300 border border-brand-500/20 uppercase">
+                    <span className="font-mono text-[10px] uppercase tracking-wider px-2 py-0.5 border border-[#d4ff58]/30 bg-[#d4ff58]/10 text-[#d4ff58]">
                       {f.causal_classification || 'OBSERVATION'}
                     </span>
-                    <span className="text-xs font-bold text-slate-300 font-mono">
-                      {Math.round((f.confidence || 0.9) * 100)}% Confidence
+                    <span className="font-mono text-xs font-bold text-[#f2f2ef]">
+                      {Math.round((f.confidence || 0.9) * 100)}%
                     </span>
                   </div>
-                  <p className="text-xs text-slate-100 font-medium leading-relaxed">
+                  <p className="text-xs sm:text-sm text-[#f2f2ef] leading-relaxed">
                     {f.statement}
                   </p>
-                  <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-500">
+                  <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between font-mono text-[10px] text-[#f2f2ef]/40">
                     <span>Source: {f.source || 'Dataset'}</span>
-                    <span>Verified</span>
+                    <span>Empirical Verification &radic;</span>
                   </div>
                 </div>
               ))}
@@ -758,29 +635,30 @@ export default function InvestigationDetail() {
 
       {/* ── TAB 7: INVESTIGATION PLAN ────────────────────────────────────── */}
       {activeTab === 'plan' && (
-        <div className="card p-6 border border-slate-800 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold text-slate-200 flex items-center gap-2">
-              <CheckSquare size={16} className="text-brand-400" />
-              Investigation Plan & Agenda ({streamPlan.length} steps)
-            </h2>
+        <div className="border border-white/[0.08] bg-[#0c0c0c] p-6 sm:p-8 space-y-4">
+          <div className="flex items-center justify-between pb-4 border-b border-white/[0.08]">
+            <h3 className="font-display font-bold text-base uppercase text-[#f2f2ef]">
+              Investigation Plan ({streamPlan.length} steps)
+            </h3>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-3 font-mono text-xs">
             {streamPlan.map((step, idx) => (
-              <div key={idx} className="p-4 bg-[#121222] rounded-xl border border-slate-800 flex items-start justify-between gap-3">
+              <div key={idx} className="p-4 bg-[#080808] border border-white/[0.06] flex items-start justify-between gap-3">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-brand-400 font-bold">
-                      Step {step.step_number || idx + 1}
+                    <span className="text-[#d4ff58] font-bold">
+                      Step {(step.step_number || idx + 1).toString().padStart(2, '0')}
                     </span>
-                    <h4 className="text-xs font-bold text-slate-200">{step.name || step.objective}</h4>
-                    <span className="text-[10px] text-slate-500 font-mono">[{step.agent}]</span>
+                    <span className="font-bold text-[#f2f2ef] uppercase">
+                      {step.name || step.objective}
+                    </span>
+                    <span className="text-[#f2f2ef]/40">[{step.agent}]</span>
                   </div>
-                  <p className="text-xs text-slate-400">{step.objective}</p>
+                  <p className="text-[#f2f2ef]/70 font-sans text-xs">{step.objective}</p>
                 </div>
-                <span className="text-[11px] font-semibold text-emerald-400 flex items-center gap-1">
-                  <CheckCircle2 size={13} /> Completed
+                <span className="text-[#d4ff58] text-[11px] font-bold flex items-center gap-1">
+                  <Check size={12} /> Complete
                 </span>
               </div>
             ))}
@@ -790,42 +668,38 @@ export default function InvestigationDetail() {
 
       {/* ── TAB 8: LIVE TIMELINE ─────────────────────────────────────────── */}
       {activeTab === 'timeline' && (
-        <div className="space-y-3">
+        <div className="space-y-3 font-mono text-xs">
           {streamTasks.length === 0 ? (
-            <div className="card text-center py-12 text-slate-500 text-xs border border-slate-800">
+            <div className="border border-white/[0.08] bg-[#0c0c0c] p-12 text-center text-[#f2f2ef]/40">
               No task events recorded yet.
             </div>
           ) : (
             streamTasks.map((t, idx) => (
-              <div key={t.id || idx} className="card p-4 border border-slate-800 flex items-start justify-between gap-3">
-                <div className="flex items-start gap-3">
+              <div key={t.id || idx} className="p-4 border border-white/[0.08] bg-[#0c0c0c] flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3 min-w-0">
                   <div className={clsx(
                     'w-2 h-2 rounded-full mt-1.5 flex-shrink-0',
-                    t.status === 'RUNNING' ? 'bg-amber-400 animate-ping' : 'bg-emerald-400'
+                    t.status === 'RUNNING' ? 'bg-[#d4ff58] animate-ping' : 'bg-[#d4ff58]'
                   )} />
-                  <div>
+                  <div className="min-w-0 space-y-0.5">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-slate-200">{t.agent || 'Agent'}</span>
-                      <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-slate-800 text-slate-300">
-                        {t.status}
-                      </span>
-                      {t.duration_ms && (
-                        <span className="text-[10px] font-mono text-slate-500">
-                          {t.duration_ms}ms
-                        </span>
-                      )}
+                      <span className="font-bold uppercase text-[#f2f2ef]">{t.agent || 'Agent'}</span>
+                      <span className="text-[10px] text-[#f2f2ef]/40">[{t.status}]</span>
                     </div>
-                    <p className="text-xs text-slate-400 mt-0.5">{t.objective}</p>
+                    <p className="text-xs text-[#f2f2ef]/70 font-sans leading-relaxed truncate">{t.objective}</p>
                   </div>
                 </div>
-                <span className="text-[11px] text-slate-500 font-mono">
-                  {t.created_at ? new Date(t.created_at).toLocaleTimeString() : ''}
-                </span>
+                {t.created_at && (
+                  <span className="text-[10px] text-[#f2f2ef]/40 flex-shrink-0">
+                    {new Date(t.created_at).toLocaleTimeString()}
+                  </span>
+                )}
               </div>
             ))
           )}
         </div>
       )}
+
     </PageShell>
   )
 }

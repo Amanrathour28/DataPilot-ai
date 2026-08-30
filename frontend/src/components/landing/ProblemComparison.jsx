@@ -1,116 +1,124 @@
+import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { XCircle, CheckCircle2, ArrowRight, AlertTriangle, Layers, Zap, Clock, ShieldCheck } from 'lucide-react'
+import { ArrowUpRight } from 'lucide-react'
+
+const CAPABILITIES = [
+  {
+    n: '01',
+    title: 'Autonomous Multi-Agent Investigation',
+    summary: 'Orchestrates specialized AI agents to autonomously decompose complex business questions into structured execution steps.',
+    detail: 'Supervisor, Profiler, Analyst, and RAG agents coordinate concurrently without manual handoffs.',
+  },
+  {
+    n: '02',
+    title: 'Structured Data & Python Sandbox',
+    summary: 'Analyzes high-dimensional CSVs and databases with sandboxed Python/DuckDB for verifiable mathematical computation.',
+    detail: 'Isolates cohorts, calculates metric variances, tests period-over-period significance in milliseconds.',
+  },
+  {
+    n: '03',
+    title: 'Document Intelligence & Vector RAG',
+    summary: 'Cross-references qualitative PDF strategy memos, meeting notes, and earnings reports against quantitative trends.',
+    detail: 'Embeds and retrieves semantic chunks with exact page, paragraph, and table citation lineage.',
+  },
+  {
+    n: '04',
+    title: 'Hypothesis Generation & Falsification',
+    summary: 'Formulates candidate explanations for observed anomalies and rigorously tests each against raw empirical evidence.',
+    detail: 'Classifies every hypothesis into Supported, Rejected, or Inconclusive with quantifiable confidence.',
+  },
+  {
+    n: '05',
+    title: 'Evidence Ledger & Lineage Tracing',
+    summary: 'Every output statement links directly to specific dataset rows, calculated metrics, or verified document excerpts.',
+    detail: 'Zero hallucinations. Transparent chain-of-thought and mathematical lineage available for executive audit.',
+  },
+  {
+    n: '06',
+    title: 'Critic Verification & Root Cause Lineage',
+    summary: 'An independent Critic Agent audits every claim to distinguish true causal drivers from spurious correlation.',
+    detail: 'Surfaces explicit uncertainty boundaries, data limitations, and actionable executive recommendations.',
+  },
+]
 
 export default function ProblemComparison() {
+  const [hoveredIdx, setHoveredIdx] = useState(null)
+
   return (
-    <section className="py-24 bg-[#0a0a14] relative overflow-hidden">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Section Header */}
-        <div className="text-center max-w-3xl mx-auto mb-16">
-          <span className="text-xs font-semibold px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 uppercase tracking-wider">
-            THE PARADIGM SHIFT
-          </span>
-          <h2 className="text-3xl sm:text-5xl font-extrabold text-slate-100 mt-4 tracking-tight">
-            Dashboards show what happened.{' '}
-            <span className="text-slate-400">Finding out why is still manual.</span>
-          </h2>
-          <p className="mt-4 text-base sm:text-lg text-slate-400">
-            Traditional BI gives you charts and alerts, leaving human analysts to dig through multiple tools, run queries, and guess root causes. DataPilot automates the entire investigation pipeline.
-          </p>
+    <section id="what-we-do" className="py-24 md:py-36 border-b border-white/[0.08]">
+      <div className="dn-container">
+
+        {/* Editorial Section Marker */}
+        <div className="editorial-label">
+          <span className="num">(01)</span>
+          <span>What DataPilot Does</span>
         </div>
 
-        {/* Side-by-side comparison */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Traditional Manual Workflow */}
-          <motion.div
-            whileHover={{ y: -4 }}
-            className="p-8 rounded-2xl bg-[#0e0e1a] border border-red-500/20 shadow-xl relative overflow-hidden group"
-          >
-            <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/5 rounded-full blur-2xl pointer-events-none" />
-
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 rounded-xl bg-red-500/15 border border-red-500/30 flex items-center justify-center">
-                <XCircle size={20} className="text-red-400" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-slate-100">Traditional BI & Analysis Workflow</h3>
-                <p className="text-xs text-slate-400">Fragmented, slow & prone to speculation</p>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              {[
-                { step: '01', title: 'Dashboard Anomaly Alert', desc: 'Metric drops on chart. No explanation provided.' },
-                { step: '02', title: 'Manual SQL & Data Exports', desc: 'Analyst pulls CSVs across regional DBs manually.' },
-                { step: '03', title: 'Spreadsheet Pivot Tables', desc: 'Slicing metrics in Excel hoping to notice a pattern.' },
-                { step: '04', title: 'Searching Slack & PDFs', desc: 'Digging through strategy docs and email chains for context.' },
-                { step: '05', title: 'Uncertain Executive Summary', desc: 'Hypothesis presented without verified evidence or confidence score.' },
-              ].map((item) => (
-                <div key={item.step} className="flex items-start gap-3 p-3.5 rounded-xl bg-[#141424] border border-[#202038]">
-                  <span className="text-xs font-mono font-bold text-slate-500 px-2 py-0.5 rounded bg-[#1c1c34]">
-                    {item.step}
-                  </span>
-                  <div>
-                    <p className="text-xs font-semibold text-slate-200">{item.title}</p>
-                    <p className="text-[11px] text-slate-400 mt-0.5">{item.desc}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-6 pt-4 border-t border-[#1e1e35] flex items-center justify-between text-xs text-red-400">
-              <span className="flex items-center gap-1.5 font-medium">
-                <Clock size={14} /> Average investigation time: 3–5 Days
-              </span>
-              <span className="font-mono">Manual / Low Trust</span>
-            </div>
-          </motion.div>
-
-          {/* DataPilot Autonomous Workflow */}
-          <motion.div
-            whileHover={{ y: -4 }}
-            className="p-8 rounded-2xl bg-gradient-to-b from-[#121228] to-[#0e0e1c] border border-cyan-500/40 shadow-2xl shadow-cyan-600/10 relative overflow-hidden group"
-          >
-            <div className="absolute top-0 right-0 w-48 h-48 bg-cyan-600/15 rounded-full blur-3xl pointer-events-none" />
-
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 rounded-xl bg-cyan-600/25 border border-cyan-500/40 flex items-center justify-center">
-                <CheckCircle2 size={20} className="text-cyan-400" />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-slate-100">DataPilot Autonomous Investigation</h3>
-                <p className="text-xs text-cyan-300 font-medium">Autonomous multi-agent orchestration</p>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              {[
-                { step: '01', title: 'Ask Business Question', desc: '"Why did revenue decline in Q3?"' },
-                { step: '02', title: 'Autonomous Multi-Agent Plan', desc: 'Planner & Profiler map schema & target metrics.' },
-                { step: '03', title: 'Python Analysis & Hypothesis Testing', desc: 'Data Analyst & Python agent run sandboxed queries.' },
-                { step: '04', title: 'RAG Context Cross-Referencing', desc: 'RAG agent searches strategy docs & connects context.' },
-                { step: '05', title: 'Verified Root Cause Report', desc: 'Critic Agent verifies claims; output delivered with confidence score.' },
-              ].map((item) => (
-                <div key={item.step} className="flex items-start gap-3 p-3.5 rounded-xl bg-cyan-950/20 border border-cyan-500/30">
-                  <span className="text-xs font-mono font-bold text-cyan-400 px-2 py-0.5 rounded bg-cyan-900/40 border border-cyan-500/30">
-                    {item.step}
-                  </span>
-                  <div>
-                    <p className="text-xs font-semibold text-slate-100">{item.title}</p>
-                    <p className="text-[11px] text-slate-300 mt-0.5">{item.desc}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-6 pt-4 border-t border-cyan-500/30 flex items-center justify-between text-xs text-emerald-400">
-              <span className="flex items-center gap-1.5 font-medium">
-                <Zap size={14} className="text-emerald-400" /> Average investigation time: ~30 Seconds
-              </span>
-              <span className="font-mono font-semibold">Autonomous / High Confidence</span>
-            </div>
-          </motion.div>
+        {/* Section Headline */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mb-16 md:mb-24">
+          <div className="lg:col-span-8">
+            <h2 className="font-display font-bold text-3xl sm:text-5xl md:text-6xl uppercase tracking-tight text-[#f2f2ef] leading-[1.05]">
+              Dashboards show what happened<span className="text-[#d4ff58]">.</span>
+              <br />
+              <span className="text-[#f2f2ef]/40">DataPilot investigates why.</span>
+            </h2>
+          </div>
+          <div className="lg:col-span-4 flex flex-col justify-end">
+            <p className="text-sm md:text-base text-[#f2f2ef]/60 leading-relaxed font-sans">
+              Traditional BI leaves analysts stranded with charts and alerts. DataPilot executes the 
+              entire analytical investigation end-to-end — from hypothesis to verified root cause.
+            </p>
+          </div>
         </div>
+
+        {/* Editorial Service/Capability List (DayNight Style) */}
+        <div className="border-t border-white/[0.08]">
+          {CAPABILITIES.map((item, idx) => {
+            const isHovered = hoveredIdx === idx
+            return (
+              <div
+                key={item.n}
+                onMouseEnter={() => setHoveredIdx(idx)}
+                onMouseLeave={() => setHoveredIdx(null)}
+                className="group border-b border-white/[0.08] py-8 md:py-12 transition-all duration-300 cursor-pointer"
+              >
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-4 md:gap-8 items-start">
+                  
+                  {/* Number */}
+                  <div className="md:col-span-1 font-mono text-xs text-[#d4ff58] uppercase tracking-widest pt-1">
+                    {item.n} / 06
+                  </div>
+
+                  {/* Title */}
+                  <div className="md:col-span-5">
+                    <h3 className="font-display font-bold text-xl sm:text-2xl md:text-3xl uppercase tracking-tight text-[#f2f2ef] group-hover:text-[#d4ff58] group-hover:translate-x-1.5 transition-all duration-200">
+                      {item.title}
+                    </h3>
+                  </div>
+
+                  {/* Description */}
+                  <div className="md:col-span-5">
+                    <p className="text-sm sm:text-base text-[#f2f2ef]/60 font-sans leading-relaxed">
+                      {item.summary}
+                    </p>
+                    <p className="text-xs font-mono text-[#f2f2ef]/40 mt-2 leading-relaxed">
+                      {item.detail}
+                    </p>
+                  </div>
+
+                  {/* Arrow Indicator */}
+                  <div className="md:col-span-1 flex justify-end items-center pt-1">
+                    <div className="w-8 h-8 rounded-full border border-white/[0.1] flex items-center justify-center group-hover:border-[#d4ff58] group-hover:bg-[#d4ff58] group-hover:text-black transition-all duration-200">
+                      <ArrowUpRight size={16} className="text-[#f2f2ef] group-hover:text-black transition-colors" />
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
       </div>
     </section>
   )

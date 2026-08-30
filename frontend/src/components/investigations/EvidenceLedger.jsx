@@ -7,9 +7,9 @@ import { clsx } from 'clsx'
 
 const SOURCE_FILTERS = [
   { id: 'all', label: 'All Evidence', icon: Zap },
-  { id: 'statistical', label: 'Statistical Tests', icon: Calculator, color: 'text-purple-400' },
-  { id: 'dataset', label: 'Dataset Queries', icon: Database, color: 'text-blue-400' },
-  { id: 'document', label: 'Document Citations', icon: FileText, color: 'text-emerald-400' },
+  { id: 'statistical', label: 'Statistical Tests', icon: Calculator },
+  { id: 'dataset', label: 'Dataset Queries', icon: Database },
+  { id: 'document', label: 'Document Citations', icon: FileText },
 ]
 
 export default function EvidenceLedger({ evidenceItems = [] }) {
@@ -28,10 +28,11 @@ export default function EvidenceLedger({ evidenceItems = [] }) {
   })
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      
       {/* Search & Source Filter Controls */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1">
           {SOURCE_FILTERS.map(f => {
             const Icon = f.icon
             const active = selectedFilter === f.id
@@ -40,154 +41,103 @@ export default function EvidenceLedger({ evidenceItems = [] }) {
                 key={f.id}
                 onClick={() => setSelectedFilter(f.id)}
                 className={clsx(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap',
+                  'flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono uppercase tracking-wider border transition-all whitespace-nowrap cursor-pointer',
                   active
-                    ? 'bg-brand-500/20 text-brand-300 border border-brand-500/30'
-                    : 'bg-[#161626] text-slate-400 hover:text-slate-200 border border-slate-800'
+                    ? 'border-[#d4ff58] bg-[#d4ff58] text-black font-bold'
+                    : 'border-white/[0.08] bg-[#0c0c0c] text-[#f2f2ef]/60 hover:text-[#f2f2ef] hover:border-white/[0.2]'
                 )}
               >
-                <Icon size={13} className={f.color} />
-                {f.label}
+                <Icon size={12} />
+                <span>{f.label}</span>
               </button>
             )
           })}
         </div>
 
-        <div className="relative w-full sm:w-64">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+        <div className="relative w-full sm:w-72">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#f2f2ef]/40" />
           <input
             type="text"
             placeholder="Search claims or metrics..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-[#111122] border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-brand-500"
+            className="input pl-9 text-xs font-mono py-1.5"
           />
         </div>
       </div>
 
+      {/* Evidence Ledger List */}
       {filteredItems.length === 0 ? (
-        <div className="card text-center py-12 text-slate-500 text-xs border border-slate-800">
-          No evidence items match the selected filter criteria.
+        <div className="border border-white/[0.08] bg-[#0c0c0c] p-12 text-center text-xs font-mono text-[#f2f2ef]/40">
+          No evidence items matching current filter criteria.
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="border border-white/[0.08] bg-[#0c0c0c] divide-y divide-white/[0.06]">
           {filteredItems.map((item, idx) => {
-            const isExpanded = expandedId === (item.evidence_id || idx)
+            const isExpanded = expandedId === (item.id || idx)
             return (
-              <div
-                key={item.evidence_id || idx}
-                className={clsx(
-                  'card p-4 border transition-all cursor-pointer',
-                  item.supports_claim ? 'border-slate-800/90 hover:border-slate-700' : 'border-red-500/30 bg-red-500/5'
-                )}
-                onClick={() => setExpandedId(isExpanded ? null : (item.evidence_id || idx))}
-              >
-                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                  <div className="flex items-start gap-3">
-                    <div className={clsx(
-                      'p-2 rounded-lg flex-shrink-0 mt-0.5',
-                      item.source_type === 'statistical' && 'bg-purple-500/10 text-purple-400',
-                      item.source_type === 'dataset' && 'bg-blue-500/10 text-blue-400',
-                      item.source_type === 'document' && 'bg-emerald-500/10 text-emerald-400',
-                    )}>
-                      {item.source_type === 'statistical' && <Calculator size={16} />}
-                      {item.source_type === 'dataset' && <Database size={16} />}
-                      {item.source_type === 'document' && <FileText size={16} />}
-                    </div>
-
-                    <div className="space-y-1">
+              <div key={item.id || idx} className="p-5 hover:bg-white/[0.01] transition-colors">
+                <div
+                  onClick={() => setExpandedId(isExpanded ? null : (item.id || idx))}
+                  className="flex items-start justify-between gap-4 cursor-pointer"
+                >
+                  <div className="flex items-start gap-4 min-w-0">
+                    <span className="font-mono text-xs text-[#d4ff58] pt-0.5">
+                      {(idx + 1).toString().padStart(2, '0')}
+                    </span>
+                    <div className="min-w-0 space-y-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs font-semibold text-slate-200">{item.source_name}</span>
-                        <span className={clsx(
-                          'text-[10px] px-2 py-0.5 rounded font-mono uppercase',
-                          item.source_type === 'statistical' && 'bg-purple-500/10 text-purple-300 border border-purple-500/20',
-                          item.source_type === 'dataset' && 'bg-blue-500/10 text-blue-300 border border-blue-500/20',
-                          item.source_type === 'document' && 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20',
-                        )}>
-                          {item.source_type}
+                        <span className="font-mono text-[10px] uppercase tracking-wider px-1.5 py-0.5 border border-white/[0.1] bg-white/[0.02] text-[#f2f2ef]/60">
+                          {item.source_type || 'EMPIRICAL'}
                         </span>
-
-                        {item.causal_classification && (
-                          <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-slate-800 text-amber-300 border border-amber-500/20">
-                            {item.causal_classification.replace(/_/g, ' ')}
+                        {item.source_name && (
+                          <span className="font-mono text-[11px] text-[#f2f2ef]/40 truncate">
+                            {item.source_name}
                           </span>
                         )}
-
-                        <span className="text-[11px] text-slate-400 font-medium">
-                          Confidence: {Math.round((item.confidence || 0.8) * 100)}%
-                        </span>
                       </div>
-
-                      <p className="text-xs text-slate-300 font-medium leading-relaxed">
-                        {item.claim}
-                      </p>
-
-                      <p className="text-xs text-slate-400">
-                        {item.result_summary}
-                      </p>
+                      <h4 className="font-display font-bold text-sm sm:text-base uppercase tracking-tight text-[#f2f2ef]">
+                        {item.claim || item.result_summary || 'Empirical Evidence Entry'}
+                      </h4>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-3 self-end sm:self-center text-xs text-slate-500 flex-shrink-0">
-                    <span className={clsx(
-                      'flex items-center gap-1 text-[11px] font-medium',
-                      item.supports_claim ? 'text-emerald-400' : 'text-red-400'
-                    )}>
-                      {item.supports_claim ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
-                      {item.supports_claim ? 'Supports' : 'Contradicts'}
-                    </span>
+                  <div className="flex items-center gap-3 flex-shrink-0 pt-1">
+                    {item.confidence && (
+                      <span className="font-mono text-xs font-bold text-[#d4ff58]">
+                        {Math.round(item.confidence * 100)}%
+                      </span>
+                    )}
                     <ChevronRight
-                      size={15}
-                      className={clsx('transition-transform text-slate-500', isExpanded && 'rotate-90')}
+                      size={14}
+                      className={clsx('text-[#f2f2ef]/40 transition-transform', isExpanded && 'rotate-90')}
                     />
                   </div>
                 </div>
 
-                {/* Expandable Technical & Query Proof */}
+                {/* Expanded Details */}
                 {isExpanded && (
-                  <div className="mt-4 pt-3 border-t border-slate-800/80 space-y-3 animate-fade-in text-xs">
-                    {item.query_or_method && (
-                      <div className="space-y-1">
-                        <span className="text-[11px] font-semibold text-slate-400 uppercase">Analysis Method / Query</span>
-                        <div className="p-3 bg-[#0c0c16] rounded-xl font-mono text-[11px] text-brand-300 border border-slate-800 overflow-x-auto whitespace-pre-wrap">
-                          {item.query_or_method}
-                        </div>
+                  <div className="mt-4 pt-4 border-t border-white/[0.06] font-mono text-xs space-y-3 pl-8">
+                    {item.supporting_data && (
+                      <div className="p-3 bg-[#080808] border border-white/[0.06]">
+                        <span className="text-[10px] text-[#f2f2ef]/40 uppercase tracking-widest block mb-1">
+                          Supporting Execution Output
+                        </span>
+                        <pre className="text-[11px] text-[#f2f2ef]/80 overflow-x-auto whitespace-pre-wrap">
+                          {typeof item.supporting_data === 'object'
+                            ? JSON.stringify(item.supporting_data, null, 2)
+                            : item.supporting_data}
+                        </pre>
                       </div>
                     )}
 
-                    {item.statistical_metrics && (
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
-                        <div className="p-2.5 bg-[#121222] rounded-lg border border-slate-800">
-                          <span className="text-[10px] text-slate-500 block">Test Applied</span>
-                          <span className="font-semibold text-slate-200 truncate block">{item.statistical_metrics.test_name}</span>
-                        </div>
-                        <div className="p-2.5 bg-[#121222] rounded-lg border border-slate-800">
-                          <span className="text-[10px] text-slate-500 block">p-Value</span>
-                          <span className={clsx('font-bold', (item.statistical_metrics.p_value || 1) < 0.05 ? 'text-emerald-400' : 'text-amber-400')}>
-                            {item.statistical_metrics.p_value !== null ? item.statistical_metrics.p_value.toFixed(4) : 'N/A'}
-                          </span>
-                        </div>
-                        <div className="p-2.5 bg-[#121222] rounded-lg border border-slate-800">
-                          <span className="text-[10px] text-slate-500 block">Effect Size ({item.statistical_metrics.effect_size_type || "d"})</span>
-                          <span className="font-bold text-purple-400">
-                            {item.statistical_metrics.effect_size !== null ? item.statistical_metrics.effect_size.toFixed(2) : 'N/A'}
-                          </span>
-                        </div>
-                        <div className="p-2.5 bg-[#121222] rounded-lg border border-slate-800">
-                          <span className="text-[10px] text-slate-500 block">Agent Verified</span>
-                          <span className="font-medium text-slate-300">{item.created_by_agent}</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {item.document_citation && (
-                      <div className="p-3 bg-emerald-500/5 rounded-xl border border-emerald-500/20 text-xs text-slate-300">
-                        <div className="flex items-center justify-between text-[11px] text-emerald-400 font-semibold mb-1">
-                          <span>Document: {item.document_citation.document_name} ({item.document_citation.section || 'Passage'})</span>
-                          <span>Relevance: {Math.round(item.document_citation.relevance_score * 100)}%</span>
-                        </div>
-                        <p className="italic text-slate-300">
-                          "{item.document_citation.excerpt}"
+                    {item.document_excerpt && (
+                      <div className="p-3 bg-[#080808] border border-white/[0.06] space-y-1">
+                        <span className="text-[10px] text-[#d4ff58] uppercase tracking-widest block">
+                          Document Vector Excerpt
+                        </span>
+                        <p className="font-sans text-xs italic text-[#f2f2ef]/90 leading-relaxed">
+                          &ldquo;{item.document_excerpt}&rdquo;
                         </p>
                       </div>
                     )}
@@ -198,6 +148,7 @@ export default function EvidenceLedger({ evidenceItems = [] }) {
           })}
         </div>
       )}
+
     </div>
   )
 }

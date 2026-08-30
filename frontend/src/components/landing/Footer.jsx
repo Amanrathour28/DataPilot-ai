@@ -1,111 +1,109 @@
 import { Link } from 'react-router-dom'
-import { BrandWordmark } from '../ui/Logo'
+
+const PRODUCT_LINKS = [
+  { label: 'What DataPilot Does', href: '#what-we-do' },
+  { label: 'How It Works',        href: '#how-it-works' },
+  { label: 'The Agents',          href: '#agents' },
+  { label: 'Evidence Trail',      href: '#evidence' },
+  { label: 'System Metrics',      href: '#metrics' },
+  { label: 'FAQ',                 href: '#faq' },
+]
+
+const SYSTEM_LINKS = [
+  { label: 'Workspace Dashboard', href: '/dashboard' },
+  { label: 'New Investigation',   href: '/investigations/new' },
+  { label: 'Dataset Catalog',     href: '/datasets' },
+  { label: 'Knowledge Base',      href: '/knowledge' },
+]
 
 export default function Footer() {
-  const handleScrollTo = (id) => {
-    const el = document.querySelector(id)
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth' })
+  const scrollTo = (href) => {
+    if (href.startsWith('#')) {
+      const el = document.querySelector(href)
+      if (el) el.scrollIntoView({ behavior: 'smooth' })
     }
   }
 
   return (
-    <footer className="border-t border-white/[0.06] py-16 text-slate-400 relative overflow-hidden">
-      {/* Footer Grid */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 grid grid-cols-2 md:grid-cols-5 gap-8">
-        {/* Column 1: Brand & Logo */}
-        <div className="col-span-2 space-y-4">
-          <div className="flex items-center gap-2 group cursor-pointer" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
-            <BrandWordmark compact />
+    <footer className="py-16 md:py-24 bg-[#080808]">
+      <div className="dn-container space-y-16">
+
+        {/* Main Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-12 items-start">
+          
+          {/* Brand Col */}
+          <div className="md:col-span-5 space-y-4">
+            <Link to="/" className="inline-flex items-center gap-2 group">
+              <div className="w-3 h-3 bg-[#d4ff58]" />
+              <span className="font-display font-extrabold text-xl tracking-tight uppercase text-[#f2f2ef]">
+                DataPilot<span className="text-[#d4ff58]">.</span>ai
+              </span>
+            </Link>
+            <p className="text-sm text-[#f2f2ef]/50 font-sans max-w-sm leading-relaxed">
+              Autonomous multi-agent investigation platform. Analyzes datasets, tests hypotheses, 
+              cross-references documents, and delivers verified root-cause explanations.
+            </p>
+            <div className="pt-2 flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-[#d4ff58] animate-pulse" />
+              <span className="font-mono text-xs text-[#f2f2ef]/60 uppercase tracking-widest">
+                All Autonomous Systems Operational
+              </span>
+            </div>
           </div>
-          <p className="text-xs text-slate-500 leading-relaxed max-w-sm">
-            Autonomous multi-agent investigation platform that goes beyond simple dashboards to test hypotheses and pinpoint root causes.
-          </p>
+
+          {/* Navigation Cols */}
+          <div className="md:col-span-3 space-y-3">
+            <span className="font-mono text-xs uppercase tracking-widest text-[#d4ff58] block mb-4">
+              Architecture
+            </span>
+            <ul className="space-y-2.5">
+              {PRODUCT_LINKS.map((link) => (
+                <li key={link.label}>
+                  <button
+                    onClick={() => scrollTo(link.href)}
+                    className="font-mono text-xs uppercase tracking-wider text-[#f2f2ef]/60 hover:text-[#d4ff58] transition-colors cursor-pointer text-left"
+                  >
+                    {link.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="md:col-span-4 space-y-3">
+            <span className="font-mono text-xs uppercase tracking-widest text-[#d4ff58] block mb-4">
+              Application
+            </span>
+            <ul className="space-y-2.5">
+              {SYSTEM_LINKS.map((link) => (
+                <li key={link.label}>
+                  <Link
+                    to={link.href}
+                    className="font-mono text-xs uppercase tracking-wider text-[#f2f2ef]/60 hover:text-[#d4ff58] transition-colors"
+                  >
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+
         </div>
 
-        {/* Column 2: Product */}
-        <div>
-          <h4 className="text-xs font-semibold text-slate-200 uppercase tracking-widest mb-4">Product</h4>
-          <ul className="space-y-2.5 text-xs">
-            <li>
-              <button onClick={() => handleScrollTo('#workflow')} className="hover:text-slate-200 transition-colors text-left">
-                How It Works
-              </button>
-            </li>
-            <li>
-              <button onClick={() => handleScrollTo('#agents')} className="hover:text-slate-200 transition-colors text-left">
-                Agents
-              </button>
-            </li>
-            <li>
-              <button onClick={() => handleScrollTo('#architecture')} className="hover:text-slate-200 transition-colors text-left">
-                Technology
-              </button>
-            </li>
-            <li>
-              <button onClick={() => handleScrollTo('#security')} className="hover:text-slate-200 transition-colors text-left">
-                Security
-              </button>
-            </li>
-          </ul>
+        {/* Bottom Metadata */}
+        <div className="pt-8 border-t border-white/[0.08] flex flex-col sm:flex-row items-center justify-between gap-4 font-mono text-[11px] text-[#f2f2ef]/40">
+          <div>
+            &copy; {new Date().getFullYear()} DataPilot AI Inc. All rights reserved.
+          </div>
+          <div className="flex items-center gap-6 uppercase tracking-wider">
+            <span>Multi-Agent Engine</span>
+            <span>·</span>
+            <span>Vector RAG</span>
+            <span>·</span>
+            <span>Statistical Verification</span>
+          </div>
         </div>
 
-        {/* Column 3: Developers */}
-        <div>
-          <h4 className="text-xs font-semibold text-slate-200 uppercase tracking-widest mb-4">Developers</h4>
-          <ul className="space-y-2.5 text-xs text-slate-500">
-            <li>
-              <span className="cursor-not-allowed">Architecture</span>
-            </li>
-            <li>
-              <span className="cursor-not-allowed">Documentation</span>
-            </li>
-            <li>
-              <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="hover:text-slate-200 transition-colors inline-flex items-center gap-1">
-                GitHub
-                <svg
-                  viewBox="0 0 24 24"
-                  width="12"
-                  height="12"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  fill="none"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="inline-block"
-                >
-                  <path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4" />
-                  <path d="M9 18c-4.51 2-5-2-7-2" />
-                </svg>
-              </a>
-            </li>
-          </ul>
-        </div>
-
-        {/* Column 4: Company & Legal */}
-        <div>
-          <h4 className="text-xs font-semibold text-slate-200 uppercase tracking-widest mb-4">Company</h4>
-          <ul className="space-y-2.5 text-xs text-slate-500">
-            <li>
-              <span className="cursor-not-allowed">About</span>
-            </li>
-            <li>
-              <span className="cursor-not-allowed">Contact</span>
-            </li>
-            <li>
-              <span className="cursor-not-allowed">Privacy Policy</span>
-            </li>
-            <li>
-              <span className="cursor-not-allowed">Terms of Service</span>
-            </li>
-          </ul>
-        </div>
-      </div>
-
-      {/* Bottom Bar */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-16 pt-8 border-t border-white/[0.06] flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-600 font-mono">
-        <span>© 2026 DataPilot AI. All rights reserved.</span>
-        <span>Autonomously investigating Q3 since 2026.</span>
       </div>
     </footer>
   )

@@ -6,88 +6,66 @@ import {
 import { clsx } from 'clsx'
 
 export default function HypothesisScorecard({ hypotheses = [] }) {
-  const [selectedHyp, setSelectedHyp] = useState(null)
-
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {hypotheses.length === 0 ? (
-        <div className="card text-center py-12 text-slate-500 text-xs border border-slate-800">
-          No hypotheses generated yet.
+        <div className="border border-white/[0.08] bg-[#0c0c0c] p-12 text-center text-xs font-mono text-[#f2f2ef]/40">
+          No hypotheses generated for this investigation yet.
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {hypotheses.map((h) => {
+          {hypotheses.map((h, idx) => {
             const isSupported = h.status === 'SUPPORTED'
             const isRejected = h.status === 'REJECTED'
             const isTesting = h.status === 'TESTING' || h.status === 'UNDER_INVESTIGATION'
 
             return (
               <div
-                key={h.id}
+                key={h.id || idx}
                 className={clsx(
-                  'card p-5 border transition-all flex flex-col justify-between',
-                  isSupported && 'border-emerald-500/30 bg-emerald-500/5',
-                  isRejected && 'border-slate-800/80 bg-[#121220] opacity-80',
-                  isTesting && 'border-amber-500/40 bg-amber-500/5',
-                  !isSupported && !isRejected && !isTesting && 'border-slate-800'
+                  'border p-6 bg-[#0c0c0c] flex flex-col justify-between space-y-4 transition-all',
+                  isSupported && 'border-[#d4ff58]/40 bg-[#d4ff58]/[0.02]',
+                  isRejected && 'border-white/[0.08] opacity-75',
+                  isTesting && 'border-amber-400/40',
+                  !isSupported && !isRejected && !isTesting && 'border-white/[0.08]'
                 )}
               >
                 <div>
-                  <div className="flex items-center justify-between gap-2 mb-3">
+                  {/* Status & Confidence Header */}
+                  <div className="flex items-center justify-between gap-2 pb-3 border-b border-white/[0.06] mb-3">
                     <span className={clsx(
-                      'text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider border',
-                      isSupported && 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400',
-                      isRejected && 'bg-slate-800 border-slate-700 text-slate-400',
-                      isTesting && 'bg-amber-500/10 border-amber-500/30 text-amber-400 animate-pulse',
-                      h.status === 'PROPOSED' && 'bg-blue-500/10 border-blue-500/30 text-blue-400',
+                      'font-mono text-[10px] uppercase tracking-wider px-2 py-0.5 border font-semibold',
+                      isSupported && 'border-[#d4ff58] text-[#d4ff58] bg-[#d4ff58]/10',
+                      isRejected && 'border-[#ff4e4e] text-[#ff4e4e] bg-[#ff4e4e]/10',
+                      isTesting && 'border-amber-400 text-amber-400 bg-amber-400/10 animate-pulse',
+                      h.status === 'PROPOSED' && 'border-white/[0.2] text-[#f2f2ef]/60',
                     )}>
-                      {h.status.replace('_', ' ')}
+                      {h.status?.replace('_', ' ') || 'PROPOSED'}
                     </span>
 
-                    {h.causal_classification && (
-                      <span className="text-[10px] px-2 py-0.5 rounded font-mono bg-[#111122] text-amber-300 border border-slate-800">
-                        {h.causal_classification.replace(/_/g, ' ')}
-                      </span>
-                    )}
-
-                    <span className="text-xs font-bold text-slate-300">
-                      {Math.round((h.confidence || 0.5) * 100)}% Conf
+                    <span className="font-mono text-xs font-bold text-[#f2f2ef]">
+                      {Math.round((h.confidence || 0.5) * 100)}% Confidence
                     </span>
                   </div>
 
-                  <h3 className="text-sm font-bold text-slate-100 mb-2 leading-snug">
-                    {h.title}
+                  <h3 className="font-display font-bold text-base sm:text-lg uppercase tracking-tight text-[#f2f2ef] mb-2 leading-snug">
+                    {h.title || `Hypothesis H${idx + 1}`}
                   </h3>
 
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    {h.description}
-                  </p>
-
-                  {/* Variables & Statistical test outcomes */}
-                  {h.details?.variables && h.details.variables.length > 0 && (
-                    <div className="mt-3 flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[10px] text-slate-500 font-semibold uppercase">Variables:</span>
-                      {h.details.variables.map((v, i) => (
-                        <span key={i} className="text-[10px] font-mono bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded">
-                          {v}
-                        </span>
-                      ))}
-                    </div>
+                  {h.description && (
+                    <p className="text-xs sm:text-sm text-[#f2f2ef]/60 font-sans leading-relaxed">
+                      {h.description}
+                    </p>
                   )}
                 </div>
 
-                {/* Statistical Details Footer */}
-                {h.statistical_results && (
-                  <div className="mt-4 pt-3 border-t border-slate-800/80 text-[11px] text-slate-300">
-                    <div className="flex items-center gap-1.5 text-slate-400 font-semibold mb-1">
-                      <BarChart2 size={13} className="text-brand-400" />
-                      Statistical Test Result
-                    </div>
-                    <p className="text-slate-400 italic">
-                      {h.statistical_results.interpretation || JSON.stringify(h.statistical_results)}
-                    </p>
-                  </div>
-                )}
+                {/* Evidentiary Details */}
+                <div className="pt-3 border-t border-white/[0.06] font-mono text-[11px] flex items-center justify-between text-[#f2f2ef]/40">
+                  <span>{h.causal_classification ? h.causal_classification.replace(/_/g, ' ') : 'Empirical Hypothesis'}</span>
+                  {h.evidence_count !== undefined && (
+                    <span className="text-[#d4ff58]">{h.evidence_count} Evidence Citations</span>
+                  )}
+                </div>
               </div>
             )
           })}

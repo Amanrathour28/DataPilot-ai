@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Loader2, AlertCircle } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { useToast } from '../ui/Toast'
 import useAuthStore from '../../stores/authStore'
 
@@ -18,15 +18,10 @@ export default function GoogleAuthButton({ mode = 'signin', disabled = false }) 
 
   // 1. Script Loading & GIS Initialization
   useEffect(() => {
-    console.log('[Google Auth] Client ID loaded:', googleClientId ? `${googleClientId.slice(0, 15)}...` : 'MISSING (VITE_GOOGLE_CLIENT_ID not set)')
-
     if (!googleClientId) return
 
     const initializeGis = () => {
-      if (!window.google?.accounts?.id) {
-        console.warn('[Google Auth] google.accounts.id unavailable after script load')
-        return
-      }
+      if (!window.google?.accounts?.id) return
 
       try {
         window.google.accounts.id.initialize({
@@ -35,10 +30,8 @@ export default function GoogleAuthButton({ mode = 'signin', disabled = false }) 
           auto_select: false,
           cancel_on_tap_outside: true,
         })
-        console.log('[Google Auth] Google initialized')
         setScriptLoaded(true)
 
-        // Render official Google Sign-In Button into ref container
         if (buttonContainerRef.current) {
           buttonContainerRef.current.innerHTML = ''
           window.google.accounts.id.renderButton(buttonContainerRef.current, {
@@ -50,14 +43,12 @@ export default function GoogleAuthButton({ mode = 'signin', disabled = false }) 
             logo_alignment: 'left',
             width: buttonContainerRef.current.offsetWidth || 384,
           })
-          console.log('[Google Auth] Sign-in button rendered')
         }
       } catch (initErr) {
-        console.error('[Google Auth] Google Identity initialization error:', initErr)
+        console.warn('[Google Auth] Identity initialization note:', initErr)
       }
     }
 
-    // Check if script already exists
     if (window.google?.accounts?.id) {
       initializeGis()
     } else if (!document.getElementById('google-client-script')) {
@@ -67,11 +58,9 @@ export default function GoogleAuthButton({ mode = 'signin', disabled = false }) 
       script.async = true
       script.defer = true
       script.onload = () => {
-        console.log('[Google Auth] GIS script loaded')
         initializeGis()
       }
       script.onerror = () => {
-        console.error('[Google Auth] Failed to load Google Identity Services script from https://accounts.google.com/gsi/client')
         setScriptError(true)
       }
       document.body.appendChild(script)
@@ -81,7 +70,6 @@ export default function GoogleAuthButton({ mode = 'signin', disabled = false }) 
     }
   }, [googleClientId, mode])
 
-  // Re-render button if container size or scriptLoaded changes
   useEffect(() => {
     if (scriptLoaded && window.google?.accounts?.id && buttonContainerRef.current) {
       try {
@@ -95,27 +83,22 @@ export default function GoogleAuthButton({ mode = 'signin', disabled = false }) 
           logo_alignment: 'left',
           width: buttonContainerRef.current.offsetWidth || 384,
         })
-        console.log('[Google Auth] Sign-in button re-rendered in container')
       } catch (renderErr) {
-        console.error('[Google Auth] renderButton error:', renderErr)
+        console.warn('[Google Auth] renderButton note:', renderErr)
       }
     }
   }, [scriptLoaded, mode])
 
   // 2. Credential Response Handler
   const handleGoogleCredentialResponse = async (response) => {
-    console.log('[Google Auth] Credential received from Google popup')
     if (!response?.credential) {
-      console.warn('[Google Auth] No credential token in response')
-      toast?.show('Google sign-in was cancelled or returned no credential.', 'warning')
+      toast?.show('Google sign-in was cancelled.', 'warning')
       return
     }
 
     setLoading(true)
-    console.log('[Google Auth] Sending credential to backend /api/v1/auth/google')
     try {
       const res = await loginWithGoogle(response.credential)
-      console.log('[Google Auth] Backend response received:', res.success ? 'SUCCESS' : 'FAILED')
       if (res.success) {
         toast?.show('Signed in with Google successfully!', 'success')
         navigate('/dashboard')
@@ -123,65 +106,54 @@ export default function GoogleAuthButton({ mode = 'signin', disabled = false }) 
         toast?.show(res.error || 'Failed to authenticate with Google.', 'error')
       }
     } catch (err) {
-      console.error('[Google Auth] Backend authentication error:', err)
       toast?.show(err.message || 'Google authentication error.', 'error')
     } finally {
       setLoading(false)
     }
   }
 
-  // Fallback click handler when VITE_GOOGLE_CLIENT_ID is missing or script fails
   const handleFallbackClick = () => {
-    console.log('[Google Auth] Sign-in button clicked')
     if (loading || disabled) return
 
     if (!googleClientId) {
-      toast?.show(
-        'Google OAuth is not configured. Please add VITE_GOOGLE_CLIENT_ID in your environment or use Email/Password.',
-        'info'
-      )
+      toast?.show('Google authentication is temporarily unavailable. Please sign in with email and password.', 'info')
       return
     }
 
     if (scriptError) {
-      toast?.show(
-        'Google Identity Services script failed to load. Check your network connection or ad-blocker.',
-        'error'
-      )
+      toast?.show('Google sign-in service failed to load. Please check your network connection.', 'error')
       return
     }
 
     if (window.google?.accounts?.id) {
       try {
-        window.google.accounts.id.prompt((notification) => {
-          if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-            console.warn('[Google Auth] One Tap prompt note:', notification.getNotDisplayedReason?.())
-          }
-        })
+        window.google.accounts.id.prompt()
       } catch (promptErr) {
-        console.error('[Google Auth] Prompt error:', promptErr)
+        console.warn('[Google Auth] Prompt note:', promptErr)
       }
     }
   }
 
   return (
-    <div className="w-full space-y-2">
-      {/* Container where Google's official interactive button is rendered */}
-      <div
-        ref={buttonContainerRef}
-        className={loading || disabled ? 'opacity-50 pointer-events-none' : 'w-full flex justify-center'}
-      />
+    <div className="w-full">
+      {/* Container where Google's interactive button is mounted when available */}
+      {googleClientId && scriptLoaded && (
+        <div
+          ref={buttonContainerRef}
+          className={loading || disabled ? 'opacity-50 pointer-events-none w-full flex justify-center' : 'w-full flex justify-center'}
+        />
+      )}
 
-      {/* Fallback button shown if client ID is missing or script hasn't rendered button yet */}
+      {/* Styled DayNight button fallback / standard presentation */}
       {(!googleClientId || !scriptLoaded) && (
         <button
           type="button"
           onClick={handleFallbackClick}
           disabled={disabled || loading}
-          className="w-full flex items-center justify-center gap-3 px-4 py-2.5 rounded-xl border border-slate-700/80 bg-[#121222] hover:bg-[#181830] text-slate-200 hover:text-white text-xs font-semibold transition-all shadow-sm hover:border-slate-600 disabled:opacity-50 disabled:cursor-not-allowed group"
+          className="w-full flex items-center justify-center gap-3 px-4 py-3 border border-white/[0.12] bg-[#0d0d0d] hover:bg-[#141414] hover:border-white/[0.25] text-[#f2f2ef] font-mono text-xs uppercase tracking-wider transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer group"
         >
           {loading ? (
-            <Loader2 size={16} className="animate-spin text-brand-400" />
+            <Loader2 size={16} className="animate-spin text-[#d4ff58]" />
           ) : (
             <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24">
               <path
@@ -204,14 +176,6 @@ export default function GoogleAuthButton({ mode = 'signin', disabled = false }) 
           )}
           <span>{mode === 'signup' ? 'Sign up with Google' : 'Continue with Google'}</span>
         </button>
-      )}
-
-      {/* Visibly report if VITE_GOOGLE_CLIENT_ID is unconfigured */}
-      {!googleClientId && (
-        <p className="text-[10px] text-slate-500 text-center flex items-center justify-center gap-1">
-          <AlertCircle size={11} className="text-amber-400" />
-          <span>VITE_GOOGLE_CLIENT_ID not configured</span>
-        </p>
       )}
     </div>
   )

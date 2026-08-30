@@ -2,14 +2,18 @@ import { clsx } from 'clsx'
 
 export function Badge({ children, variant = 'muted', className = '' }) {
   const variants = {
-    success: 'badge-success',
-    warning: 'badge-warning',
-    error:   'badge-error',
-    info:    'badge-info',
-    muted:   'badge-muted',
+    success: 'border-[#d4ff58]/30 bg-[#d4ff58]/10 text-[#d4ff58]',
+    warning: 'border-amber-400/30 bg-amber-400/10 text-amber-300',
+    error:   'border-[#ff4e4e]/30 bg-[#ff4e4e]/10 text-[#ff4e4e]',
+    info:    'border-sky-400/30 bg-sky-400/10 text-sky-300',
+    muted:   'border-white/[0.1] bg-white/[0.03] text-[#f2f2ef]/50',
   }
   return (
-    <span className={clsx(variants[variant], className)}>
+    <span className={clsx(
+      'inline-flex items-center gap-1.5 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider border rounded-none',
+      variants[variant] || variants.muted,
+      className
+    )}>
       {children}
     </span>
   )
@@ -18,14 +22,14 @@ export function Badge({ children, variant = 'muted', className = '' }) {
 export function StatusBadge({ status }) {
   const map = {
     UPLOADED:  { variant: 'info',    label: 'Uploaded' },
-    UPLOADING: { variant: 'warning', label: 'Uploading' },
+    UPLOADING: { variant: 'warning', label: 'Uploading…' },
     PROFILING: { variant: 'warning', label: 'Profiling…' },
     PROFILED:  { variant: 'success', label: 'Profiled' },
     ERROR:     { variant: 'error',   label: 'Error' },
     PENDING:   { variant: 'muted',   label: 'Pending' },
     RUNNING:   { variant: 'warning', label: 'Running' },
     COMPLETED:                  { variant: 'success', label: 'Completed' },
-    COMPLETED_WITH_LIMITATIONS: { variant: 'warning', label: 'Completed with Limitations' },
+    COMPLETED_WITH_LIMITATIONS: { variant: 'warning', label: 'Completed w/ Limits' },
     INSUFFICIENT_DATA:          { variant: 'warning', label: 'Insufficient Data' },
     FAILED:                     { variant: 'error',   label: 'Failed' },
     CANCELLED:                  { variant: 'muted',   label: 'Cancelled' },
@@ -44,6 +48,6 @@ export function StatusBadge({ status }) {
     INCONCLUSIVE:               { variant: 'muted',   label: 'Inconclusive' },
     INSUFFICIENT_EVIDENCE:      { variant: 'muted',   label: 'Insufficient Evidence' },
   }
-  const { variant, label } = map[status] || { variant: 'muted', label: status }
+  const { variant, label } = map[status] || { variant: 'muted', label: status || 'Unknown' }
   return <Badge variant={variant}>{label}</Badge>
 }

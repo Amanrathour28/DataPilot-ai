@@ -3,7 +3,11 @@ import { clsx } from 'clsx'
 export function Card({ children, className = '', onClick }) {
   return (
     <div
-      className={clsx('card p-5', onClick && 'cursor-pointer hover:border-cyan-400/30 transition-colors', className)}
+      className={clsx(
+        'border border-white/[0.08] bg-[#0c0c0c] p-6 transition-all duration-200',
+        onClick && 'cursor-pointer hover:border-white/[0.2] hover:bg-[#101010]',
+        className
+      )}
       onClick={onClick}
     >
       {children}
@@ -13,10 +17,10 @@ export function Card({ children, className = '', onClick }) {
 
 export function CardHeader({ title, subtitle, action }) {
   return (
-    <div className="flex items-start justify-between mb-4">
+    <div className="flex items-start justify-between mb-5 pb-3 border-b border-white/[0.06]">
       <div>
-        <h3 className="text-sm font-semibold text-slate-100">{title}</h3>
-        {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
+        <h3 className="font-display font-bold text-sm uppercase tracking-tight text-[#f2f2ef]">{title}</h3>
+        {subtitle && <p className="font-mono text-xs text-[#f2f2ef]/50 mt-1">{subtitle}</p>}
       </div>
       {action && <div>{action}</div>}
     </div>
@@ -24,25 +28,27 @@ export function CardHeader({ title, subtitle, action }) {
 }
 
 export function StatCard({ label, value, sub, icon: Icon, color = 'brand' }) {
-  const colors = {
-    brand:   'text-cyan-300 bg-cyan-500/10 border-cyan-400/20',
-    emerald: 'text-emerald-400 bg-emerald-500/10 border-emerald-400/20',
-    amber:   'text-amber-400 bg-amber-500/10 border-amber-400/20',
-    red:     'text-red-400 bg-red-500/10 border-red-400/20',
-    slate:   'text-violet-300 bg-violet-500/10 border-violet-400/20',
-  }
-
   return (
-    <div className="card p-5 flex items-start gap-4 hover:border-white/10 transition-colors">
-      {Icon && (
-        <div className={clsx('p-2.5 rounded-xl border', colors[color])}>
-          <Icon size={18} />
-        </div>
-      )}
-      <div className="flex-1 min-w-0">
-        <p className="text-[11px] text-slate-500 font-semibold uppercase tracking-[0.12em]">{label}</p>
-        <p className="text-2xl font-bold text-slate-50 mt-1 tracking-tight">{value}</p>
-        {sub && <p className="text-xs text-slate-500 mt-1">{sub}</p>}
+    <div className="border border-white/[0.08] bg-[#0c0c0c] p-6 flex flex-col justify-between hover:border-white/[0.18] transition-colors group">
+      <div className="flex items-center justify-between gap-2 mb-4">
+        <span className="font-mono text-[10px] uppercase tracking-widest text-[#f2f2ef]/50">
+          {label}
+        </span>
+        {Icon && (
+          <div className="w-7 h-7 rounded border border-white/[0.08] bg-white/[0.02] flex items-center justify-center text-[#f2f2ef]/60 group-hover:text-[#d4ff58] group-hover:border-[#d4ff58]/30 transition-colors">
+            <Icon size={14} />
+          </div>
+        )}
+      </div>
+      <div>
+        <p className="font-display font-extrabold text-3xl sm:text-4xl text-[#f2f2ef] tracking-tight group-hover:text-[#d4ff58] transition-colors">
+          {value}
+        </p>
+        {sub && (
+          <p className="font-mono text-xs text-[#f2f2ef]/40 mt-2">
+            {sub}
+          </p>
+        )}
       </div>
     </div>
   )

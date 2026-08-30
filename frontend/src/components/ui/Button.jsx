@@ -13,17 +13,17 @@ export function Button({
   ...props
 }) {
   const variants = {
-    primary:   'btn-primary',
-    secondary: 'btn-secondary',
-    ghost:     'btn-ghost',
-    danger:    'btn-danger',
-    outline:   'btn-outline',
+    primary:   'bg-[#d4ff58] text-[#080808] border border-[#d4ff58] hover:bg-white hover:border-white font-bold',
+    secondary: 'bg-[#121212] text-[#f2f2ef] border border-white/[0.15] hover:border-white/[0.3] hover:bg-[#181818]',
+    outline:   'bg-transparent text-[#f2f2ef] border border-white/[0.2] hover:border-[#d4ff58] hover:text-[#d4ff58]',
+    ghost:     'bg-transparent text-[#f2f2ef]/70 hover:text-[#f2f2ef] hover:bg-white/[0.05]',
+    danger:    'bg-[#ff4e4e]/10 text-[#ff4e4e] border border-[#ff4e4e]/30 hover:bg-[#ff4e4e]/20',
   }
 
   const sizes = {
-    sm: 'px-3 py-1.5 text-xs',
-    md: 'px-4 py-2 text-sm',
-    lg: 'px-5 py-2.5 text-base',
+    sm: 'px-3 py-1.5 text-xs font-mono uppercase tracking-wider',
+    md: 'px-4 py-2.5 text-xs font-display font-bold uppercase tracking-wider',
+    lg: 'px-6 py-3.5 text-sm font-display font-bold uppercase tracking-wider',
   }
 
   return (
@@ -31,7 +31,12 @@ export function Button({
       type={type}
       onClick={onClick}
       disabled={disabled || loading}
-      className={clsx(variants[variant] || variants.primary, sizes[size], className)}
+      className={clsx(
+        'inline-flex items-center justify-center gap-2 rounded-none transition-all duration-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap',
+        variants[variant] || variants.primary,
+        sizes[size],
+        className
+      )}
       {...props}
     >
       {loading && <Loader2 size={14} className="animate-spin" />}
@@ -40,16 +45,15 @@ export function Button({
   )
 }
 
-export function IconButton({ icon: Icon, label, onClick, className = '', variant = 'ghost', size = 16 }) {
+export function IconButton({ icon: Icon, label, onClick, className = '', variant = 'ghost', size = 15 }) {
   return (
     <button
       title={label}
       aria-label={label}
       onClick={onClick}
       className={clsx(
-        'inline-flex items-center justify-center w-9 h-9 rounded-xl transition-colors border border-transparent',
-        variant === 'ghost' && 'hover:bg-white/[0.05] text-slate-400 hover:text-slate-100 hover:border-white/[0.06]',
-        variant === 'danger' && 'hover:bg-red-600/20 text-slate-400 hover:text-red-400',
+        'inline-flex items-center justify-center w-8 h-8 rounded-none transition-colors border border-white/[0.08] bg-[#0d0d0d] text-[#f2f2ef]/70 hover:text-[#f2f2ef] hover:border-white/[0.2] cursor-pointer',
+        variant === 'danger' && 'hover:bg-[#ff4e4e]/10 text-[#ff4e4e] border-[#ff4e4e]/30',
         className
       )}
     >

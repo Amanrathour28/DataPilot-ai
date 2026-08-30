@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, ArrowRight, AlertCircle } from 'lucide-react'
-import { Button } from '../../components/ui/Button'
-import { Input } from '../../components/ui/Input'
+import { Eye, EyeOff, ArrowRight, AlertCircle, Loader2 } from 'lucide-react'
+import { motion } from 'framer-motion'
 import { useToast } from '../../components/ui/Toast'
 import { BrandWordmark } from '../../components/ui/Logo'
 import useAuthStore from '../../stores/authStore'
@@ -49,8 +48,8 @@ export default function Login() {
     if (result.success) {
       navigate('/dashboard')
     } else {
-      setErrors({ form: result.error || 'Invalid email or password' })
-      toast?.show(result.error || 'Invalid email or password', 'error')
+      setErrors({ form: result.error || 'Invalid email or password.' })
+      toast?.show(result.error || 'Invalid email or password.', 'error')
     }
   }
 
@@ -63,66 +62,106 @@ export default function Login() {
     if (result.success) {
       navigate('/dashboard')
     } else {
-      toast?.show(result.error || 'Demo sign in failed', 'error')
+      toast?.show(result.error || 'Demo sign-in failed. Please try again.', 'error')
     }
   }
 
   return (
-    <div className="min-h-screen app-canvas flex items-center justify-center p-4">
-      <div className="w-full max-w-md relative z-10">
-        <div className="flex justify-center mb-8">
-          <Link to="/"><BrandWordmark /></Link>
-        </div>
-        <div className="text-center mb-6">
-          <h1 className="text-3xl font-display text-slate-50 font-bold">Welcome back</h1>
-          <p className="text-slate-400 mt-2 text-xs">Sign in to continue your investigations.</p>
-        </div>
+    <div className="min-h-screen bg-[#080808] text-[#f2f2ef] flex flex-col justify-between p-6 sm:p-10 font-sans selection:bg-[#d4ff58] selection:text-black">
+      
+      {/* Top Header */}
+      <div className="w-full max-w-5xl mx-auto flex items-center justify-between pb-8 border-b border-white/[0.08]">
+        <Link to="/" className="inline-block group">
+          <BrandWordmark compact />
+        </Link>
+        <Link
+          to="/"
+          className="font-mono text-xs uppercase tracking-widest text-[#f2f2ef]/50 hover:text-[#d4ff58] transition-colors"
+        >
+          &larr; Back to Home
+        </Link>
+      </div>
 
-        <div className="card p-8 shadow-2xl border border-slate-800 rounded-2xl bg-[#0e0e1a]">
+      {/* Main Editorial Form Container */}
+      <div className="w-full max-w-[460px] mx-auto py-12 md:py-16">
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+          className="space-y-8"
+        >
+          {/* Eyebrow & Headline */}
+          <div>
+            <div className="editorial-label mb-3">
+              <span className="num">/</span>
+              <span>Authentication</span>
+            </div>
+            <h1 className="font-display font-extrabold text-4xl sm:text-5xl uppercase tracking-tight text-[#f2f2ef] leading-[0.95]">
+              Welcome<br />Back<span className="text-[#d4ff58]">.</span>
+            </h1>
+            <p className="text-sm text-[#f2f2ef]/55 font-sans mt-3">
+              Continue your autonomous multi-agent investigation.
+            </p>
+          </div>
+
           {/* Google Sign-In */}
-          <div className="space-y-4">
+          <div className="space-y-6">
             <GoogleAuthButton mode="signin" disabled={isLoading} />
 
-            <div className="flex items-center gap-3 my-4">
-              <div className="h-px flex-1 bg-slate-800" />
-              <span className="text-[11px] text-slate-500 uppercase tracking-wider font-semibold">Or continue with</span>
-              <div className="h-px flex-1 bg-slate-800" />
+            <div className="flex items-center gap-4">
+              <div className="h-px flex-1 bg-white/[0.08]" />
+              <span className="font-mono text-[10px] text-[#f2f2ef]/40 uppercase tracking-widest">
+                Or Continue With Email
+              </span>
+              <div className="h-px flex-1 bg-white/[0.08]" />
             </div>
           </div>
 
+          {/* Form Error Banner */}
           {errors.form && (
-            <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 flex items-start gap-2.5 mb-4">
-              <AlertCircle size={16} className="text-rose-400 flex-shrink-0 mt-0.5" />
-              <span className="leading-relaxed">{errors.form}</span>
+            <div className="p-3.5 bg-[#ff4e4e]/10 border border-[#ff4e4e]/20 text-xs font-mono text-[#ff4e4e] flex items-start gap-2.5">
+              <AlertCircle size={15} className="flex-shrink-0 mt-0.5" />
+              <span>{errors.form}</span>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-            <Input
-              id="email"
-              type="email"
-              label="Email address"
-              placeholder="you@company.com"
-              value={email}
-              onChange={(e) => {
-                setEmail(e.target.value)
-                if (errors.email || errors.form) setErrors((prev) => ({ ...prev, email: '', form: '' }))
-              }}
-              error={errors.email}
-              autoComplete="email"
-              autoFocus
-              disabled={isLoading}
-            />
+          {/* Form Fields */}
+          <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+            
+            {/* Email Field */}
+            <div className="space-y-1.5">
+              <label htmlFor="email" className="label">
+                Email Address
+              </label>
+              <input
+                id="email"
+                type="email"
+                placeholder="you@company.com"
+                value={email}
+                onChange={(e) => {
+                  setEmail(e.target.value)
+                  if (errors.email || errors.form) setErrors((prev) => ({ ...prev, email: '', form: '' }))
+                }}
+                autoComplete="email"
+                autoFocus
+                disabled={isLoading}
+                className={`input ${errors.email ? 'border-[#ff4e4e]' : ''}`}
+              />
+              {errors.email && (
+                <p className="font-mono text-[11px] text-[#ff4e4e] mt-1">{errors.email}</p>
+              )}
+            </div>
 
-            <div className="w-full">
-              <div className="flex items-center justify-between mb-1">
-                <label htmlFor="password" className="label text-xs font-semibold text-slate-300 m-0">
+            {/* Password Field */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label htmlFor="password" className="label m-0">
                   Password
                 </label>
                 <Link
                   to="/forgot-password"
                   tabIndex={-1}
-                  className="text-[11px] text-brand-400 hover:text-brand-300 transition-colors font-medium"
+                  className="font-mono text-[11px] text-[#d4ff58] hover:underline"
                 >
                   Forgot password?
                 </Link>
@@ -131,7 +170,7 @@ export default function Login() {
                 <input
                   id="password"
                   type={showPass ? 'text' : 'password'}
-                  placeholder="••••••••"
+                  placeholder="••••••••••••"
                   value={password}
                   onChange={(e) => {
                     setPassword(e.target.value)
@@ -139,53 +178,72 @@ export default function Login() {
                   }}
                   autoComplete="current-password"
                   disabled={isLoading}
-                  className={`input pr-10 ${errors.password ? 'border-red-500/60' : ''}`}
+                  className={`input pr-10 ${errors.password ? 'border-[#ff4e4e]' : ''}`}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPass(!showPass)}
                   tabIndex={-1}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#f2f2ef]/40 hover:text-[#f2f2ef] transition-colors cursor-pointer"
+                  aria-label={showPass ? 'Hide password' : 'Show password'}
                 >
                   {showPass ? <EyeOff size={15} /> : <Eye size={15} />}
                 </button>
               </div>
-              {errors.password && <p className="text-[11px] text-red-400 mt-1">{errors.password}</p>}
+              {errors.password && (
+                <p className="font-mono text-[11px] text-[#ff4e4e] mt-1">{errors.password}</p>
+              )}
             </div>
 
-            <Button
+            {/* Submit Button */}
+            <button
               type="submit"
-              variant="primary"
-              loading={isLoading}
               disabled={isLoading}
-              className="w-full mt-6"
-              size="lg"
+              className="btn-dn-primary w-full py-4 flex items-center justify-between px-6 group cursor-pointer mt-4"
             >
-              {isLoading ? 'Signing in…' : 'Sign in'}
-              {!isLoading && <ArrowRight size={16} />}
-            </Button>
+              <span>{isLoading ? 'Signing in…' : 'Sign in'}</span>
+              {isLoading ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" />
+              )}
+            </button>
 
-            <Button
+            {/* One-click Demo Button */}
+            <button
               type="button"
-              variant="outline"
               onClick={handleDemoSignIn}
               disabled={isLoading}
-              loading={isLoading && email === 'demo@datapilot.ai'}
-              className="w-full mt-3 border-slate-700/80 hover:bg-slate-800/40"
-              size="md"
+              className="w-full py-3 border border-white/[0.08] bg-[#0c0c0c] hover:bg-[#121212] hover:border-white/[0.18] text-[#f2f2ef]/70 hover:text-[#f2f2ef] font-mono text-xs uppercase tracking-wider transition-all duration-200 cursor-pointer text-center"
             >
-              One-click demo account
-            </Button>
+              <span>One-Click Demo Workspace</span>
+            </button>
           </form>
 
-          <p className="text-center text-xs text-slate-400 mt-6 pt-5 border-t border-slate-800/80">
-            Don&apos;t have an account?{' '}
-            <Link to="/register" className="text-brand-400 hover:text-brand-300 font-semibold transition-colors">
-              Sign up
+          {/* Sign Up Link */}
+          <div className="pt-6 border-t border-white/[0.08] text-center font-mono text-xs text-[#f2f2ef]/50">
+            <span>Don&apos;t have an account? </span>
+            <Link
+              to="/register"
+              className="text-[#d4ff58] hover:underline font-semibold ml-1 uppercase tracking-wider"
+            >
+              Sign up &rarr;
             </Link>
-          </p>
+          </div>
+
+        </motion.div>
+      </div>
+
+      {/* Bottom Footer Metadata */}
+      <div className="w-full max-w-5xl mx-auto pt-8 border-t border-white/[0.08] flex flex-col sm:flex-row items-center justify-between gap-4 font-mono text-[11px] text-[#f2f2ef]/40">
+        <span>&copy; {new Date().getFullYear()} DataPilot AI. All rights reserved.</span>
+        <div className="flex items-center gap-4">
+          <span>Encrypted Auth</span>
+          <span>·</span>
+          <span>Zero-Knowledge Tokens</span>
         </div>
       </div>
+
     </div>
   )
 }
