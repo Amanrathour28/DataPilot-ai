@@ -105,11 +105,9 @@ class InvestigationWorker:
         if is_sqlite:
             from sqlalchemy import func
             seq_res = await db.execute(
-                select(func.coalesce(func.max(InvestigationEvent.seq), 999)).where(
-                    InvestigationEvent.investigation_id == investigation_id
-                )
+                select(func.coalesce(func.max(InvestigationEvent.seq), 0))
             )
-            max_seq = seq_res.scalar() or 999
+            max_seq = seq_res.scalar() or 0
             seq_val = max_seq + 1
 
         evt = InvestigationEvent(
@@ -1619,6 +1617,32 @@ class InvestigationWorker:
                 logger.info(f"Investigation {investigation_id} reached {final_status} with confidence {calibrated_score:.2f}")
                 return True
 
+            except asyncio.TimeoutError:
+                logger.error(f"Investigation {investigation_id} exceeded execution timeout. Marking as FAILED.")
+                try:
+                    err_stmt = (
+                        update(Investigation)
+                        .where(Investigation.id == investigation_id)
+                        .values(
+                            status="FAILED",
+                            failure_reason="Investigation exceeded maximum execution timeout limit (180s).",
+                            last_completed_stage="FAILED",
+                            locked_by=None,
+                            lock_expires_at=None,
+                        )
+                        .execution_options(synchronize_session=False)
+                    )
+                    await db.execute(err_stmt)
+                    await db.commit()
+                    await self.record_event(
+                        db, investigation_id, "Supervisor Agent", "FAILED",
+                        "Investigation exceeded maximum execution timeout limit (180s).",
+                        {"error": "Execution timeout", "stage": "TIMEOUT"}
+                    )
+                except Exception as inner_err:
+                    logger.error(f"Failed to record timeout failure for {investigation_id}: {inner_err}")
+                return False
+
             except Exception as e:
                 logger.exception(f"Fatal error in investigation {investigation_id}: {e}")
                 try:
@@ -1651,6 +1675,15 @@ async def run_worker_loop(poll_interval: float = 3.0, run_once: bool = False):
     worker = InvestigationWorker()
     logger.info(f"Starting durable background worker process ({worker.worker_id})")
 
+    terminal_statuses = [
+        "COMPLETED",
+        "COMPLETED_WITH_LIMITATIONS",
+        "INSUFFICIENT_DATA",
+        "INSUFFICIENT_EVIDENCE",
+        "FAILED",
+        "CANCELLED",
+    ]
+
     while True:
         try:
             async with AsyncSessionLocal() as db:
@@ -1659,7 +1692,7 @@ async def run_worker_loop(poll_interval: float = 3.0, run_once: bool = False):
                 res = await db.execute(
                     select(Investigation.id)
                     .where(
-                        Investigation.status.notin_(["COMPLETED", "COMPLETED_WITH_LIMITATIONS", "FAILED", "CANCELLED"]),
+                        Investigation.status.notin_(terminal_statuses),
                         or_(
                             Investigation.status.in_(["PENDING", "QUEUED", "PLANNING"]),
                             Investigation.lock_expires_at == None,

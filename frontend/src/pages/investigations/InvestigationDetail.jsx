@@ -77,28 +77,39 @@ export default function InvestigationDetail() {
   })
 
   // Hydrate state from DB payload when detail query resolves
+  // Hydrate state from DB payload when detail query resolves
   useEffect(() => {
     if (!detail) return
-    if (!streamStatus) setStreamStatus(detail.status)
-    if (!streamStage && detail.last_completed_stage) setStreamStage(detail.last_completed_stage)
-    if (detail.findings?.length > 0 && streamFindings.length === 0) setStreamFindings(detail.findings)
-    if (detail.hypotheses?.length > 0 && streamHypotheses.length === 0) setStreamHypotheses(detail.hypotheses)
-    if (detail.evidence_ledger?.length > 0 && streamEvidence.length === 0) setStreamEvidence(detail.evidence_ledger)
-    if (detail.summary && !streamSummary) setStreamSummary(detail.summary)
-    if (detail.confidence_score && !streamConfidence) setStreamConfidence(detail.confidence_score)
-    if (detail.confidence_breakdown && !streamConfBreakdown) setStreamConfBreakdown(detail.confidence_breakdown)
-    if (detail.root_causes?.length > 0 && streamRootCauses.length === 0) setStreamRootCauses(detail.root_causes)
-    if (detail.plan?.length > 0 && streamPlan.length === 0) setStreamPlan(detail.plan)
-    if (detail.critic_reviews?.length > 0 && streamCriticReviews.length === 0) setStreamCriticReviews(detail.critic_reviews)
-    if (detail.failure_reason && !streamFailureReason) setStreamFailureReason(detail.failure_reason)
-    if (detail.execution_id && !streamExecutionId) setStreamExecutionId(detail.execution_id)
+
+    const terminalStatuses = ['COMPLETED', 'COMPLETED_WITH_LIMITATIONS', 'INSUFFICIENT_DATA', 'INSUFFICIENT_EVIDENCE', 'FAILED', 'CANCELLED']
+    
+    // Authoritatively synchronize terminal status from database query
+    if (terminalStatuses.includes(detail.status)) {
+      setStreamStatus(detail.status)
+      setConnectionStatus('disconnected')
+    } else if (!streamStatus) {
+      setStreamStatus(detail.status)
+    }
+
+    if (detail.last_completed_stage) setStreamStage(detail.last_completed_stage)
+    if (detail.findings?.length > 0) setStreamFindings(detail.findings)
+    if (detail.hypotheses?.length > 0) setStreamHypotheses(detail.hypotheses)
+    if (detail.evidence_ledger?.length > 0) setStreamEvidence(detail.evidence_ledger)
+    if (detail.summary) setStreamSummary(detail.summary)
+    if (detail.confidence_score) setStreamConfidence(detail.confidence_score)
+    if (detail.confidence_breakdown) setStreamConfBreakdown(detail.confidence_breakdown)
+    if (detail.root_causes?.length > 0) setStreamRootCauses(detail.root_causes)
+    if (detail.plan?.length > 0) setStreamPlan(detail.plan)
+    if (detail.critic_reviews?.length > 0) setStreamCriticReviews(detail.critic_reviews)
+    if (detail.failure_reason) setStreamFailureReason(detail.failure_reason)
+    if (detail.execution_id) setStreamExecutionId(detail.execution_id)
   }, [detail])
 
   // Setup Server-Sent Events (SSE) Stream
   useEffect(() => {
     if (!id) return
 
-    const terminalStatuses = ['COMPLETED', 'COMPLETED_WITH_LIMITATIONS', 'INSUFFICIENT_DATA', 'FAILED', 'CANCELLED']
+    const terminalStatuses = ['COMPLETED', 'COMPLETED_WITH_LIMITATIONS', 'INSUFFICIENT_DATA', 'INSUFFICIENT_EVIDENCE', 'FAILED', 'CANCELLED']
     if (detail?.status && terminalStatuses.includes(detail.status)) {
       setConnectionStatus('disconnected')
       return
@@ -137,8 +148,9 @@ export default function InvestigationDetail() {
           if (data.failure_reason) setStreamFailureReason(data.failure_reason)
           if (data.execution_id) setStreamExecutionId(data.execution_id)
 
-          if (['COMPLETED', 'COMPLETED_WITH_LIMITATIONS', 'INSUFFICIENT_DATA', 'FAILED'].includes(data.status)) {
+          if (terminalStatuses.includes(data.status)) {
             toast?.show(data.message || 'Investigation concluded', data.status === 'FAILED' ? 'error' : 'info')
+            setConnectionStatus('disconnected')
             if (eventSourceRef.current) {
               eventSourceRef.current.close()
               eventSourceRef.current = null
@@ -152,6 +164,20 @@ export default function InvestigationDetail() {
             if (prev.some(a => a.id === data.activity.id)) return prev
             return [...prev, data.activity]
           })
+
+          // Check if this activity is a terminal event from Supervisor
+          if (data.agent === 'Supervisor Agent' && (data.event_type === 'COMPLETED' || data.event_type === 'FAILED')) {
+            const finalSt = data.details?.status || (data.event_type === 'FAILED' ? 'FAILED' : 'COMPLETED')
+            setStreamStatus(finalSt)
+            setStreamStage('COMPLETED')
+            setConnectionStatus('disconnected')
+            if (eventSourceRef.current) {
+              eventSourceRef.current.close()
+              eventSourceRef.current = null
+            }
+            queryClient.invalidateQueries(['investigation-detail', id])
+            if (finalSt !== 'FAILED') setActiveTab('overview')
+          }
         } else if (data.type === 'plan_created') {
           setStreamPlan(data.plan || [])
           if (data.applied_memories) setStreamAppliedMemories(data.applied_memories)
@@ -338,23 +364,23 @@ export default function InvestigationDetail() {
             let taskExecuting = false
             
             if (s.id === 'PLANNING') {
-              taskPassed = isCompleted || streamPlan.length > 0 || streamTasks.length > 0
-              taskExecuting = streamStage === 'PLANNING' && isRunning && !taskPassed
+              taskPassed = isCompleted || ['ANALYZING', 'TESTING', 'RETRIEVING', 'VERIFYING', 'REPORTING', 'COMPLETED'].includes(streamStage) || streamPlan.length > 0
+              taskExecuting = (streamStage === 'PLANNING' || currentStatus === 'PENDING' || currentStatus === 'QUEUED' || currentStatus === 'PLANNING') && isRunning && !taskPassed
             } else if (s.id === 'ANALYZING') {
-              taskPassed = isCompleted || streamTasks.some(t => t.agent === 'data_analyst' && t.status === 'COMPLETED')
-              taskExecuting = streamStage === 'ANALYZING' && isRunning && !taskPassed
+              taskPassed = isCompleted || ['TESTING', 'RETRIEVING', 'VERIFYING', 'REPORTING', 'COMPLETED'].includes(streamStage) || streamFindings.length > 0
+              taskExecuting = (streamStage === 'ANALYZING' || currentStatus === 'ANALYZING') && isRunning && !taskPassed
             } else if (s.id === 'TESTING') {
-              taskPassed = isCompleted || streamTasks.some(t => t.agent.includes('hypothesis') && t.status === 'COMPLETED')
-              taskExecuting = streamStage === 'TESTING' && isRunning && !taskPassed
+              taskPassed = isCompleted || ['RETRIEVING', 'VERIFYING', 'REPORTING', 'COMPLETED'].includes(streamStage) || streamHypotheses.length > 0
+              taskExecuting = (streamStage === 'TESTING' || currentStatus === 'TESTING') && isRunning && !taskPassed
             } else if (s.id === 'RETRIEVING') {
-              taskPassed = isCompleted || streamTasks.some(t => t.agent === 'rag_agent' && t.status === 'COMPLETED')
-              taskExecuting = streamStage === 'RETRIEVING' && isRunning && !taskPassed
+              taskPassed = isCompleted || ['VERIFYING', 'REPORTING', 'COMPLETED'].includes(streamStage) || streamEvidence.some(e => e.source_type === 'document')
+              taskExecuting = (streamStage === 'RETRIEVING' || currentStatus === 'RETRIEVING') && isRunning && !taskPassed
             } else if (s.id === 'VERIFYING') {
-              taskPassed = isCompleted || streamTasks.some(t => t.agent === 'critic' && t.status === 'COMPLETED')
-              taskExecuting = streamStage === 'VERIFYING' && isRunning && !taskPassed
+              taskPassed = isCompleted || ['REPORTING', 'COMPLETED'].includes(streamStage) || streamCriticReviews.length > 0
+              taskExecuting = (streamStage === 'VERIFYING' || currentStatus === 'VERIFYING') && isRunning && !taskPassed
             } else if (s.id === 'REPORTING') {
-              taskPassed = isCompleted || streamTasks.some(t => t.agent === 'report_agent' && t.status === 'COMPLETED')
-              taskExecuting = (streamStage === 'REPORTING' || isRunning) && !taskPassed
+              taskPassed = isCompleted
+              taskExecuting = (streamStage === 'REPORTING' || streamStage === 'REPORT' || currentStatus === 'REPORTING') && isRunning && !taskPassed
             }
 
             return (

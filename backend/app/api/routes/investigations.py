@@ -414,6 +414,7 @@ async def stream_investigation_events(
 
     async def event_generator() -> AsyncGenerator[str, None]:
         nonlocal cursor
+        last_yielded_status = None
         while True:
             async with AsyncSessionLocal() as s_db:
                 events_res = await s_db.execute(
@@ -448,7 +449,7 @@ async def stream_investigation_events(
                     }
                     yield f"id: {evt.seq}\ndata: {json.dumps(payload)}\n\n"
 
-                # Check if investigation has concluded
+                # Check if investigation status or stage updated
                 inv_res = await s_db.execute(
                     select(
                         Investigation.status,
@@ -468,23 +469,33 @@ async def stream_investigation_events(
                     "FAILED",
                     "CANCELLED",
                 ]
-                if curr_inv and curr_inv.status in terminal_statuses:
-                    status_payload = {
-                        "type": "status",
-                        "status": curr_inv.status,
-                        "failure_reason": curr_inv.failure_reason,
-                        "stage": curr_inv.last_completed_stage or curr_inv.status,
-                        "execution_id": curr_inv.execution_id,
-                        "summary": curr_inv.summary,
-                        "confidence_score": curr_inv.confidence_score,
-                        "message": (
-                            f"Workflow failed: {curr_inv.failure_reason}"
-                            if curr_inv.status == "FAILED"
-                            else f"Workflow concluded with status {curr_inv.status}"
-                        ),
-                    }
-                    yield f"data: {json.dumps(status_payload)}\n\n"
-                    break
+                if curr_inv:
+                    if curr_inv.status in terminal_statuses:
+                        status_payload = {
+                            "type": "status",
+                            "status": curr_inv.status,
+                            "failure_reason": curr_inv.failure_reason,
+                            "stage": curr_inv.last_completed_stage or curr_inv.status,
+                            "execution_id": curr_inv.execution_id,
+                            "summary": curr_inv.summary,
+                            "confidence_score": curr_inv.confidence_score,
+                            "message": (
+                                f"Workflow failed: {curr_inv.failure_reason}"
+                                if curr_inv.status == "FAILED"
+                                else f"Workflow concluded with status {curr_inv.status}"
+                            ),
+                        }
+                        yield f"data: {json.dumps(status_payload)}\n\n"
+                        break
+                    elif curr_inv.status != last_yielded_status:
+                        last_yielded_status = curr_inv.status
+                        stage_payload = {
+                            "type": "status",
+                            "status": curr_inv.status,
+                            "stage": curr_inv.last_completed_stage or curr_inv.status,
+                            "execution_id": curr_inv.execution_id,
+                        }
+                        yield f"data: {json.dumps(stage_payload)}\n\n"
 
             await asyncio.sleep(1.0)
 
