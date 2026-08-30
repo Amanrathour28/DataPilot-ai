@@ -73,11 +73,32 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
     db.add(user)
     await db.flush()
 
-    # Create default personal workspace
+    # Create default organization
+    from app.db.models.organization import Organization, OrganizationMember, OrganizationRole
+    org_slug = f"{payload.name.strip().lower().replace(' ', '-')}-org-{user.id[:8]}"
+    org = Organization(
+        name=f"{payload.name.strip()}'s Organization",
+        slug=org_slug,
+        created_by=user.id,
+    )
+    db.add(org)
+    await db.flush()
+
+    # Add user as Organization Owner
+    org_member = OrganizationMember(
+        organization_id=org.id,
+        user_id=user.id,
+        role=OrganizationRole.OWNER,
+        status="ACTIVE",
+    )
+    db.add(org_member)
+
+    # Create default personal workspace linked to the organization
     slug = f"{payload.name.strip().lower().replace(' ', '-')}-workspace-{user.id[:8]}"
     workspace = Workspace(
         name=f"{payload.name.strip()}'s Workspace",
         slug=slug,
+        organization_id=org.id,
         owner_id=user.id,
     )
     db.add(workspace)
@@ -338,11 +359,32 @@ async def google_auth(payload: GoogleAuthRequest, db: AsyncSession = Depends(get
         db.add(user)
         await db.flush()
 
+        # Create default organization
+        from app.db.models.organization import Organization, OrganizationMember, OrganizationRole
+        org_slug = f"{name.lower().replace(' ', '-')}-org-{user.id[:8]}"
+        org = Organization(
+            name=f"{name}'s Organization",
+            slug=org_slug,
+            created_by=user.id,
+        )
+        db.add(org)
+        await db.flush()
+
+        # Add user as Organization Owner
+        org_member = OrganizationMember(
+            organization_id=org.id,
+            user_id=user.id,
+            role=OrganizationRole.OWNER,
+            status="ACTIVE",
+        )
+        db.add(org_member)
+
         # Create default workspace
         slug = f"{name.lower().replace(' ', '-')}-workspace-{user.id[:8]}"
         workspace = Workspace(
             name=f"{name}'s Workspace",
             slug=slug,
+            organization_id=org.id,
             owner_id=user.id,
         )
         db.add(workspace)
@@ -356,7 +398,7 @@ async def google_auth(payload: GoogleAuthRequest, db: AsyncSession = Depends(get
         )
         db.add(member)
         await db.commit()
-        logger.info(f"New Google user registered: {user.email} with workspace {workspace.id}")
+        logger.info(f"New Google user registered: {user.email} with org {org.id} and workspace {workspace.id}")
 
     token = create_access_token(subject=user.id)
     return TokenResponse(

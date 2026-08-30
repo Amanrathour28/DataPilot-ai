@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict
 
 
 class MemoryCreate(BaseModel):
+    workspace_id: Optional[str] = None
     category: str = "PREFERENCE"  # PROFILE, PREFERENCE, INTEREST, GOAL, WORK_CONTEXT
     content: str
     confidence: float = 1.0

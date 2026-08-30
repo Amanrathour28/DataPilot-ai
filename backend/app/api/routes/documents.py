@@ -86,6 +86,45 @@ async def list_documents(
     return result.scalars().all()
 
 
+@router.post("/search", response_model=list[DocumentSearchResult])
+async def search_documents_post(
+    payload: DocumentSearchRequest,
+    workspace_id: str = Query(..., description="Target workspace ID"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Semantic vector search across workspace knowledge base (POST)."""
+    await _assert_workspace_access(workspace_id, current_user, db)
+
+    results = await document_service.search_workspace_documents(
+        workspace_id=workspace_id,
+        query=payload.query,
+        limit=payload.limit,
+        db=db,
+    )
+    return results
+
+
+@router.get("/search", response_model=list[DocumentSearchResult])
+async def search_documents_get(
+    query: str = Query(..., description="Search query string"),
+    workspace_id: str = Query(..., description="Target workspace ID"),
+    limit: int = Query(5, description="Max chunks to retrieve"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Semantic vector search across workspace knowledge base (GET)."""
+    await _assert_workspace_access(workspace_id, current_user, db)
+
+    results = await document_service.search_workspace_documents(
+        workspace_id=workspace_id,
+        query=query,
+        limit=limit,
+        db=db,
+    )
+    return results
+
+
 @router.get("/{document_id}", response_model=DocumentDetailResponse)
 async def get_document(
     document_id: str,
@@ -145,22 +184,3 @@ async def delete_document(
 
     doc.is_deleted = True
     await db.commit()
-
-
-@router.post("/search", response_model=list[DocumentSearchResult])
-async def search_documents(
-    payload: DocumentSearchRequest,
-    workspace_id: str = Query(..., description="Target workspace ID"),
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Semantic vector search across workspace knowledge base."""
-    await _assert_workspace_access(workspace_id, current_user, db)
-
-    results = await document_service.search_workspace_documents(
-        workspace_id=workspace_id,
-        query=payload.query,
-        limit=payload.limit,
-        db=db,
-    )
-    return results

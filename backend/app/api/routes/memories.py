@@ -28,14 +28,17 @@ async def list_memories(
 @router.post("", response_model=MemoryResponse, status_code=status.HTTP_201_CREATED)
 async def create_memory(
     payload: MemoryCreate,
-    workspace_id: str = Query(..., description="Target workspace ID"),
+    workspace_id: Optional[str] = Query(None, description="Target workspace ID"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Create a new memory entry."""
-    await assert_workspace_access(workspace_id, current_user, db, min_role="MEMBER")
+    target_ws = workspace_id or payload.workspace_id
+    if not target_ws:
+        raise HTTPException(status_code=400, detail="workspace_id is required either in query or body.")
+    await assert_workspace_access(target_ws, current_user, db, min_role="MEMBER")
     return await memory_service.create_memory(
-        workspace_id=workspace_id,
+        workspace_id=target_ws,
         payload=payload,
         user_id=current_user.id,
         db=db,
