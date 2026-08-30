@@ -2,9 +2,16 @@ import axios from 'axios'
 
 const getBaseUrl = () => {
   // Support both standard env variable naming conventions
-  const envUrl = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL
+  let envUrl = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL
   if (envUrl && typeof envUrl === 'string' && envUrl.trim() !== '') {
-    return envUrl.trim().replace(/\/+$/, '')
+    envUrl = envUrl.trim().replace(/\/+$/, '')
+    // If the configured URL includes /api/v1 or /api, strip it since api client appends /api/v1
+    if (envUrl.endsWith('/api/v1')) {
+      envUrl = envUrl.slice(0, -7)
+    } else if (envUrl.endsWith('/api')) {
+      envUrl = envUrl.slice(0, -4)
+    }
+    return envUrl
   }
   // In production browser environments without explicit env var, default to the current origin
   // (vercel.json routes /api/* to the serverless Python backend on the same origin)

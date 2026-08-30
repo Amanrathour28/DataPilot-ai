@@ -102,6 +102,10 @@ async def lifespan(app: FastAPI):
                     "ALTER TABLE investigation_tasks ADD COLUMN IF NOT EXISTS error TEXT;",
                     "ALTER TABLE investigation_tasks ADD COLUMN IF NOT EXISTS retry_count INTEGER DEFAULT 0;",
                     "ALTER TABLE investigation_tasks ADD COLUMN IF NOT EXISTS max_retries INTEGER DEFAULT 2;",
+                    "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS organization_id VARCHAR(36);",
+                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS organization_id VARCHAR(36);",
+                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS assigned_to VARCHAR(36);",
+                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS visibility VARCHAR(32) DEFAULT 'WORKSPACE';",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255);",
                     "ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider VARCHAR(32) DEFAULT 'email';",
                     "CREATE TABLE IF NOT EXISTS password_reset_tokens (id VARCHAR(36) PRIMARY KEY, user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE, token_hash VARCHAR(64) UNIQUE NOT NULL, expires_at TIMESTAMP WITH TIME ZONE NOT NULL, used_at TIMESTAMP WITH TIME ZONE, created_at TIMESTAMP WITH TIME ZONE NOT NULL);",
@@ -118,6 +122,10 @@ async def lifespan(app: FastAPI):
             else:
                 from sqlalchemy import text
                 sqlite_migrations = [
+                    "ALTER TABLE workspaces ADD COLUMN organization_id VARCHAR(36);",
+                    "ALTER TABLE investigations ADD COLUMN organization_id VARCHAR(36);",
+                    "ALTER TABLE investigations ADD COLUMN assigned_to VARCHAR(36);",
+                    "ALTER TABLE investigations ADD COLUMN visibility VARCHAR(32) DEFAULT 'WORKSPACE';",
                     "ALTER TABLE datasets ADD COLUMN description TEXT;",
                     "ALTER TABLE datasets ADD COLUMN is_deleted BOOLEAN DEFAULT 0;",
                     "ALTER TABLE datasets ADD COLUMN error_message TEXT;",
