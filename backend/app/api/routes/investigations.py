@@ -237,22 +237,24 @@ async def create_investigation(
     await db.commit()
     await db.refresh(investigation)
 
+    inv_id = investigation.id
+    resp = InvestigationResponse.model_validate(investigation)
+    resp.created_by_name = current_user.name
+
     # Persist initial QUEUED event
     worker = InvestigationWorker(worker_id="system_init")
     await worker.record_event(
         db,
-        investigation.id,
+        inv_id,
         agent="Supervisor Agent",
         event_type="STARTED",
         message="Investigation initialized and queued for worker execution.",
         details={"status": "QUEUED"},
     )
 
-    logger.info(f"Investigation created & queued: {investigation.id}")
-    ensure_worker_running(investigation.id)
+    logger.info(f"Investigation created & queued: {inv_id}")
+    ensure_worker_running(inv_id)
 
-    resp = InvestigationResponse.model_validate(investigation)
-    resp.created_by_name = current_user.name
     return resp
 
 

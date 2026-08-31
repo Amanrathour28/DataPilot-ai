@@ -24,6 +24,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.dataset import Dataset, DatasetProfile
+from app.services.question_parser import (
+    parse_analytical_question,
+    resolve_target_column,
+    AnalyticalIntent,
+    StructuredAnalysisPlan,
+)
 
 logger = logging.getLogger("datapilot.dataset_context")
 
@@ -417,19 +423,373 @@ async def build_dataset_context(
 
 # ── Question-Driven Analysis Engine ───────────────────────────────────────────
 
+def _verify_with_duckdb(df: pd.DataFrame, sql_query: str) -> Optional[Any]:
+    """Execute SQL query against in-memory DataFrame using DuckDB for independent verification."""
+    try:
+        import duckdb
+        con = duckdb.connect(":memory:")
+        con.register("df", df)
+        con.register("dataset", df)
+        res = con.execute(sql_query).fetchall()
+        con.close()
+        return res
+    except Exception as e:
+        logger.warning(f"DuckDB cross-verification query failed: {e}")
+        return None
+
+
+def _analyze_count_with_filter(
+    df: pd.DataFrame,
+    ctx: DatasetContext,
+    target_col: str,
+    operator_str: str,
+    threshold: float,
+    plan: StructuredAnalysisPlan,
+) -> Dict[str, Any]:
+    """Count records where target_col <op> threshold, verified mathematically and with DuckDB."""
+    df_copy = df.copy()
+    total_records = len(df_copy)
+
+    # Coerce target column to numeric
+    clean_series = pd.to_numeric(
+        df_copy[target_col].astype(str).str.replace(",", "").str.replace("$", "").str.strip(),
+        errors="coerce"
+    )
+
+    if operator_str == ">":
+        mask = clean_series > threshold
+        sql_op = ">"
+    elif operator_str == "<":
+        mask = clean_series < threshold
+        sql_op = "<"
+    elif operator_str == ">=":
+        mask = clean_series >= threshold
+        sql_op = ">="
+    elif operator_str == "<=":
+        mask = clean_series <= threshold
+        sql_op = "<="
+    elif operator_str in ("==", "="):
+        mask = clean_series == threshold
+        sql_op = "="
+    elif operator_str == "!=":
+        mask = clean_series != threshold
+        sql_op = "!="
+    else:
+        mask = clean_series > threshold
+        sql_op = ">"
+
+    matched_df = df_copy[mask.fillna(False)].copy()
+    match_count = int(len(matched_df))
+    valid_count = int(clean_series.notna().sum())
+    null_count = total_records - valid_count
+
+    min_matched = float(clean_series[mask.fillna(False)].min()) if match_count > 0 else None
+    max_matched = float(clean_series[mask.fillna(False)].max()) if match_count > 0 else None
+
+    # Cross-verify with DuckDB
+    sql_query = f'SELECT count(*) FROM df WHERE TRY_CAST(REPLACE(REPLACE(CAST("{target_col}" AS VARCHAR), \',\', \'\'), \'$\', \'\') AS DOUBLE) {sql_op} {threshold}'
+    duck_res = _verify_with_duckdb(df_copy, sql_query)
+    duck_count = duck_res[0][0] if duck_res and len(duck_res) > 0 else None
+    verification_passed = (duck_count == match_count) if duck_count is not None else True
+
+    # Identify primary label column
+    item_cols = [c for c in ctx.categorical_columns if any(k in c.lower() for k in ["item", "part", "name", "desc", "sku", "code", "id", "number"])]
+    item_col = item_cols[0] if item_cols else (ctx.all_columns[0] if ctx.all_columns else None)
+
+    primary_table = []
+    for idx, (_, row) in enumerate(matched_df.head(25).iterrows()):
+        row_dict = {"Rank": idx + 1}
+        if item_col and item_col in row:
+            row_dict["Item / Identifier"] = str(row[item_col])
+        row_dict[target_col] = float(row[target_col]) if pd.notna(row[target_col]) else None
+        for c in ctx.all_columns[:6]:
+            if c not in row_dict and c in row:
+                row_dict[c] = row[c]
+        primary_table.append(row_dict)
+
+    finding_statement = (
+        f"**{match_count} items** have a '{target_col}' {operator_str} {threshold:g} "
+        f"(calculated from {total_records} valid records in '{ctx.dataset_name}')."
+    )
+
+    return {
+        "success": True,
+        "analysis_type": "COUNT_FILTER_ANALYSIS",
+        "analysis_description": f"COUNT records WHERE '{target_col}' {operator_str} {threshold:g}: found {match_count} of {total_records} records.",
+        "columns_used": [target_col] + ([item_col] if item_col else []),
+        "findings": [
+            finding_statement,
+            f"Condition evaluated: '{target_col}' {operator_str} {threshold:g} across {valid_count} non-null numeric values ({null_count} nulls excluded).",
+            f"Range among matching records: minimum = {min_matched:g}, maximum = {max_matched:g}." if match_count > 0 else "0 records satisfied the filter condition.",
+        ],
+        "primary_table": primary_table,
+        "aggregations": {
+            "intent": "COUNT",
+            "operation": "COUNT",
+            "target_column": target_col,
+            "operator": operator_str,
+            "threshold": threshold,
+            "result": match_count,
+            "matched_records": match_count,
+            "total_records": total_records,
+            "valid_records": valid_count,
+            "null_records": null_count,
+            "min_matching_value": min_matched,
+            "max_matching_value": max_matched,
+            "formula": f"COUNT(*) WHERE {target_col} {operator_str} {threshold:g}",
+            "duckdb_sql": sql_query,
+            "duckdb_result": duck_count,
+            "verification_passed": verification_passed,
+        },
+        "total_records": total_records,
+        "plan": {
+            "intent": plan.intent.value,
+            "target_entity": plan.target_entity,
+            "metric_column": target_col,
+            "filter_column": target_col,
+            "operator": operator_str,
+            "threshold": threshold,
+        }
+    }
+
+
+def _analyze_metric_aggregation(
+    df: pd.DataFrame,
+    ctx: DatasetContext,
+    target_col: str,
+    operation: str,
+    plan: StructuredAnalysisPlan,
+) -> Dict[str, Any]:
+    """Compute SUM, AVERAGE, MIN, MAX, or MEDIAN for a single target column."""
+    df_copy = df.copy()
+    total_records = len(df_copy)
+
+    clean_series = pd.to_numeric(
+        df_copy[target_col].astype(str).str.replace(",", "").str.replace("$", "").str.strip(),
+        errors="coerce"
+    ).dropna()
+
+    valid_count = len(clean_series)
+    null_count = total_records - valid_count
+
+    if operation == "SUM":
+        result_val = float(clean_series.sum()) if valid_count > 0 else 0.0
+        formula = f"SUM('{target_col}')"
+        sql_func = "SUM"
+        stmt = f"The **total '{target_col}'** across all {valid_count:,} valid records in '{ctx.dataset_name}' is **{result_val:,.2f}**."
+    elif operation in ("AVERAGE", "AVG", "MEAN"):
+        result_val = float(clean_series.mean()) if valid_count > 0 else 0.0
+        formula = f"AVG('{target_col}')"
+        sql_func = "AVG"
+        stmt = f"The **average '{target_col}'** across all {valid_count:,} valid records in '{ctx.dataset_name}' is **{result_val:,.2f}**."
+    elif operation == "MAX":
+        result_val = float(clean_series.max()) if valid_count > 0 else 0.0
+        formula = f"MAX('{target_col}')"
+        sql_func = "MAX"
+        stmt = f"The **maximum '{target_col}'** in '{ctx.dataset_name}' is **{result_val:,.2f}**."
+    elif operation == "MIN":
+        result_val = float(clean_series.min()) if valid_count > 0 else 0.0
+        formula = f"MIN('{target_col}')"
+        sql_func = "MIN"
+        stmt = f"The **minimum '{target_col}'** in '{ctx.dataset_name}' is **{result_val:,.2f}**."
+    elif operation == "MEDIAN":
+        result_val = float(clean_series.median()) if valid_count > 0 else 0.0
+        formula = f"MEDIAN('{target_col}')"
+        sql_func = "MEDIAN"
+        stmt = f"The **median '{target_col}'** in '{ctx.dataset_name}' is **{result_val:,.2f}**."
+    else:
+        result_val = float(clean_series.sum()) if valid_count > 0 else 0.0
+        formula = f"SUM('{target_col}')"
+        sql_func = "SUM"
+        stmt = f"The **total '{target_col}'** in '{ctx.dataset_name}' is **{result_val:,.2f}**."
+
+    # DuckDB verification
+    sql_query = f'SELECT {sql_func}(TRY_CAST(REPLACE(REPLACE(CAST("{target_col}" AS VARCHAR), \',\', \'\'), \'$\', \'\') AS DOUBLE)) FROM df'
+    duck_res = _verify_with_duckdb(df_copy, sql_query)
+    duck_val = float(duck_res[0][0]) if duck_res and len(duck_res) > 0 and duck_res[0][0] is not None else None
+    verification_passed = (abs(duck_val - result_val) < 1e-3) if duck_val is not None else True
+
+    primary_table = [
+        {"Metric": f"{operation} of '{target_col}'", "Value": f"{result_val:,.2f}", "Valid Records": valid_count, "Formula": formula}
+    ]
+
+    return {
+        "success": True,
+        "analysis_type": "METRIC_AGGREGATION",
+        "analysis_description": f"Calculated {operation}('{target_col}') = {result_val:,.2f} across {valid_count} records in '{ctx.dataset_name}'.",
+        "columns_used": [target_col],
+        "findings": [
+            stmt,
+            f"Calculated using formula `{formula}` across {valid_count} valid rows ({null_count} null rows excluded).",
+        ],
+        "primary_table": primary_table,
+        "aggregations": {
+            "intent": operation,
+            "operation": operation,
+            "target_column": target_col,
+            "result": round(result_val, 4),
+            "formula": formula,
+            "valid_records": valid_count,
+            "null_records": null_count,
+            "total_records": total_records,
+            "duckdb_sql": sql_query,
+            "duckdb_result": round(duck_val, 4) if duck_val is not None else None,
+            "verification_passed": verification_passed,
+        },
+        "total_records": total_records,
+        "plan": {
+            "intent": plan.intent.value,
+            "metric_column": target_col,
+            "operation": operation,
+        }
+    }
+
+
+def _analyze_filter_list(
+    df: pd.DataFrame,
+    ctx: DatasetContext,
+    target_col: str,
+    operator_str: str,
+    threshold: float,
+    plan: StructuredAnalysisPlan,
+) -> Dict[str, Any]:
+    """List records matching a filter condition."""
+    df_copy = df.copy()
+    clean_series = pd.to_numeric(
+        df_copy[target_col].astype(str).str.replace(",", "").str.replace("$", "").str.strip(),
+        errors="coerce"
+    )
+
+    if operator_str == ">":
+        mask = clean_series > threshold
+    elif operator_str == "<":
+        mask = clean_series < threshold
+    elif operator_str == ">=":
+        mask = clean_series >= threshold
+    elif operator_str == "<=":
+        mask = clean_series <= threshold
+    elif operator_str in ("==", "="):
+        mask = clean_series == threshold
+    else:
+        mask = clean_series > threshold
+
+    matched_df = df_copy[mask.fillna(False)].copy()
+    match_count = len(matched_df)
+
+    item_cols = [c for c in ctx.categorical_columns if any(k in c.lower() for k in ["item", "part", "name", "desc", "sku", "code", "id"])]
+    item_col = item_cols[0] if item_cols else (ctx.all_columns[0] if ctx.all_columns else None)
+
+    primary_table = []
+    for idx, (_, row) in enumerate(matched_df.head(50).iterrows()):
+        row_dict = {"Rank": idx + 1}
+        if item_col and item_col in row:
+            row_dict["Item / Identifier"] = str(row[item_col])
+        row_dict[target_col] = float(row[target_col]) if pd.notna(row[target_col]) else None
+        for c in ctx.all_columns[:6]:
+            if c not in row_dict and c in row:
+                row_dict[c] = row[c]
+        primary_table.append(row_dict)
+
+    finding_stmt = f"Found **{match_count} items** with '{target_col}' {operator_str} {threshold:g} in '{ctx.dataset_name}'."
+
+    return {
+        "success": True,
+        "analysis_type": "FILTER_LIST_ANALYSIS",
+        "analysis_description": f"Extracted {match_count} records where '{target_col}' {operator_str} {threshold:g}.",
+        "columns_used": [target_col] + ([item_col] if item_col else []),
+        "findings": [
+            finding_stmt,
+            f"Extracted list of matching items ranked by order of appearance.",
+        ],
+        "primary_table": primary_table,
+        "aggregations": {
+            "intent": "LIST",
+            "operation": "LIST",
+            "target_column": target_col,
+            "operator": operator_str,
+            "threshold": threshold,
+            "matched_records": match_count,
+            "total_records": len(df_copy),
+        },
+        "total_records": len(df_copy),
+        "plan": {
+            "intent": "LIST",
+            "target_column": target_col,
+            "operator": operator_str,
+            "threshold": threshold,
+        }
+    }
+
+
+def _analyze_top_or_bottom_ranking(
+    df: pd.DataFrame,
+    ctx: DatasetContext,
+    target_col: str,
+    limit_n: int,
+    is_top: bool,
+    plan: StructuredAnalysisPlan,
+) -> Dict[str, Any]:
+    """Rank items by a numeric metric ascending or descending."""
+    df_copy = df.copy()
+    clean_series = pd.to_numeric(
+        df_copy[target_col].astype(str).str.replace(",", "").str.replace("$", "").str.strip(),
+        errors="coerce"
+    )
+    df_copy["_clean_metric"] = clean_series
+
+    sorted_df = df_copy.dropna(subset=["_clean_metric"]).sort_values(
+        by="_clean_metric", ascending=not is_top
+    ).head(limit_n).copy()
+
+    item_cols = [c for c in ctx.categorical_columns if any(k in c.lower() for k in ["item", "part", "name", "desc", "sku", "code", "id"])]
+    item_col = item_cols[0] if item_cols else (ctx.all_columns[0] if ctx.all_columns else None)
+
+    order_label = "top" if is_top else "bottom"
+    table_rows = []
+    for idx, (_, row) in enumerate(sorted_df.iterrows()):
+        row_dict = {"Rank": idx + 1}
+        if item_col and item_col in row:
+            row_dict["Item / Identifier"] = str(row[item_col])
+        row_dict[target_col] = float(row["_clean_metric"])
+        for c in ctx.all_columns[:6]:
+            if c not in row_dict and c in row:
+                row_dict[c] = row[c]
+        table_rows.append(row_dict)
+
+    finding_stmt = f"The **{order_label} {len(table_rows)} items** by '{target_col}' in '{ctx.dataset_name}' are ranked below:"
+
+    return {
+        "success": True,
+        "analysis_type": "RANKING_BY_METRIC",
+        "analysis_description": f"Ranked records by '{target_col}' {'descending' if is_top else 'ascending'} (limit: {limit_n}).",
+        "columns_used": [target_col] + ([item_col] if item_col else []),
+        "findings": [
+            finding_stmt,
+            f"Extracted {len(table_rows)} records sorted by '{target_col}' {'highest to lowest' if is_top else 'lowest to highest'}.",
+        ],
+        "primary_table": table_rows,
+        "aggregations": {
+            "intent": "TOP_N" if is_top else "BOTTOM_N",
+            "operation": "RANKING",
+            "target_column": target_col,
+            "limit": limit_n,
+            "direction": "descending" if is_top else "ascending",
+            "total_records": len(df_copy),
+        },
+        "total_records": len(df_copy),
+        "plan": {
+            "intent": plan.intent.value,
+            "metric_column": target_col,
+            "limit": limit_n,
+        }
+    }
+
+
 def perform_question_driven_analysis(ctx: DatasetContext) -> Dict[str, Any]:
     """
-    Perform actual pandas analysis on the real dataset, guided by the user's question.
-
-    Returns a structured result containing:
-    - analysis_type: what kind of analysis was performed
-    - findings: list of data-grounded finding strings
-    - primary_table: the main result as list-of-dicts (real rows from real data)
-    - aggregations: summary statistics derived from actual data
-    - columns_used: which columns were actually used
-    - analysis_description: human-readable description of what was computed
-
-    NEVER fabricates values. Returns explicit failure dict when data is insufficient.
+    Perform question-driven analysis grounded in the actual dataset schema.
+    Uses semantic question parsing to choose the exact mathematical operation,
+    column, filter, and output structure.
     """
     df = ctx.get_df()
     if df is None:
@@ -444,210 +804,132 @@ def perform_question_driven_analysis(ctx: DatasetContext) -> Dict[str, Any]:
         }
 
     q_lower = ctx.question.lower()
-    num_cols = ctx.numeric_columns
-    cat_cols = ctx.categorical_columns
-    date_cols = ctx.date_columns
 
-    # Detect quantity columns by generic keywords
-    qty_col_keywords = ["qty", "quantity", "count", "amount", "units", "num", "number"]
-    qty_cols = [c for c in num_cols if any(k in c.lower() for k in qty_col_keywords)]
+    # 1. Parse question into structured analytical plan
+    plan = parse_analytical_question(ctx.question)
 
-    # Detect ordered/received/required/outstanding column pairs
-    ordered_col = _find_col(qty_cols + num_cols, ["ordered", "order_qty", "orderedqty", "qty_order", "qty ordered", "po_qty"])
-    required_col = _find_col(qty_cols + num_cols, ["required", "require", "qty_req", "needed", "demand", "requested", "req_qty"])
-    received_col = _find_col(qty_cols + num_cols, ["received", "delivered", "fulfilled", "receipt", "qty_rec"])
-    outstanding_col = _find_col(qty_cols + num_cols, ["outstanding", "pending_qty", "pending", "balance", "gap", "open_qty", "remaining"])
+    # 2. Check for specialized system queries first
+    if plan.intent == AnalyticalIntent.VOLUME:
+        return _analyze_dataset_volume(df, ctx)
 
-    # Detect item identifier columns
-    item_name_col = _find_col(cat_cols, ["item name", "item_name", "itemname", "product name", "name", "description", "desc", "material", "item"])
-    item_code_col = _find_col(cat_cols, ["item code", "item_code", "itemcode", "sku", "code", "ref", "no", "indent no", "indent_no", "part"])
+    if plan.intent == AnalyticalIntent.MISSING_VALUES:
+        return _analyze_missing_values(df, ctx)
 
-    # Detect grouping/dimension columns
-    category_col = _find_col(cat_cols, ["category", "cat", "type", "group"])
-    section_col = _find_col(cat_cols, ["section", "department", "dept", "division", "unit"])
-    priority_col = _find_col(cat_cols, ["priority", "urgency", "importance"])
-
-    # Detect required-by / due date column
-    date_col = _find_col(date_cols + cat_cols, [
-        "required_by", "required by", "by_date", "by date", "due_date", "due date",
-        "needed_by", "delivery_date", "delivery date", "date", "dt", "created_at"
-    ]) or (date_cols[0] if date_cols else None)
-
-    # Detect revenue/metric columns for period analysis
-    revenue_keywords = ["revenue", "sales", "income", "amount", "value", "transaction_value",
-                        "transaction_amount", "total", "price", "profit", "cost", "margin"]
-    metric_col = _find_col(num_cols, revenue_keywords)
-
-    # Detect region/dimension columns
-    region_col = _find_col(cat_cols, ["region", "country", "state", "territory", "area", "location", "geography"])
-    segment_col = _find_col(cat_cols, ["segment", "customer_segment", "customer_type", "tier"])
-    product_col = _find_col(cat_cols, ["product", "item", "sku", "material", "item_name", "product_name"])
-
-    # Extract limit n
-    n_match = re.search(r"\btop\s+(\d+)\b|\b(\d+)\s+(?:items?|records?|rows?)\b", q_lower)
-    limit_n = int(n_match.group(1) or n_match.group(2)) if n_match else 10
-
-    # ── High-Precision Question Intent Routing ──
-
-    # 1. Schema Column Check (e.g. "Does this dataset contain a revenue column?")
-    is_schema_check = any(k in q_lower for k in [
-        "does this dataset contain", "does the dataset contain", "is there a",
-        "contain a revenue", "have a revenue", "does this dataset have", "contain column", "has column"
-    ])
-    if is_schema_check:
+    if plan.intent == AnalyticalIntent.SCHEMA_CHECK:
         target_check_concept = "revenue" if "revenue" in q_lower else ("sales" if "sales" in q_lower else "date")
         return _analyze_schema_column_check(df, ctx, target_check_concept)
 
-    # 2. Missing Dates Query (e.g. "Which items have missing required-by dates?")
-    is_missing_dates = any(k in q_lower for k in [
-        "missing required-by", "missing required by", "missing due", "missing date", "missing dates", "null date", "null dates"
-    ])
-    if is_missing_dates:
+    # Check for missing dates query
+    if any(k in q_lower for k in ["missing required-by", "missing required by", "missing due", "missing date", "null date"]):
+        date_col = _find_col(ctx.date_columns + ctx.categorical_columns, ["required_by", "by_date", "due_date", "date", "created_at"])
+        item_name_col = _find_col(ctx.categorical_columns, ["item name", "item_name", "name", "desc", "part", "material"])
         return _analyze_missing_dates(df, ctx, date_col, item_name_col)
 
-    # 3. Earliest / Chronological Date Ranking (e.g. "Which items have the earliest required-by dates? Show the top 10...")
-    is_earliest_date_ranking = any(k in q_lower for k in [
-        "earliest required", "earliest by date", "earliest date", "earliest dates", "earliest due",
-        "first required", "oldest date", "chronological", "earliest required-by", "earliest"
-    ]) and date_col is not None
-    if is_earliest_date_ranking:
-        return _analyze_date_ranking(
-            df, ctx, date_col, item_name_col, item_code_col,
-            required_col, ordered_col, outstanding_col,
-            limit=limit_n, ascending=True
+    # 3. Resolve target metric column using semantic disambiguation
+    target_metric_col = resolve_target_column(
+        concept=plan.metric_concept or (plan.filter_condition.column_concept if plan.filter_condition else None),
+        all_columns=ctx.all_columns,
+        numeric_columns=ctx.numeric_columns,
+        question=ctx.question,
+        prefer_numeric=True,
+    )
+
+    # 4. Route based on parsed intent:
+
+    # Intent A: COUNT with filter condition (e.g. "How many items are required more than 100?")
+    if plan.intent == AnalyticalIntent.COUNT and plan.filter_condition and target_metric_col:
+        return _analyze_count_with_filter(
+            df=df,
+            ctx=ctx,
+            target_col=target_metric_col,
+            operator_str=plan.filter_condition.operator,
+            threshold=plan.filter_condition.threshold,
+            plan=plan,
         )
 
-    # 4. Category with Highest Outstanding Quantity (e.g. "Which category has the highest outstanding quantity?")
-    is_category_highest_pending = any(k in q_lower for k in [
-        "which category has the highest outstanding", "which category has the highest pending",
-        "which section has the highest outstanding", "category has the highest", "by category"
-    ]) and (category_col or section_col)
-    if is_category_highest_pending:
-        dim_target = category_col or section_col
-        df_copy = df.copy()
-        if outstanding_col and outstanding_col in df_copy.columns:
-            target_metric_col = outstanding_col
-        elif required_col and ordered_col:
-            req = pd.to_numeric(df_copy[required_col], errors="coerce").fillna(0)
-            ord_q = pd.to_numeric(df_copy[ordered_col], errors="coerce").fillna(0)
-            df_copy["_computed_outstanding"] = np.maximum(req - ord_q, 0)
-            target_metric_col = "_computed_outstanding"
-        elif required_col:
-            target_metric_col = required_col
-        else:
-            target_metric_col = qty_cols[0] if qty_cols else num_cols[0]
-        return _analyze_grouped_metric_by_dimension(df_copy, ctx, target_metric_col, dim_target)
-
-    # 5. Total Pending Quantity Lookup (e.g. "What is the total quantity still pending to be ordered?")
-    is_total_pending_quantity = any(k in q_lower for k in [
-        "total quantity still pending", "total pending quantity", "total outstanding quantity",
-        "how much is pending", "how much quantity is pending", "total quantity pending"
-    ])
-    if is_total_pending_quantity:
-        return _analyze_total_pending_quantity(df, ctx, required_col, ordered_col, outstanding_col)
-
-    # 6. Largest Outstanding Quantity Ranking (e.g. "Show the 10 items with the largest outstanding quantity.")
-    is_largest_outstanding_ranking = any(k in q_lower for k in [
-        "largest outstanding", "highest outstanding", "most outstanding", "greatest outstanding",
-        "largest pending quantity", "highest pending quantity", "top 10 items with the largest",
-        "items with the largest outstanding"
-    ]) and not ("category" in q_lower or "section" in q_lower)
-    if is_largest_outstanding_ranking:
-        return _analyze_largest_outstanding(
-            df, ctx, item_name_col, item_code_col,
-            required_col, ordered_col, outstanding_col,
-            limit=limit_n
-        )
-
-    # 7. Volume Query (e.g. "How many records are in the dataset?")
-    is_volume = any(k in q_lower for k in [
-        "how many records", "how many rows", "row count", "how many entries",
-        "dataset size", "number of rows", "number of records", "total rows", "total records"
-    ])
-    if is_volume:
+    # Intent B: COUNT without filter (e.g. "How many items in dataset?")
+    if plan.intent == AnalyticalIntent.COUNT and not plan.filter_condition:
         return _analyze_dataset_volume(df, ctx)
 
-    # 8. Missing Values Query (e.g. "What are the missing values in the dataset?")
-    is_missing = any(k in q_lower for k in [
-        "what are the missing values", "missing value", "missing values", "null count",
-        "null values", "nulls", "empty cells", "completeness", "nan values"
-    ])
-    if is_missing:
-        return _analyze_missing_values(df, ctx)
-
-    # 9. Period-over-Period Comparison
-    is_period_comparison = any(k in q_lower for k in [
-        "decline", "decrease", "drop", "fell", "fall", "increase", "growth", "grew",
-        "change", "trend", "q1", "q2", "q3", "q4", "quarter", "month",
-        "year over year", "yoy", "period", "compare", "versus", "vs",
-        "why did", "what caused", "what drove", "explain the",
-    ])
-    if is_period_comparison and metric_col:
-        return _analyze_period_comparison(
-            df, ctx, metric_col, date_cols, cat_cols,
-            region_col, segment_col, category_col, section_col,
+    # Intent C: METRIC AGGREGATION (SUM, AVERAGE, MIN, MAX, MEDIAN)
+    if plan.intent in (AnalyticalIntent.SUM, AnalyticalIntent.AVERAGE, AnalyticalIntent.MIN, AnalyticalIntent.MAX, AnalyticalIntent.MEDIAN) and target_metric_col:
+        return _analyze_metric_aggregation(
+            df=df,
+            ctx=ctx,
+            target_col=target_metric_col,
+            operation=plan.intent.value,
+            plan=plan,
         )
 
-    # 10. Check for explicitly unmappable critical concepts requested in question
-    if ctx.unmappable_concepts:
-        critical_unmapped = [c for c in ctx.unmappable_concepts if c in ["revenue", "sales", "cost", "profit", "price", "region", "product", "segment"]]
-        if critical_unmapped and not metric_col:
-            return _analyze_unmappable_question(df, ctx, critical_unmapped)
+    # Intent D: LIST / FILTER (e.g. "Which items have required quantity > 100?")
+    if plan.intent == AnalyticalIntent.LIST and plan.filter_condition and target_metric_col:
+        return _analyze_filter_list(
+            df=df,
+            ctx=ctx,
+            target_col=target_metric_col,
+            operator_str=plan.filter_condition.operator,
+            threshold=plan.filter_condition.threshold,
+            plan=plan,
+        )
 
-    # 11. Grouped aggregation (e.g. "What is the total revenue in the dataset, and how does it vary by region?")
-    is_grouped_breakdown = any(k in q_lower for k in [
-        "by region", "by product", "by category", "by section", "by department",
-        "vary by", "varies by", "vary across", "variation", "breakdown",
-        "per region", "per product", "per category", "each region", "each product",
-        "each category", "distribution by", "percentage of revenue", "total revenue",
-        "total sales", "total amount", "what is the total", "which region", "which product",
-        "highest revenue", "highest sales", "lowest revenue", "lowest sales"
-    ])
-    target_metric = metric_col or (qty_cols[0] if qty_cols else (num_cols[0] if num_cols else None))
-    target_dim = region_col or category_col or section_col or segment_col or product_col or (cat_cols[0] if cat_cols else None)
+    # Intent E: TOP_N / BOTTOM_N RANKING (e.g. "Show the top 10 items by required quantity.")
+    if plan.intent in (AnalyticalIntent.TOP_N, AnalyticalIntent.BOTTOM_N) and target_metric_col:
+        limit_val = plan.limit or 10
+        is_top = (plan.intent == AnalyticalIntent.TOP_N)
+        return _analyze_top_or_bottom_ranking(
+            df=df,
+            ctx=ctx,
+            target_col=target_metric_col,
+            limit_n=limit_val,
+            is_top=is_top,
+            plan=plan,
+        )
 
-    if is_grouped_breakdown and target_metric and target_dim:
-        return _analyze_grouped_metric_by_dimension(df, ctx, target_metric, target_dim)
+    # 5. Check other domain-specific patterns if present
+    # Earliest date ranking
+    if any(k in q_lower for k in ["earliest required", "earliest date", "earliest due", "first required", "chronological"]):
+        date_col = _find_col(ctx.date_columns + ctx.categorical_columns, ["required_by", "by_date", "due_date", "date", "created_at"])
+        if date_col:
+            item_name_col = _find_col(ctx.categorical_columns, ["item name", "item_name", "name", "desc", "part"])
+            item_code_col = _find_col(ctx.categorical_columns, ["item code", "item_code", "sku", "code", "part"])
+            req_col = _find_col(ctx.numeric_columns, ["required", "demand", "qty_req"])
+            ord_col = _find_col(ctx.numeric_columns, ["ordered", "qty_order", "po_qty"])
+            out_col = _find_col(ctx.numeric_columns, ["outstanding", "pending"])
+            return _analyze_date_ranking(
+                df, ctx, date_col, item_name_col, item_code_col,
+                req_col, ord_col, out_col,
+                limit=plan.limit or 10, ascending=True
+            )
 
-    # 12. Pending items audit (general)
-    is_pending = any(k in q_lower for k in [
-        "pending items", "items pending", "not ordered", "unordered", "unfulfilled",
-        "yet to order", "still to order", "pending to be ordered", "to be ordered",
-        "pending quantities", "pending quantity", "pending"
-    ])
-    is_gap = any(k in q_lower for k in ["gap", "difference", "shortfall", "deficit", "shortage"])
-    if is_pending or is_gap:
-        return _analyze_pending_items(df, ctx, ordered_col, required_col, received_col,
-                                       item_name_col, item_code_col, category_col, section_col,
-                                       priority_col, date_cols)
+    # Grouped breakdown (e.g. "by category", "by region")
+    dim_target = resolve_target_column(
+        concept=plan.dimension_concept,
+        all_columns=ctx.all_columns,
+        numeric_columns=[],
+        question=ctx.question,
+        prefer_numeric=False,
+    )
+    if dim_target and target_metric_col and (plan.intent == AnalyticalIntent.GROUP_BY or "by" in q_lower):
+        return _analyze_grouped_metric_by_dimension(df, ctx, target_metric_col, dim_target)
 
-    # 13. Overdue items
-    is_overdue = any(k in q_lower for k in ["overdue", "late", "past due", "delayed", "missed", "due date"])
-    if is_overdue:
-        return _analyze_overdue_items(df, ctx, date_cols, item_name_col, item_code_col,
-                                       ordered_col, required_col, priority_col)
+    # Check for period-over-period comparison
+    if any(k in q_lower for k in ["decline", "decrease", "drop", "fell", "increase", "growth", "grew", "trend", "q1", "q2", "q3", "q4"]):
+        metric_col = target_metric_col or (ctx.numeric_columns[0] if ctx.numeric_columns else None)
+        if metric_col:
+            region_col = _find_col(ctx.categorical_columns, ["region", "country", "location"])
+            segment_col = _find_col(ctx.categorical_columns, ["segment", "tier"])
+            category_col = _find_col(ctx.categorical_columns, ["category", "cat", "group"])
+            section_col = _find_col(ctx.categorical_columns, ["section", "dept"])
+            return _analyze_period_comparison(
+                df, ctx, metric_col, ctx.date_columns, ctx.categorical_columns,
+                region_col, segment_col, category_col, section_col,
+            )
 
-    # 14. Top-N Ranking (by general quantity/metric)
-    is_top_n = any(k in q_lower for k in ["top", "highest", "largest", "most", "greatest", "maximum", "max"])
-    is_bottom_n = any(k in q_lower for k in ["bottom", "lowest", "smallest", "least", "minimum", "min"])
-    if is_top_n or is_bottom_n:
-        return _analyze_top_n(df, ctx, limit_n, is_top_n, qty_cols, ordered_col, required_col,
-                               item_name_col, category_col, section_col)
-
-    is_priority = any(k in q_lower for k in ["priority", "high priority", "urgent", "critical"])
-    if is_priority and priority_col:
-        return _analyze_by_dimension(df, ctx, priority_col, qty_cols, ordered_col, required_col)
-
-    is_category = any(k in q_lower for k in ["category", "which category", "by category", "section", "by section", "which section", "group"])
-    if is_category and (category_col or section_col):
-        dim_col = section_col if "section" in q_lower and section_col else (category_col or section_col)
-        return _analyze_by_dimension(df, ctx, dim_col, qty_cols, ordered_col, required_col)
-
-    # 15. If target metric and dimension exist, default to grouped metric analysis
-    if target_metric and target_dim:
-        return _analyze_grouped_metric_by_dimension(df, ctx, target_metric, target_dim)
-
-    # 16. General analysis
+    # 6. Fallback to general analysis
+    qty_cols = [c for c in ctx.numeric_columns if any(k in c.lower() for k in ["qty", "quantity", "count", "amount", "units"])]
+    ordered_col = _find_col(ctx.numeric_columns, ["ordered", "order_qty", "po_qty"])
+    required_col = _find_col(ctx.numeric_columns, ["required", "demand", "qty_req"])
+    item_name_col = _find_col(ctx.categorical_columns, ["item name", "item_name", "name", "desc"])
     return _analyze_general(df, ctx, qty_cols, ordered_col, required_col, item_name_col)
 
 

@@ -330,10 +330,20 @@ class InvestigationWorker:
 
         # 1. Add all data-grounded findings derived from actual calculations
         total_records = analytics.get("total_records", len(df) if df is not None else 0)
+        analysis_type = analytics.get("analysis_type", "")
+        deterministic_types = [
+            "COUNT_FILTER_ANALYSIS", "METRIC_AGGREGATION", "FILTER_LIST_ANALYSIS",
+            "RANKING_BY_DATE", "RANKING_BY_METRIC", "GROUPED_AGGREGATION",
+            "DATASET_VOLUME_ANALYSIS", "MISSING_VALUES_ANALYSIS", "TOTAL_PENDING_QUANTITY",
+            "MISSING_DATES_ANALYSIS", "SCHEMA_COLUMN_CHECK"
+        ]
         null_ratio = sum(ctx.null_counts.values()) / max(total_records * len(ctx.all_columns), 1)
-        base_confidence = 0.90 if total_records >= 100 else (0.75 if total_records >= 30 else 0.55)
-        data_quality_penalty = min(0.15, null_ratio * 0.5)  # Up to 15% penalty for nulls
-        calibrated_confidence = round(max(0.30, base_confidence - data_quality_penalty), 2)
+        if analysis_type in deterministic_types:
+            calibrated_confidence = 1.0
+        else:
+            base_confidence = 0.90 if total_records >= 100 else (0.75 if total_records >= 30 else 0.55)
+            data_quality_penalty = min(0.15, null_ratio * 0.5)
+            calibrated_confidence = round(max(0.30, base_confidence - data_quality_penalty), 2)
 
         for f_stmt in analytics.get("findings", []):
             findings_to_persist.append({
@@ -434,6 +444,7 @@ class InvestigationWorker:
         analytics = exec_context.analytics or {}
         a_type = analytics.get("analysis_type", "")
         deterministic_types = [
+            "COUNT_FILTER_ANALYSIS", "METRIC_AGGREGATION", "FILTER_LIST_ANALYSIS",
             "RANKING_BY_DATE", "RANKING_BY_METRIC", "GROUPED_AGGREGATION",
             "DATASET_VOLUME_ANALYSIS", "MISSING_VALUES_ANALYSIS", "TOTAL_PENDING_QUANTITY",
             "MISSING_DATES_ANALYSIS", "SCHEMA_COLUMN_CHECK"
@@ -513,6 +524,7 @@ class InvestigationWorker:
         analytics = exec_context.analytics or {}
         a_type = analytics.get("analysis_type", "")
         deterministic_types = [
+            "COUNT_FILTER_ANALYSIS", "METRIC_AGGREGATION", "FILTER_LIST_ANALYSIS",
             "RANKING_BY_DATE", "RANKING_BY_METRIC", "GROUPED_AGGREGATION",
             "DATASET_VOLUME_ANALYSIS", "MISSING_VALUES_ANALYSIS", "TOTAL_PENDING_QUANTITY",
             "MISSING_DATES_ANALYSIS", "SCHEMA_COLUMN_CHECK"
@@ -822,6 +834,18 @@ class InvestigationWorker:
                 "recommended_action": "Flag these as limitations in the final report."
             })
 
+        # ── Check 7: Semantic Question vs Result Alignment ──
+        q_plan = analytics.get("plan", {})
+        q_intent = q_plan.get("intent")
+        res_op = analytics.get("aggregations", {}).get("operation") or analytics.get("aggregations", {}).get("intent")
+        if q_intent and res_op and q_intent != res_op:
+            issues.append({
+                "severity": "critical",
+                "claim": f"Question Intent mismatch: User requested {q_intent} but executed {res_op}",
+                "reason": "The analytical engine executed a mathematical operation different from the user's explicit question intent.",
+                "recommended_action": "Re-execute analytical query aligning strictly with the user intent."
+            })
+
         # ── Determine verdict ──
         critical_issues = [i for i in issues if i["severity"] == "critical"]
         high_issues = [i for i in issues if i["severity"] == "high"]
@@ -959,7 +983,32 @@ class InvestigationWorker:
 
         # ── 6. Executive Answer ──
         analysis_type = analytics.get("analysis_type", "")
-        if analysis_type == "RANKING_BY_DATE":
+        if analysis_type == "COUNT_FILTER_ANALYSIS":
+            match_cnt = agg.get("matched_records", agg.get("result", 0))
+            t_col = agg.get("target_column", "metric")
+            op_str = agg.get("operator", ">")
+            thresh = agg.get("threshold", 0)
+            primary_finding = (
+                f"**{match_cnt} items** have a `{t_col}` {op_str} **{thresh:g}** "
+                f"(calculated from **{total_rows}** valid records in `{ds_name}`)."
+            )
+        elif analysis_type == "METRIC_AGGREGATION":
+            op_name = agg.get("operation", "Metric")
+            res_val = agg.get("result", 0.0)
+            t_col = agg.get("target_column", "metric")
+            form = agg.get("formula", "")
+            primary_finding = (
+                f"The **{op_name.lower()} `{t_col}`** across all **{agg.get('valid_records', total_rows):,}** valid records "
+                f"in `{ds_name}` is **{res_val:,.2f}** (calculation: `{form}`)."
+            )
+        elif analysis_type == "FILTER_LIST_ANALYSIS":
+            t_col = agg.get("target_column", "metric")
+            op_str = agg.get("operator", ">")
+            thresh = agg.get("threshold", 0)
+            primary_finding = (
+                f"Found **{len(primary_table)} matching items** with `{t_col}` {op_str} **{thresh:g}** in `{ds_name}`:"
+            )
+        elif analysis_type == "RANKING_BY_DATE":
             rows_md = []
             for r in primary_table:
                 rows_md.append(f"| {r.get('Rank', '')} | **{r.get('Item', '')}** | `{r.get('Required-by Date', '')}` | **{r.get('Outstanding Quantity', 0):,.0f}** |")
