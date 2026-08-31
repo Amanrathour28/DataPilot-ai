@@ -406,25 +406,30 @@ async def get_investigation(
     )
     events = events_res.scalars().all()
 
-    # Reconstruct durable evidence ledger if missing on Investigation model
-    evidence_ledger = investigation.evidence_ledger or []
-    if not evidence_ledger and evidence_items:
+    # Reconstruct durable evidence ledger from evidence_items
+    if evidence_items:
         evidence_ledger = [
             {
                 "evidence_id": item.id,
                 "claim": item.claim,
                 "source_type": item.source_type,
                 "source_name": item.source_name,
+                "analysis_type": item.analysis_type,
+                "query_or_method": item.query_or_method,
                 "result_summary": item.result_summary,
                 "statistical_metrics": item.statistical_metrics,
+                "supporting_data": item.statistical_metrics,
                 "document_citation": item.document_citation,
                 "causal_classification": item.causal_classification,
                 "confidence": item.confidence,
                 "supports_claim": item.supports_claim,
                 "created_by_agent": item.created_by_agent,
+                "created_at": item.created_at.isoformat() if item.created_at else None,
             }
             for item in evidence_items
         ]
+    else:
+        evidence_ledger = investigation.evidence_ledger or []
 
     # Reconstruct critic reviews if missing on Investigation model
     critic_reviews = investigation.critic_reviews or []

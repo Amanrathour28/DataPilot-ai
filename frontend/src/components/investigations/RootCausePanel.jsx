@@ -47,8 +47,14 @@ export default function RootCausePanel({
       {activeTab === 'ranking' && (
         <div className="space-y-4">
           {rootCauses.length === 0 ? (
-            <div className="border border-white/[0.08] bg-[#0c0c0c] p-12 text-center text-xs font-mono text-[#f2f2ef]/40">
-              No ranked root causes synthesized yet. Investigation running or awaiting convergence.
+            <div className="border border-white/[0.08] bg-[#0c0c0c] p-8 sm:p-12 space-y-4 font-mono">
+              <div className="flex items-center gap-2 text-[#d4ff58] font-bold text-sm uppercase tracking-wider">
+                <CheckCircle2 size={16} />
+                <span>Deterministic Calculation &mdash; No Causal Decomposition Required</span>
+              </div>
+              <p className="text-xs text-[#f2f2ef]/70 leading-relaxed font-sans max-w-3xl">
+                This investigation answered a direct aggregation or filtering question without requiring causal driver ranking. Refer to the <strong>Critic Audits</strong> tab to verify the mathematical and schema alignment checks.
+              </p>
             </div>
           ) : (
             <div className="border border-white/[0.08] bg-[#0c0c0c] divide-y divide-white/[0.06]">

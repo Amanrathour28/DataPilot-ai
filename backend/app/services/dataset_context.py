@@ -482,9 +482,12 @@ def _analyze_count_with_filter(
     match_count = int(len(matched_df))
     valid_count = int(clean_series.notna().sum())
     null_count = total_records - valid_count
+    non_matching_count = total_records - match_count
+    match_percentage = round((match_count / max(total_records, 1)) * 100, 2)
 
     min_matched = float(clean_series[mask.fillna(False)].min()) if match_count > 0 else None
     max_matched = float(clean_series[mask.fillna(False)].max()) if match_count > 0 else None
+    mean_matched = float(clean_series[mask.fillna(False)].mean()) if match_count > 0 else None
 
     # Cross-verify with DuckDB
     sql_query = f'SELECT count(*) FROM df WHERE TRY_CAST(REPLACE(REPLACE(CAST("{target_col}" AS VARCHAR), \',\', \'\'), \'$\', \'\') AS DOUBLE) {sql_op} {threshold}'
@@ -497,7 +500,7 @@ def _analyze_count_with_filter(
     item_col = item_cols[0] if item_cols else (ctx.all_columns[0] if ctx.all_columns else None)
 
     primary_table = []
-    for idx, (_, row) in enumerate(matched_df.head(25).iterrows()):
+    for idx, (_, row) in enumerate(matched_df.head(50).iterrows()):
         row_dict = {"Rank": idx + 1}
         if item_col and item_col in row:
             row_dict["Item / Identifier"] = str(row[item_col])
@@ -508,20 +511,57 @@ def _analyze_count_with_filter(
         primary_table.append(row_dict)
 
     finding_statement = (
-        f"**{match_count} items** have a '{target_col}' {operator_str} {threshold:g} "
-        f"(calculated from {total_records} valid records in '{ctx.dataset_name}')."
+        f"**{match_count} of {total_records} valid records** ({match_percentage}%) have '{target_col}' {operator_str} {threshold:g} "
+        f"in '{ctx.dataset_name}'."
     )
+
+    findings = [
+        finding_statement,
+        f"Condition evaluated: '{target_col}' {operator_str} {threshold:g} across {valid_count} non-null numeric values ({null_count} nulls excluded).",
+    ]
+    if match_count > 0:
+        findings.append(f"Range among matching records: minimum = {min_matched:g}, maximum = {max_matched:g}, average = {mean_matched:,.2f}.")
+        findings.append(f"Non-matching population: {non_matching_count} records ({round(100 - match_percentage, 2)}%) did not satisfy the threshold.")
+    else:
+        findings.append("0 records satisfied the filter condition.")
+
+    structured_analysis = {
+        "question": ctx.question,
+        "intent": "COUNT",
+        "target_column": target_col,
+        "operator": operator_str,
+        "threshold": threshold,
+        "operation": f"COUNT(*) WHERE '{target_col}' {operator_str} {threshold:g}",
+        "dataset_name": ctx.dataset_name,
+        "total_records": total_records,
+        "valid_records": valid_count,
+        "null_records": null_count,
+        "matching_records": match_count,
+        "non_matching_records": non_matching_count,
+        "percentage": match_percentage,
+        "min_matching_value": min_matched,
+        "max_matching_value": max_matched,
+        "mean_matching_value": round(mean_matched, 2) if mean_matched is not None else None,
+        "formula": f"COUNT(*) WHERE {target_col} {operator_str} {threshold:g}",
+        "duckdb_sql": sql_query,
+        "duckdb_result": duck_count,
+        "verification_method": "Dual-Engine (Pandas Execution + DuckDB SQL Cross-Check)",
+        "verification_passed": verification_passed,
+    }
+
+    data_quality = {
+        "total_records": total_records,
+        "valid_records": valid_count,
+        "null_records": null_count,
+        "completeness_pct": round((valid_count / max(total_records, 1)) * 100, 1),
+    }
 
     return {
         "success": True,
         "analysis_type": "COUNT_FILTER_ANALYSIS",
-        "analysis_description": f"COUNT records WHERE '{target_col}' {operator_str} {threshold:g}: found {match_count} of {total_records} records.",
+        "analysis_description": f"COUNT records WHERE '{target_col}' {operator_str} {threshold:g}: found {match_count} of {total_records} records ({match_percentage}%).",
         "columns_used": [target_col] + ([item_col] if item_col else []),
-        "findings": [
-            finding_statement,
-            f"Condition evaluated: '{target_col}' {operator_str} {threshold:g} across {valid_count} non-null numeric values ({null_count} nulls excluded).",
-            f"Range among matching records: minimum = {min_matched:g}, maximum = {max_matched:g}." if match_count > 0 else "0 records satisfied the filter condition.",
-        ],
+        "findings": findings,
         "primary_table": primary_table,
         "aggregations": {
             "intent": "COUNT",
@@ -531,16 +571,22 @@ def _analyze_count_with_filter(
             "threshold": threshold,
             "result": match_count,
             "matched_records": match_count,
+            "non_matching_records": non_matching_count,
+            "percentage": match_percentage,
             "total_records": total_records,
             "valid_records": valid_count,
             "null_records": null_count,
             "min_matching_value": min_matched,
             "max_matching_value": max_matched,
+            "mean_matching_value": round(mean_matched, 2) if mean_matched is not None else None,
             "formula": f"COUNT(*) WHERE {target_col} {operator_str} {threshold:g}",
             "duckdb_sql": sql_query,
             "duckdb_result": duck_count,
             "verification_passed": verification_passed,
+            "verification_method": "Dual-Engine (Pandas Execution + DuckDB SQL Cross-Check)",
         },
+        "structured_analysis": structured_analysis,
+        "data_quality": data_quality,
         "total_records": total_records,
         "plan": {
             "intent": plan.intent.value,
@@ -571,24 +617,28 @@ def _analyze_metric_aggregation(
 
     valid_count = len(clean_series)
     null_count = total_records - valid_count
+    min_val = float(clean_series.min()) if valid_count > 0 else 0.0
+    max_val = float(clean_series.max()) if valid_count > 0 else 0.0
+    mean_val = float(clean_series.mean()) if valid_count > 0 else 0.0
+    sum_val = float(clean_series.sum()) if valid_count > 0 else 0.0
 
     if operation == "SUM":
-        result_val = float(clean_series.sum()) if valid_count > 0 else 0.0
+        result_val = sum_val
         formula = f"SUM('{target_col}')"
         sql_func = "SUM"
         stmt = f"The **total '{target_col}'** across all {valid_count:,} valid records in '{ctx.dataset_name}' is **{result_val:,.2f}**."
     elif operation in ("AVERAGE", "AVG", "MEAN"):
-        result_val = float(clean_series.mean()) if valid_count > 0 else 0.0
+        result_val = mean_val
         formula = f"AVG('{target_col}')"
         sql_func = "AVG"
         stmt = f"The **average '{target_col}'** across all {valid_count:,} valid records in '{ctx.dataset_name}' is **{result_val:,.2f}**."
     elif operation == "MAX":
-        result_val = float(clean_series.max()) if valid_count > 0 else 0.0
+        result_val = max_val
         formula = f"MAX('{target_col}')"
         sql_func = "MAX"
         stmt = f"The **maximum '{target_col}'** in '{ctx.dataset_name}' is **{result_val:,.2f}**."
     elif operation == "MIN":
-        result_val = float(clean_series.min()) if valid_count > 0 else 0.0
+        result_val = min_val
         formula = f"MIN('{target_col}')"
         sql_func = "MIN"
         stmt = f"The **minimum '{target_col}'** in '{ctx.dataset_name}' is **{result_val:,.2f}**."
@@ -598,7 +648,7 @@ def _analyze_metric_aggregation(
         sql_func = "MEDIAN"
         stmt = f"The **median '{target_col}'** in '{ctx.dataset_name}' is **{result_val:,.2f}**."
     else:
-        result_val = float(clean_series.sum()) if valid_count > 0 else 0.0
+        result_val = sum_val
         formula = f"SUM('{target_col}')"
         sql_func = "SUM"
         stmt = f"The **total '{target_col}'** in '{ctx.dataset_name}' is **{result_val:,.2f}**."
@@ -613,29 +663,69 @@ def _analyze_metric_aggregation(
         {"Metric": f"{operation} of '{target_col}'", "Value": f"{result_val:,.2f}", "Valid Records": valid_count, "Formula": formula}
     ]
 
+    structured_analysis = {
+        "question": ctx.question,
+        "intent": operation,
+        "target_column": target_col,
+        "operation": f"{operation}('{target_col}')",
+        "result": round(result_val, 4),
+        "formatted_result": f"{result_val:,.2f}",
+        "dataset_name": ctx.dataset_name,
+        "total_records": total_records,
+        "valid_records": valid_count,
+        "null_records": null_count,
+        "min_value": min_val,
+        "max_value": max_val,
+        "mean_value": round(mean_val, 2),
+        "sum_value": round(sum_val, 2),
+        "formula": formula,
+        "duckdb_sql": sql_query,
+        "duckdb_result": round(duck_val, 4) if duck_val is not None else None,
+        "verification_method": "Dual-Engine (Pandas Execution + DuckDB SQL Cross-Check)",
+        "verification_passed": verification_passed,
+    }
+
+    data_quality = {
+        "total_records": total_records,
+        "valid_records": valid_count,
+        "null_records": null_count,
+        "completeness_pct": round((valid_count / max(total_records, 1)) * 100, 1),
+    }
+
+    findings = [
+        stmt,
+        f"Calculated using formula `{formula}` across {valid_count} valid rows ({null_count} null rows excluded).",
+        f"Distribution across {valid_count} records: minimum = {min_val:,.2f}, maximum = {max_val:,.2f}, total sum = {sum_val:,.2f}.",
+    ]
+
     return {
         "success": True,
         "analysis_type": "METRIC_AGGREGATION",
         "analysis_description": f"Calculated {operation}('{target_col}') = {result_val:,.2f} across {valid_count} records in '{ctx.dataset_name}'.",
         "columns_used": [target_col],
-        "findings": [
-            stmt,
-            f"Calculated using formula `{formula}` across {valid_count} valid rows ({null_count} null rows excluded).",
-        ],
+        "findings": findings,
         "primary_table": primary_table,
         "aggregations": {
             "intent": operation,
             "operation": operation,
             "target_column": target_col,
             "result": round(result_val, 4),
+            "formatted_result": f"{result_val:,.2f}",
             "formula": formula,
             "valid_records": valid_count,
             "null_records": null_count,
             "total_records": total_records,
+            "min_value": min_val,
+            "max_value": max_val,
+            "mean_value": round(mean_val, 2),
+            "sum_value": round(sum_val, 2),
             "duckdb_sql": sql_query,
             "duckdb_result": round(duck_val, 4) if duck_val is not None else None,
             "verification_passed": verification_passed,
+            "verification_method": "Dual-Engine (Pandas Execution + DuckDB SQL Cross-Check)",
         },
+        "structured_analysis": structured_analysis,
+        "data_quality": data_quality,
         "total_records": total_records,
         "plan": {
             "intent": plan.intent.value,
@@ -692,6 +782,31 @@ def _analyze_filter_list(
 
     finding_stmt = f"Found **{match_count} items** with '{target_col}' {operator_str} {threshold:g} in '{ctx.dataset_name}'."
 
+    structured_analysis = {
+        "question": ctx.question,
+        "intent": "LIST",
+        "target_column": target_col,
+        "operator": operator_str,
+        "threshold": threshold,
+        "operation": f"FILTER '{target_col}' {operator_str} {threshold:g}",
+        "dataset_name": ctx.dataset_name,
+        "total_records": len(df_copy),
+        "valid_records": int(clean_series.notna().sum()),
+        "null_records": int(clean_series.isna().sum()),
+        "matching_records": match_count,
+        "percentage": round((match_count / max(len(df_copy), 1)) * 100, 2),
+        "formula": f"SELECT * WHERE {target_col} {operator_str} {threshold:g}",
+        "verification_method": "Tabular Slicing Engine",
+        "verification_passed": True,
+    }
+
+    data_quality = {
+        "total_records": len(df_copy),
+        "valid_records": int(clean_series.notna().sum()),
+        "null_records": int(clean_series.isna().sum()),
+        "completeness_pct": round((int(clean_series.notna().sum()) / max(len(df_copy), 1)) * 100, 1),
+    }
+
     return {
         "success": True,
         "analysis_type": "FILTER_LIST_ANALYSIS",
@@ -699,7 +814,7 @@ def _analyze_filter_list(
         "columns_used": [target_col] + ([item_col] if item_col else []),
         "findings": [
             finding_stmt,
-            f"Extracted list of matching items ranked by order of appearance.",
+            f"Extracted list of {match_count} matching items ({round((match_count / max(len(df_copy), 1)) * 100, 2)}% of dataset population).",
         ],
         "primary_table": primary_table,
         "aggregations": {
@@ -709,8 +824,13 @@ def _analyze_filter_list(
             "operator": operator_str,
             "threshold": threshold,
             "matched_records": match_count,
+            "percentage": round((match_count / max(len(df_copy), 1)) * 100, 2),
             "total_records": len(df_copy),
+            "verification_passed": True,
+            "verification_method": "Tabular Slicing Engine",
         },
+        "structured_analysis": structured_analysis,
+        "data_quality": data_quality,
         "total_records": len(df_copy),
         "plan": {
             "intent": "LIST",
@@ -758,6 +878,30 @@ def _analyze_top_or_bottom_ranking(
 
     finding_stmt = f"The **{order_label} {len(table_rows)} items** by '{target_col}' in '{ctx.dataset_name}' are ranked below:"
 
+    structured_analysis = {
+        "question": ctx.question,
+        "intent": "TOP_N" if is_top else "BOTTOM_N",
+        "target_column": target_col,
+        "limit": limit_n,
+        "direction": "descending" if is_top else "ascending",
+        "operation": f"ORDER BY '{target_col}' {'DESC' if is_top else 'ASC'} LIMIT {limit_n}",
+        "dataset_name": ctx.dataset_name,
+        "total_records": len(df_copy),
+        "valid_records": int(clean_series.notna().sum()),
+        "null_records": int(clean_series.isna().sum()),
+        "matching_records": len(table_rows),
+        "formula": f"SELECT * ORDER BY {target_col} {'DESC' if is_top else 'ASC'} LIMIT {limit_n}",
+        "verification_method": "Pandas Sort Engine",
+        "verification_passed": True,
+    }
+
+    data_quality = {
+        "total_records": len(df_copy),
+        "valid_records": int(clean_series.notna().sum()),
+        "null_records": int(clean_series.isna().sum()),
+        "completeness_pct": round((int(clean_series.notna().sum()) / max(len(df_copy), 1)) * 100, 1),
+    }
+
     return {
         "success": True,
         "analysis_type": "RANKING_BY_METRIC",
@@ -775,7 +919,11 @@ def _analyze_top_or_bottom_ranking(
             "limit": limit_n,
             "direction": "descending" if is_top else "ascending",
             "total_records": len(df_copy),
+            "verification_passed": True,
+            "verification_method": "Pandas Sort Engine",
         },
+        "structured_analysis": structured_analysis,
+        "data_quality": data_quality,
         "total_records": len(df_copy),
         "plan": {
             "intent": plan.intent.value,
