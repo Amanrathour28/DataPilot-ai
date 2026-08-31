@@ -37,6 +37,8 @@ function OrgWorkspaceSwitcher() {
   const [showNewWsModal, setShowNewWsModal] = useState(false)
   const [newOrgName, setNewOrgName] = useState('')
   const [newWsName, setNewWsName] = useState('')
+  const [orgError, setOrgError] = useState(null)
+  const [wsError, setWsError] = useState(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
@@ -52,13 +54,17 @@ function OrgWorkspaceSwitcher() {
   const handleCreateOrg = async (e) => {
     e.preventDefault()
     if (!newOrgName.trim()) return
+    setOrgError(null)
     try {
       setIsSubmitting(true)
       const newOrg = await createOrganization({ name: newOrgName.trim() })
       setNewOrgName('')
+      setOrgError(null)
       setShowNewOrgModal(false)
       if (newOrg?.id) fetchWorkspaces(newOrg.id)
     } catch (err) {
+      const msg = err.userMessage || err.detail || err.response?.data?.detail || err.message || 'Failed to create organization'
+      setOrgError(msg)
       console.error('Failed to create organization:', err)
     } finally {
       setIsSubmitting(false)
@@ -68,6 +74,7 @@ function OrgWorkspaceSwitcher() {
   const handleCreateWs = async (e) => {
     e.preventDefault()
     if (!newWsName.trim() || !activeOrganization?.id) return
+    setWsError(null)
     try {
       setIsSubmitting(true)
       await createWorkspace({
@@ -75,8 +82,11 @@ function OrgWorkspaceSwitcher() {
         organization_id: activeOrganization.id,
       })
       setNewWsName('')
+      setWsError(null)
       setShowNewWsModal(false)
     } catch (err) {
+      const msg = err.userMessage || err.detail || err.response?.data?.detail || err.message || 'Failed to create workspace'
+      setWsError(msg)
       console.error('Failed to create workspace:', err)
     } finally {
       setIsSubmitting(false)
@@ -205,6 +215,11 @@ function OrgWorkspaceSwitcher() {
                 <X size={14} />
               </button>
             </div>
+            {orgError && (
+              <div className="p-2.5 bg-rose-500/10 border border-rose-500/20 text-rose-300 font-mono text-[11px] leading-tight">
+                {orgError}
+              </div>
+            )}
             <form onSubmit={handleCreateOrg} className="space-y-3">
               <div>
                 <label className="block font-mono text-[10px] uppercase tracking-widest text-[#f2f2ef]/50 mb-1">
@@ -252,6 +267,11 @@ function OrgWorkspaceSwitcher() {
                 <X size={14} />
               </button>
             </div>
+            {wsError && (
+              <div className="p-2.5 bg-rose-500/10 border border-rose-500/20 text-rose-300 font-mono text-[11px] leading-tight">
+                {wsError}
+              </div>
+            )}
             <form onSubmit={handleCreateWs} className="space-y-3">
               <div>
                 <label className="block font-mono text-[10px] uppercase tracking-widest text-[#f2f2ef]/50 mb-1">

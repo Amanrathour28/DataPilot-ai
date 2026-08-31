@@ -47,24 +47,17 @@ export default function DataExplorer({ datasetId }) {
       const res = await datasetsApi.query(datasetId, sqlQuery)
       setQueryResult(res)
     } catch (err) {
-      const status = err.response?.status
-      const detail = err.response?.data?.detail
-      let message = 'Failed to execute query.'
+      const rawDetail = err.response?.data?.detail
+      let message = err.userMessage || 'Failed to execute query.'
 
-      if (status === 401) {
-        message = 'Authentication session expired. Please refresh or log in again.'
-      } else if (status === 403) {
-        message = 'Access denied. You do not have permission to query this dataset.'
-      } else if (status === 404) {
-        message = typeof detail === 'string' ? detail : 'Dataset not found or data snapshot unavailable.'
-      } else if (status === 422 || status === 400) {
-        message = typeof detail === 'string' ? detail : 'Invalid SQL query syntax or operation.'
-      } else if (typeof detail === 'string') {
-        message = detail
-      } else if (typeof detail === 'object' && detail !== null) {
-        message = detail.message || detail.error || detail.details || JSON.stringify(detail)
-      } else if (err.message === 'Network Error' || err.code === 'ERR_NETWORK') {
-        message = 'Network Error: Backend API is unreachable or request was blocked by CORS.'
+      if (typeof rawDetail === 'string') {
+        message = rawDetail
+      } else if (Array.isArray(rawDetail)) {
+        message = rawDetail.map(d => (typeof d === 'string' ? d : d.msg || d.message || JSON.stringify(d))).join('; ')
+      } else if (rawDetail && typeof rawDetail === 'object') {
+        message = rawDetail.message || rawDetail.error || JSON.stringify(rawDetail)
+      } else if (err.userMessage) {
+        message = err.userMessage
       } else if (err.message) {
         message = err.message
       }

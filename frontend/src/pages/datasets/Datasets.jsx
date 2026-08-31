@@ -163,6 +163,24 @@ export default function Datasets() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[1, 2, 3].map(i => <CardSkeleton key={i} />)}
         </div>
+      ) : isError ? (
+        <div className="p-8 border border-rose-500/20 bg-rose-500/5 text-center space-y-3 font-mono text-xs">
+          <div className="inline-flex p-3 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20">
+            <AlertCircle size={20} />
+          </div>
+          <div className="space-y-1 max-w-md mx-auto">
+            <h4 className="text-sm font-bold text-[#f2f2ef] uppercase">Failed to Load Datasets</h4>
+            <p className="text-[11px] text-rose-300/80 leading-relaxed">
+              {error?.userMessage || error?.detail || error?.response?.data?.detail || error?.message || 'The server encountered an error while fetching workspace datasets.'}
+            </p>
+          </div>
+          <div className="pt-2">
+            <Button variant="secondary" size="sm" onClick={() => refetch()}>
+              <RefreshCw size={12} className={clsx(isRefetching && 'animate-spin')} />
+              <span>Retry Request</span>
+            </Button>
+          </div>
+        </div>
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={Database}

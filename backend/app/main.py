@@ -52,130 +52,13 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning(f"Could not enable pgvector extension: {e}")
 
-    # Auto-create tables if they don't exist (gracefully retry on query if cold starting)
+    # Auto-create tables and verify schema
     try:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-            
-            # Ensure newly added columns exist in tables (Postgres auto-migration)
-            if not _is_sqlite:
-                from sqlalchemy import text
-                migrations = [
-                    "SELECT setval(c.relname, 1000, true) FROM pg_class c WHERE c.relkind = 'S';",
-                    "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS description TEXT;",
-                    "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;",
-                    "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS error_message TEXT;",
-                    "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS raw_data TEXT;",
-                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS parent_id VARCHAR(36);",
-                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS reinvestigation_count INTEGER DEFAULT 0;",
-                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS confidence_breakdown JSON;",
-                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS applied_memories JSON;",
-                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS critic_reviews JSON;",
-                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS plan JSON;",
-                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS evidence_ledger JSON;",
-                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS root_causes JSON;",
-                    "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;",
-                    "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS description TEXT;",
-                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;",
-                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE;",
-                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(512);",
-                    "ALTER TABLE investigation_tasks ADD COLUMN IF NOT EXISTS step_number INTEGER;",
-                    "ALTER TABLE investigation_tasks ADD COLUMN IF NOT EXISTS duration_ms INTEGER;",
-                    "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS agent_role VARCHAR(64);",
-                    "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS error_message TEXT;",
-                    "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS duration_ms INTEGER;",
-                    "ALTER TABLE findings ADD COLUMN IF NOT EXISTS causal_classification VARCHAR(64);",
-                    "ALTER TABLE hypotheses ADD COLUMN IF NOT EXISTS causal_classification VARCHAR(64);",
-                    "ALTER TABLE hypotheses ADD COLUMN IF NOT EXISTS statistical_results JSON;",
-                    "ALTER TABLE hypotheses ADD COLUMN IF NOT EXISTS details JSON;",
-                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS agent_activity JSON;",
-                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS execution_id VARCHAR(36);",
-                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS locked_by VARCHAR(100);",
-                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS lock_expires_at TIMESTAMP WITH TIME ZONE;",
-                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS heartbeat_at TIMESTAMP WITH TIME ZONE;",
-                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS last_completed_stage VARCHAR(50);",
-                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS failure_reason TEXT;",
-                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS attempt_number INTEGER DEFAULT 1;",
-                    "ALTER TABLE investigation_tasks ADD COLUMN IF NOT EXISTS execution_id VARCHAR(36);",
-                    "ALTER TABLE investigation_tasks ADD COLUMN IF NOT EXISTS started_at TIMESTAMP WITH TIME ZONE;",
-                    "ALTER TABLE investigation_tasks ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP WITH TIME ZONE;",
-                    "ALTER TABLE investigation_tasks ADD COLUMN IF NOT EXISTS error TEXT;",
-                    "ALTER TABLE investigation_tasks ADD COLUMN IF NOT EXISTS retry_count INTEGER DEFAULT 0;",
-                    "ALTER TABLE investigation_tasks ADD COLUMN IF NOT EXISTS max_retries INTEGER DEFAULT 2;",
-                    "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS organization_id VARCHAR(36);",
-                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS organization_id VARCHAR(36);",
-                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS assigned_to VARCHAR(36);",
-                    "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS visibility VARCHAR(32) DEFAULT 'WORKSPACE';",
-                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS google_id VARCHAR(255);",
-                    "ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider VARCHAR(32) DEFAULT 'email';",
-                    "CREATE TABLE IF NOT EXISTS password_reset_tokens (id VARCHAR(36) PRIMARY KEY, user_id VARCHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE, token_hash VARCHAR(64) UNIQUE NOT NULL, expires_at TIMESTAMP WITH TIME ZONE NOT NULL, used_at TIMESTAMP WITH TIME ZONE, created_at TIMESTAMP WITH TIME ZONE NOT NULL);",
-                    "CREATE INDEX IF NOT EXISTS ix_password_reset_tokens_user_id ON password_reset_tokens(user_id);",
-                    "CREATE INDEX IF NOT EXISTS ix_password_reset_tokens_token_hash ON password_reset_tokens(token_hash);",
-                    "CREATE INDEX IF NOT EXISTS ix_users_google_id ON users(google_id);",
-                    "DO $$ BEGIN IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'investigation_events_seq_seq') THEN PERFORM setval('investigation_events_seq_seq', GREATEST(COALESCE((SELECT MAX(seq) FROM investigation_events), 0), 1000) + 100, true); END IF; END $$;",
-                ]
-                for stmt in migrations:
-                    try:
-                        await conn.execute(text(stmt))
-                    except Exception as col_err:
-                        logger.warning(f"Column migration skipped: {col_err}")
-            else:
-                from sqlalchemy import text
-                sqlite_migrations = [
-                    "ALTER TABLE workspaces ADD COLUMN organization_id VARCHAR(36);",
-                    "ALTER TABLE investigations ADD COLUMN organization_id VARCHAR(36);",
-                    "ALTER TABLE investigations ADD COLUMN assigned_to VARCHAR(36);",
-                    "ALTER TABLE investigations ADD COLUMN visibility VARCHAR(32) DEFAULT 'WORKSPACE';",
-                    "ALTER TABLE datasets ADD COLUMN description TEXT;",
-                    "ALTER TABLE datasets ADD COLUMN is_deleted BOOLEAN DEFAULT 0;",
-                    "ALTER TABLE datasets ADD COLUMN error_message TEXT;",
-                    "ALTER TABLE datasets ADD COLUMN raw_data TEXT;",
-                    "ALTER TABLE users ADD COLUMN google_id VARCHAR(255);",
-                    "ALTER TABLE users ADD COLUMN auth_provider VARCHAR(32) DEFAULT 'email';",
-                    "CREATE TABLE IF NOT EXISTS password_reset_tokens (id VARCHAR(36) PRIMARY KEY, user_id VARCHAR(36) NOT NULL, token_hash VARCHAR(64) UNIQUE NOT NULL, expires_at TIMESTAMP NOT NULL, used_at TIMESTAMP, created_at TIMESTAMP NOT NULL);",
-                    "ALTER TABLE investigations ADD COLUMN parent_id VARCHAR(36);",
-                    "ALTER TABLE investigations ADD COLUMN reinvestigation_count INTEGER DEFAULT 0;",
-                    "ALTER TABLE investigations ADD COLUMN confidence_breakdown JSON;",
-                    "ALTER TABLE investigations ADD COLUMN applied_memories JSON;",
-                    "ALTER TABLE investigations ADD COLUMN critic_reviews JSON;",
-                    "ALTER TABLE investigations ADD COLUMN plan JSON;",
-                    "ALTER TABLE investigations ADD COLUMN evidence_ledger JSON;",
-                    "ALTER TABLE investigations ADD COLUMN root_causes JSON;",
-                    "ALTER TABLE investigations ADD COLUMN agent_activity JSON;",
-                    "ALTER TABLE investigations ADD COLUMN execution_id VARCHAR(36);",
-                    "ALTER TABLE investigations ADD COLUMN locked_by VARCHAR(100);",
-                    "ALTER TABLE investigations ADD COLUMN lock_expires_at TIMESTAMP;",
-                    "ALTER TABLE investigations ADD COLUMN heartbeat_at TIMESTAMP;",
-                    "ALTER TABLE investigations ADD COLUMN last_completed_stage VARCHAR(50);",
-                    "ALTER TABLE investigations ADD COLUMN failure_reason TEXT;",
-                    "ALTER TABLE investigations ADD COLUMN attempt_number INTEGER DEFAULT 1;",
-                    "ALTER TABLE workspaces ADD COLUMN is_deleted BOOLEAN DEFAULT 0;",
-                    "ALTER TABLE workspaces ADD COLUMN description TEXT;",
-                    "ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT 1;",
-                    "ALTER TABLE users ADD COLUMN is_verified BOOLEAN DEFAULT 0;",
-                    "ALTER TABLE users ADD COLUMN avatar_url VARCHAR(512);",
-                    "ALTER TABLE investigation_tasks ADD COLUMN step_number INTEGER;",
-                    "ALTER TABLE investigation_tasks ADD COLUMN duration_ms INTEGER;",
-                    "ALTER TABLE investigation_tasks ADD COLUMN execution_id VARCHAR(36);",
-                    "ALTER TABLE investigation_tasks ADD COLUMN started_at TIMESTAMP;",
-                    "ALTER TABLE investigation_tasks ADD COLUMN completed_at TIMESTAMP;",
-                    "ALTER TABLE investigation_tasks ADD COLUMN error TEXT;",
-                    "ALTER TABLE investigation_tasks ADD COLUMN retry_count INTEGER DEFAULT 0;",
-                    "ALTER TABLE investigation_tasks ADD COLUMN max_retries INTEGER DEFAULT 2;",
-                    "ALTER TABLE investigation_tasks ADD COLUMN next_retry_at TIMESTAMP;",
-                    "ALTER TABLE agent_runs ADD COLUMN agent_role VARCHAR(64);",
-                    "ALTER TABLE agent_runs ADD COLUMN error_message TEXT;",
-                    "ALTER TABLE agent_runs ADD COLUMN duration_ms INTEGER;",
-                    "ALTER TABLE findings ADD COLUMN causal_classification VARCHAR(64);",
-                    "ALTER TABLE hypotheses ADD COLUMN causal_classification VARCHAR(64);",
-                    "ALTER TABLE hypotheses ADD COLUMN statistical_results JSON;",
-                    "ALTER TABLE hypotheses ADD COLUMN details JSON;",
-                ]
-                for stmt in sqlite_migrations:
-                    try:
-                        await conn.execute(text(stmt))
-                    except Exception:
-                        pass
+        from app.db.base import ensure_schema_initialized
+        await ensure_schema_initialized()
+        logger.info("Database tables and columns verified/synchronized")
+    except Exception as e:
+        logger.warning(f"Database initialization warning on startup (will connect on query): {e}")
 
         logger.info("Database tables and columns verified/synchronized")
     except Exception as e:
@@ -283,36 +166,10 @@ async def health_check():
 
 @app.get("/api/v1/system/sync-schema", tags=["health"])
 async def sync_schema_endpoint():
-    """Endpoint to explicitly verify and migrate all database columns."""
-    from sqlalchemy import text
-    results = {}
-    migrations = [
-        "SELECT setval(c.relname, 1000, true) FROM pg_class c WHERE c.relkind = 'S';",
-        "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS description TEXT;",
-        "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;",
-        "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS error_message TEXT;",
-        "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS parent_id VARCHAR(36);",
-        "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS reinvestigation_count INTEGER DEFAULT 0;",
-        "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS confidence_breakdown JSON;",
-        "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS applied_memories JSON;",
-        "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS critic_reviews JSON;",
-        "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS plan JSON;",
-        "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS evidence_ledger JSON;",
-        "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS root_causes JSON;",
-        "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE;",
-        "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS description TEXT;",
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE;",
-        "ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(512);",
-    ]
+    """Endpoint to explicitly verify and migrate all database tables and columns."""
     try:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-            for stmt in migrations:
-                try:
-                    await conn.execute(text(stmt))
-                    results[stmt[:30]] = "OK"
-                except Exception as ex:
-                    results[stmt[:30]] = str(ex)
-        return {"status": "success", "results": results}
+        from app.db.base import ensure_schema_initialized
+        await ensure_schema_initialized()
+        return {"status": "success", "detail": "All tables and schemas successfully synchronized."}
     except Exception as e:
         return {"status": "error", "detail": str(e)}

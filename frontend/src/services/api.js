@@ -64,40 +64,53 @@ api.interceptors.response.use(
     const status = error.response?.status
     const url = error.config?.url || 'unknown'
     const method = error.config?.method?.toUpperCase() || 'REQUEST'
+    const rawDetail = error.response?.data?.detail
+
+    let detailStr = ''
+    if (typeof rawDetail === 'string') {
+      detailStr = rawDetail
+    } else if (Array.isArray(rawDetail)) {
+      detailStr = rawDetail.map(d => (typeof d === 'string' ? d : d.msg || d.message || JSON.stringify(d))).join('; ')
+    } else if (rawDetail && typeof rawDetail === 'object') {
+      detailStr = rawDetail.message || rawDetail.error || JSON.stringify(rawDetail)
+    }
 
     let userMessage = 'An unexpected error occurred.'
 
     if (!error.response) {
       if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
-        userMessage = 'The request timed out. The server may still be processing your files.'
+        userMessage = 'The request timed out. The server may still be processing large files or operations.'
       } else {
         userMessage = `Unable to connect to the DataPilot backend (${BASE_URL}). Please verify your network connection or server status.`
       }
     } else if (status === 401) {
       localStorage.removeItem('datapilot_token')
       localStorage.removeItem('datapilot_auth')
-      userMessage = 'Your session has expired. Please sign in again.'
+      userMessage = detailStr || 'Your session has expired. Please sign in again.'
     } else if (status === 403) {
-      userMessage = error.response?.data?.detail || 'You do not have permission to access datasets in this workspace.'
+      userMessage = detailStr || 'Access denied: You do not have permission to perform this action.'
     } else if (status === 404) {
-      userMessage = error.response?.data?.detail || 'The requested resource or workspace was not found.'
+      userMessage = detailStr || 'The requested resource was not found.'
+    } else if (status === 409) {
+      userMessage = detailStr || 'A conflict occurred with an existing resource.'
     } else if (status === 413) {
       userMessage = 'The uploaded file is too large (maximum allowed size is 100 MB).'
     } else if (status === 415) {
-      userMessage = 'Unsupported file type. Please upload a valid CSV, XLSX, or JSON file.'
+      userMessage = detailStr || 'Unsupported file type. Please upload a valid CSV, XLSX, or JSON file.'
+    } else if (status === 422) {
+      userMessage = detailStr || 'Validation error: Please check the submitted fields and try again.'
     } else if (status >= 500) {
-      userMessage = error.response?.data?.detail || 'Datasets could not be loaded because the server encountered an error. Please try again.'
+      userMessage = detailStr || 'The server encountered an internal error. Please try again or contact support.'
     } else {
-      userMessage = error.response?.data?.detail || error.message || 'Request failed.'
+      userMessage = detailStr || error.message || 'Request failed.'
     }
 
     // Attach structured diagnostic info
     error.userMessage = userMessage
     error.statusCode = status || 0
+    error.detail = detailStr
 
-    if (import.meta.env.DEV) {
-      console.warn(`[API Error] ${method} ${url} (Status ${status || 'Network Error'}):`, userMessage)
-    }
+    console.warn(`[API ${status || 'Network Error'}] ${method} ${url}:`, userMessage)
 
     return Promise.reject(error)
   }

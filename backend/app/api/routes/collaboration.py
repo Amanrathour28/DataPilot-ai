@@ -283,13 +283,12 @@ async def create_investigation_comment(
     await db.flush()
 
     # Record durable event for SSE streaming
-    bind = db.bind or getattr(db.sync_session, "bind", None)
-    is_sqlite = bind and bind.dialect.name == "sqlite" if bind else True
+    from app.db.base import _is_sqlite
     seq_val = None
-    if is_sqlite:
+    if _is_sqlite:
         from sqlalchemy import func
-        seq_res = await db.execute(select(func.coalesce(func.max(InvestigationEvent.seq), 0)))
-        seq_val = (seq_res.scalar() or 0) + 1
+        seq_res = await db.execute(select(func.coalesce(func.max(InvestigationEvent.seq), 1000)))
+        seq_val = (seq_res.scalar() or 1000) + 1
 
     event = InvestigationEvent(
         id=f"evt_{uuid.uuid4().hex[:12]}",
@@ -471,13 +470,12 @@ async def trigger_follow_up_from_comment(
         inv.lock_expires_at = None
 
     # Record event
-    bind = db.bind or getattr(db.sync_session, "bind", None)
-    is_sqlite = bind and bind.dialect.name == "sqlite" if bind else True
+    from app.db.base import _is_sqlite
     seq_val = None
-    if is_sqlite:
+    if _is_sqlite:
         from sqlalchemy import func
-        seq_res = await db.execute(select(func.coalesce(func.max(InvestigationEvent.seq), 0)))
-        seq_val = (seq_res.scalar() or 0) + 1
+        seq_res = await db.execute(select(func.coalesce(func.max(InvestigationEvent.seq), 1000)))
+        seq_val = (seq_res.scalar() or 1000) + 1
 
     event = InvestigationEvent(
         id=f"evt_{uuid.uuid4().hex[:12]}",
@@ -580,13 +578,12 @@ async def submit_finding_review(
     await db.flush()
 
     # Record durable event for SSE streaming
-    bind = db.bind or getattr(db.sync_session, "bind", None)
-    is_sqlite = bind and bind.dialect.name == "sqlite" if bind else True
+    from app.db.base import _is_sqlite
     seq_val = None
-    if is_sqlite:
+    if _is_sqlite:
         from sqlalchemy import func
-        seq_res = await db.execute(select(func.coalesce(func.max(InvestigationEvent.seq), 0)))
-        seq_val = (seq_res.scalar() or 0) + 1
+        seq_res = await db.execute(select(func.coalesce(func.max(InvestigationEvent.seq), 1000)))
+        seq_val = (seq_res.scalar() or 1000) + 1
 
     event = InvestigationEvent(
         id=f"evt_{uuid.uuid4().hex[:12]}",

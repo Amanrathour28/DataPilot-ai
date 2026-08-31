@@ -95,34 +95,39 @@ class InvestigationWorker:
         message: str,
         details: Optional[Dict[str, Any]] = None,
     ) -> InvestigationEvent:
-        """Records an append-only event into the investigation_events table."""
-        event_id = generate_event_id()
-        
-        # In SQLite, autoincrement doesn't automatically populate non-PK Identity columns
-        bind = db.bind or getattr(db.sync_session, "bind", None)
-        is_sqlite = bind and bind.dialect.name == "sqlite" if bind else True
-        seq_val = None
-        if is_sqlite:
-            from sqlalchemy import func
-            seq_res = await db.execute(
-                select(func.coalesce(func.max(InvestigationEvent.seq), 0))
-            )
-            max_seq = seq_res.scalar() or 0
-            seq_val = max_seq + 1
+        """Records an append-only event into the investigation_events table with collision-safe monotonic sequence."""
+        from app.db.base import _is_sqlite
 
-        evt = InvestigationEvent(
-            id=event_id,
-            investigation_id=investigation_id,
-            seq=seq_val,
-            agent=agent,
-            event_type=event_type,
-            message=message,
-            details=details or {},
-            created_at=utcnow(),
-        )
-        db.add(evt)
-        await db.commit()
-        return evt
+        for attempt in range(5):
+            event_id = generate_event_id()
+            seq_val = None
+            if _is_sqlite:
+                from sqlalchemy import func
+                seq_res = await db.execute(
+                    select(func.coalesce(func.max(InvestigationEvent.seq), 1000))
+                )
+                max_seq = seq_res.scalar() or 1000
+                seq_val = max_seq + 1 + attempt
+
+            evt = InvestigationEvent(
+                id=event_id,
+                investigation_id=investigation_id,
+                seq=seq_val,
+                agent=agent,
+                event_type=event_type,
+                message=message,
+                details=details or {},
+                created_at=utcnow(),
+            )
+            db.add(evt)
+            try:
+                await db.commit()
+                return evt
+            except Exception:
+                await db.rollback()
+                if attempt == 4:
+                    raise
+                await asyncio.sleep(0.05)
 
     async def acquire_lease(
         self, db: AsyncSession, investigation_id: str

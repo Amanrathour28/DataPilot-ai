@@ -127,16 +127,25 @@ async def _run_worker_async(investigation_id: str):
         _active_worker_tasks.pop(investigation_id, None)
 
 
-def ensure_worker_running(investigation_id: str) -> asyncio.Task:
+def ensure_worker_running(investigation_id: str) -> Optional[asyncio.Task]:
     """Ensures a worker task is active for an uncompleted investigation."""
     if investigation_id in _active_worker_tasks:
         t = _active_worker_tasks[investigation_id]
         if not t.done():
             return t
 
-    t = asyncio.create_task(_run_worker_async(investigation_id))
-    _active_worker_tasks[investigation_id] = t
-    return t
+    try:
+        loop = asyncio.get_running_loop()
+        t = loop.create_task(_run_worker_async(investigation_id))
+        _active_worker_tasks[investigation_id] = t
+        return t
+    except RuntimeError:
+        # If called outside an active event loop (e.g. Starlette sync threadpool), run safely
+        try:
+            asyncio.run(_run_worker_async(investigation_id))
+        except Exception as err:
+            logger.warning(f"Could not execute worker in sync threadpool: {err}")
+        return None
 
 
 from app.db.models.organization import OrganizationMember
@@ -746,7 +755,7 @@ async def replay_investigation(
         details={"parent_id": original.id, "status": "QUEUED"},
     )
 
-    background_tasks.add_task(ensure_worker_running, replayed.id)
+    background_tasks.add_task(_run_worker_async, replayed.id)
     return replayed
 
 
@@ -786,7 +795,7 @@ async def resume_investigation(
     await db.commit()
 
     broadcast_event(investigation_id, {"type": "status", "status": inv.status, "message": "Investigation resumed."})
-    background_tasks.add_task(ensure_worker_running, investigation_id)
+    background_tasks.add_task(_run_worker_async, investigation_id)
     return {"status": inv.status, "investigation_id": investigation_id}
 
 
