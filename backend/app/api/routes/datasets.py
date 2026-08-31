@@ -147,18 +147,24 @@ async def get_dataset_profile(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get the profiling results for a dataset."""
+    """Get the profiling results for a dataset. Generates and persists on-demand if missing."""
     dataset = await dataset_service.get_dataset_by_id(dataset_id, current_user.id, db)
     result = await db.execute(
         select(DatasetProfile).where(DatasetProfile.dataset_id == dataset_id)
     )
     profile = result.scalar_one_or_none()
 
-    if not profile:
-        raise HTTPException(
-            status_code=404,
-            detail="Profile not yet available. Dataset may still be processing.",
-        )
+    # Self-healing on-demand generation if profile was not yet created or column_profiles is missing
+    if not profile or not profile.column_profiles:
+        try:
+            from app.services.profiling_service import generate_and_persist_profile
+            profile = await generate_and_persist_profile(dataset, db)
+        except Exception as prof_err:
+            logger.warning(f"Could not auto-generate profile for {dataset_id}: {prof_err}")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Profiling information could not be generated: {str(prof_err)}",
+            )
 
     return profile
 
@@ -187,17 +193,24 @@ async def delete_dataset(
     await dataset_service.delete_dataset(dataset_id, current_user.id, db)
 
 
-@router.post("/{dataset_id}/reprofile", response_model=DatasetResponse)
+@router.post("/{dataset_id}/reprofile", response_model=DatasetProfileResponse)
 async def reprofile_dataset(
     dataset_id: str,
-    background_tasks: BackgroundTasks = BackgroundTasks(),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Re-trigger profiling for an existing dataset."""
+    """Re-trigger and compute profiling for an existing dataset synchronously."""
     dataset = await dataset_service.get_dataset_by_id(dataset_id, current_user.id, db)
-    background_tasks.add_task(run_profiling, dataset.id)
-    return dataset
+    from app.services.profiling_service import generate_and_persist_profile
+    try:
+        profile = await generate_and_persist_profile(dataset, db)
+        return profile
+    except Exception as e:
+        logger.error(f"Reprofiling failed for {dataset_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to reprofile dataset '{dataset.name}': {str(e)}"
+        )
 
 
 @router.get("/{dataset_id}/preview")

@@ -19,6 +19,7 @@ except ImportError:
     np = None
     pd = None
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.base import AsyncSessionLocal
 from app.db.models.dataset import Dataset, DatasetProfile, DatasetStatus
 
@@ -33,15 +34,23 @@ PII_PATTERNS = re.compile(
 
 def _infer_column_type(series: pd.Series) -> dict[str, bool]:
     """Determine the semantic type of a column."""
-    is_numeric = pd.api.types.is_numeric_dtype(series)
+    is_boolean = pd.api.types.is_bool_dtype(series)
+    is_numeric = pd.api.types.is_numeric_dtype(series) and not is_boolean
     is_datetime = False
     is_categorical = False
     is_identifier = False
 
-    dtype_str = str(series.dtype)
+    dtype_str = str(series.dtype).lower()
+
+    # Try to detect boolean from string/integer values
+    if not is_boolean and not is_numeric:
+        clean_non_null = series.dropna().astype(str).str.strip().str.lower()
+        if len(clean_non_null) > 0 and clean_non_null.isin(["true", "false", "0", "1", "yes", "no", "t", "f", "y", "n"]).all():
+            if clean_non_null.nunique() <= 2:
+                is_boolean = True
 
     # Try to detect datetime
-    if not is_numeric and "datetime" not in dtype_str:
+    if not is_numeric and not is_boolean and "datetime" not in dtype_str:
         sample = series.dropna().head(100)
         if len(sample) > 0:
             try:
@@ -50,26 +59,44 @@ def _infer_column_type(series: pd.Series) -> dict[str, bool]:
             except Exception:
                 pass
 
-    if "datetime" in dtype_str:
+    if "datetime" in dtype_str or "timestamp" in dtype_str:
         is_datetime = True
 
     # Categorical: low unique ratio or object dtype with few unique values
-    if not is_numeric and not is_datetime:
+    if not is_numeric and not is_datetime and not is_boolean:
         unique_ratio = series.nunique() / max(len(series), 1)
         if unique_ratio < 0.05 or series.nunique() < 30:
             is_categorical = True
 
     # Identifier: high uniqueness, numeric or string-like
-    unique_ratio = series.nunique() / max(len(series), 1)
-    if unique_ratio > 0.95 and len(series) > 10:
-        is_identifier = True
+    if not is_boolean:
+        unique_ratio = series.nunique() / max(len(series), 1)
+        if unique_ratio > 0.95 and len(series) > 10:
+            is_identifier = True
 
     return {
         "is_numeric": is_numeric,
         "is_datetime": is_datetime,
         "is_categorical": is_categorical,
         "is_identifier": is_identifier,
+        "is_boolean": is_boolean,
     }
+
+
+def _map_to_sql_type(series: pd.Series, type_flags: dict[str, bool]) -> str:
+    """Map pandas series and semantic flags to standard SQL / DuckDB data types."""
+    dtype_str = str(series.dtype).lower()
+    if type_flags.get("is_boolean"):
+        return "BOOLEAN"
+    if "int" in dtype_str:
+        return "BIGINT" if ("64" in dtype_str or "int" == dtype_str) else "INTEGER"
+    if "float" in dtype_str or "double" in dtype_str or "decimal" in dtype_str:
+        return "DOUBLE"
+    if type_flags.get("is_datetime") or "datetime" in dtype_str or "timestamp" in dtype_str:
+        return "TIMESTAMP"
+    if "date" in dtype_str:
+        return "DATE"
+    return "VARCHAR"
 
 
 def _compute_numeric_stats(series: pd.Series) -> dict[str, Any]:
@@ -82,13 +109,13 @@ def _compute_numeric_stats(series: pd.Series) -> dict[str, Any]:
         return {
             "mean": round(float(clean.mean()), 4),
             "median": round(float(clean.median()), 4),
-            "std": round(float(clean.std()), 4),
+            "std": round(float(clean.std()), 4) if len(clean) > 1 else 0.0,
             "min": round(float(clean.min()), 4),
             "max": round(float(clean.max()), 4),
             "q25": round(float(clean.quantile(0.25)), 4),
             "q75": round(float(clean.quantile(0.75)), 4),
-            "skewness": round(float(clean.skew()), 4),
-            "kurtosis": round(float(clean.kurtosis()), 4),
+            "skewness": round(float(clean.skew()), 4) if len(clean) > 2 else 0.0,
+            "kurtosis": round(float(clean.kurtosis()), 4) if len(clean) > 3 else 0.0,
             "zeros": int((clean == 0).sum()),
             "negatives": int((clean < 0).sum()),
         }
@@ -98,15 +125,15 @@ def _compute_numeric_stats(series: pd.Series) -> dict[str, Any]:
 
 
 def _get_sample_values(series: pd.Series, n: int = 5) -> list[Any]:
-    """Return sample non-null values, JSON-serializable."""
-    sample = series.dropna().head(n).tolist()
+    """Return sample non-null unique values, JSON-serializable."""
+    sample = series.dropna().unique()[:n].tolist()
     result = []
     for v in sample:
         if isinstance(v, (np.integer,)):
             result.append(int(v))
         elif isinstance(v, (np.floating,)):
             result.append(float(v))
-        elif isinstance(v, pd.Timestamp):
+        elif isinstance(v, (pd.Timestamp, datetime)):
             result.append(str(v))
         else:
             result.append(str(v) if not isinstance(v, str) else v)
@@ -147,8 +174,8 @@ def profile_dataframe(df: pd.DataFrame, dataset_name: str) -> dict[str, Any]:
         Dictionary with schema_info, column_profiles, quality_report, and sample_rows.
     """
     total_rows, total_cols = df.shape
-    duplicate_rows = int(df.duplicated().sum())
-    missing_cells = int(df.isnull().sum().sum())
+    duplicate_rows = int(df.duplicated().sum()) if total_rows > 0 else 0
+    missing_cells = int(df.isnull().sum().sum()) if total_rows > 0 else 0
     total_cells = total_rows * total_cols
     missing_pct = round(missing_cells / max(total_cells, 1) * 100, 2)
     duplicate_pct = round(duplicate_rows / max(total_rows, 1) * 100, 2)
@@ -173,11 +200,13 @@ def profile_dataframe(df: pd.DataFrame, dataset_name: str) -> dict[str, Any]:
         unique_count = int(series.nunique())
         unique_pct = round(unique_count / max(total_rows, 1) * 100, 2)
         type_flags = _infer_column_type(series)
+        sql_type = _map_to_sql_type(series, type_flags)
         pii_risk = bool(PII_PATTERNS.search(col))
 
         profile: dict[str, Any] = {
             "name": col,
             "dtype": str(series.dtype),
+            "sql_type": sql_type,
             "null_count": null_count,
             "null_pct": null_pct,
             "unique_count": unique_count,
@@ -189,7 +218,15 @@ def profile_dataframe(df: pd.DataFrame, dataset_name: str) -> dict[str, Any]:
 
         if type_flags["is_numeric"]:
             profile["stats"] = _compute_numeric_stats(series)
-        elif type_flags["is_categorical"]:
+        elif type_flags["is_datetime"]:
+            try:
+                valid_dt = pd.to_datetime(series.dropna(), errors="coerce").dropna()
+                if len(valid_dt) > 0:
+                    profile["min_date"] = str(valid_dt.min())
+                    profile["max_date"] = str(valid_dt.max())
+            except Exception:
+                pass
+        elif type_flags["is_categorical"] or type_flags["is_boolean"]:
             top = series.value_counts().head(5)
             profile["top_values"] = {str(k): int(v) for k, v in top.items()}
 
@@ -205,7 +242,7 @@ def profile_dataframe(df: pd.DataFrame, dataset_name: str) -> dict[str, Any]:
                 row_dict[k] = int(v)
             elif isinstance(v, (np.floating,)):
                 row_dict[k] = float(v)
-            elif isinstance(v, pd.Timestamp):
+            elif isinstance(v, (pd.Timestamp, datetime)):
                 row_dict[k] = str(v)
             else:
                 row_dict[k] = v
@@ -229,15 +266,85 @@ def profile_dataframe(df: pd.DataFrame, dataset_name: str) -> dict[str, Any]:
     }
 
 
+async def generate_and_persist_profile(dataset: Dataset, db: AsyncSession) -> DatasetProfile:
+    """Loads dataset from disk or database raw_data, generates profile, and persists DatasetProfile."""
+    import io
+
+    df = None
+    if dataset.file_path and Path(dataset.file_path).exists():
+        try:
+            df = _load_dataframe(dataset.file_path, dataset.file_extension)
+        except Exception as file_err:
+            logger.warning(f"Failed to load dataset file from disk ({dataset.file_path}): {file_err}")
+
+    if df is None and dataset.raw_data:
+        try:
+            ext = (dataset.file_extension or ".csv").lower()
+            if ext == ".json":
+                df = pd.read_json(io.StringIO(dataset.raw_data))
+            else:
+                df = pd.read_csv(io.StringIO(dataset.raw_data))
+            # Clean column names
+            df.columns = [str(c).strip() if pd.notna(c) else f"Column_{i+1}" for i, c in enumerate(df.columns)]
+        except Exception as raw_err:
+            logger.warning(f"Failed to load dataset from raw_data: {raw_err}")
+
+    if df is None:
+        raise ValueError(
+            f"Dataset '{dataset.name}' could not be located on disk ({dataset.file_path}) or database raw_data."
+        )
+
+    # Persist raw_data representation if not already saved
+    if not dataset.raw_data and len(df) > 0 and len(df) <= 50000:
+        try:
+            dataset.raw_data = df.to_csv(index=False)
+        except Exception:
+            pass
+
+    profile_data = profile_dataframe(df, dataset.name)
+
+    # Update dataset row/column counts and status
+    dataset.row_count = profile_data["quality_report"]["total_rows"]
+    dataset.column_count = profile_data["quality_report"]["total_columns"]
+    dataset.status = DatasetStatus.PROFILED.value
+    dataset.error_message = None
+
+    # Upsert DatasetProfile
+    existing = await db.execute(
+        select(DatasetProfile).where(DatasetProfile.dataset_id == dataset.id)
+    )
+    dp = existing.scalar_one_or_none()
+
+    if dp:
+        dp.schema_info = profile_data["schema_info"]
+        dp.column_profiles = profile_data["column_profiles"]
+        dp.quality_report = profile_data["quality_report"]
+        dp.sample_rows = profile_data["sample_rows"]
+        dp.profiled_at = datetime.now(timezone.utc)
+    else:
+        dp = DatasetProfile(
+            dataset_id=dataset.id,
+            schema_info=profile_data["schema_info"],
+            column_profiles=profile_data["column_profiles"],
+            quality_report=profile_data["quality_report"],
+            sample_rows=profile_data["sample_rows"],
+        )
+        db.add(dp)
+
+    await db.commit()
+    await db.refresh(dp)
+    logger.info(f"Successfully generated and persisted profile for '{dataset.name}' ({dataset.id}): {dataset.row_count} rows, {dataset.column_count} cols")
+    return dp
+
+
 async def run_profiling(dataset_id: str) -> None:
     """Background task entry point.
-
+    
     Uses AsyncSessionLocal for DB operations.
     Updates the Dataset status and writes a DatasetProfile record.
     """
     async with AsyncSessionLocal() as db:
         try:
-            # Fetch dataset
             result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
             dataset = result.scalar_one_or_none()
 
@@ -245,75 +352,9 @@ async def run_profiling(dataset_id: str) -> None:
                 logger.error(f"Profiling: Dataset {dataset_id} not found")
                 return
 
-            # Mark as profiling
-            dataset.status = DatasetStatus.PROFILING.value
-            await db.commit()
-
-            logger.info(f"Profiling started: {dataset.name} ({dataset_id})")
-
-            # Load and profile
-            df = None
-            if dataset.file_path and Path(dataset.file_path).exists():
-                try:
-                    df = _load_dataframe(dataset.file_path, dataset.file_extension)
-                except Exception as file_err:
-                    logger.warning(f"Failed to load dataset file from disk: {file_err}")
-
-            if df is None and dataset.raw_data:
-                import io
-                try:
-                    if dataset.file_extension.lower() == ".json":
-                        df = pd.read_json(io.StringIO(dataset.raw_data))
-                    else:
-                        df = pd.read_csv(io.StringIO(dataset.raw_data))
-                except Exception as raw_err:
-                    logger.warning(f"Failed to load dataset from raw_data: {raw_err}")
-
-            if df is None:
-                raise ValueError("Dataset source file could not be read from disk or database raw_data.")
-
-            # If raw_data was not set on initial upload, persist it now for future serverless durability
-            if not dataset.raw_data:
-                try:
-                    dataset.raw_data = df.to_csv(index=False)
-                except Exception as conv_err:
-                    logger.warning(f"Could not convert df to raw_data CSV string: {conv_err}")
-
-            profile_data = profile_dataframe(df, dataset.name)
-
-            # Update dataset row/column counts
-            dataset.row_count = profile_data["quality_report"]["total_rows"]
-            dataset.column_count = profile_data["quality_report"]["total_columns"]
-            dataset.status = DatasetStatus.PROFILED.value
-
-            # Upsert DatasetProfile
-            existing = await db.execute(
-                select(DatasetProfile).where(DatasetProfile.dataset_id == dataset_id)
-            )
-            dp = existing.scalar_one_or_none()
-
-            if dp:
-                dp.schema_info = profile_data["schema_info"]
-                dp.column_profiles = profile_data["column_profiles"]
-                dp.quality_report = profile_data["quality_report"]
-                dp.sample_rows = profile_data["sample_rows"]
-                dp.profiled_at = datetime.now(timezone.utc)
-            else:
-                dp = DatasetProfile(
-                    dataset_id=dataset_id,
-                    schema_info=profile_data["schema_info"],
-                    column_profiles=profile_data["column_profiles"],
-                    quality_report=profile_data["quality_report"],
-                    sample_rows=profile_data["sample_rows"],
-                )
-                db.add(dp)
-
-            await db.commit()
-            logger.info(f"Profiling complete: {dataset.name} — {dataset.row_count} rows, {dataset.column_count} cols")
-
+            await generate_and_persist_profile(dataset, db)
         except Exception as e:
-            logger.exception(f"Profiling failed for dataset {dataset_id}: {e}")
-            # Mark dataset as errored
+            logger.exception(f"Background profiling failed for dataset {dataset_id}: {e}")
             try:
                 result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
                 dataset = result.scalar_one_or_none()

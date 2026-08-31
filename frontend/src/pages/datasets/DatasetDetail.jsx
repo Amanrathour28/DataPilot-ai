@@ -58,9 +58,10 @@ export default function DatasetDetail() {
   const toast = useToast()
   const queryClient = useQueryClient()
   const [deleting, setDeleting] = useState(false)
+  const [isReprofiling, setIsReprofiling] = useState(false)
   const [activeTab, setActiveTab] = useState('profile') // 'profile' | 'explorer'
 
-  const { data: dataset, isLoading, error } = useQuery({
+  const { data: dataset, isLoading, error, refetch: refetchDataset } = useQuery({
     queryKey: ['dataset', id],
     queryFn: () => datasetsApi.get(id),
     enabled: !!id,
@@ -69,6 +70,36 @@ export default function DatasetDetail() {
       return d && (d.status === 'PROFILING' || d.status === 'UPLOADING') ? 3000 : false
     },
   })
+
+  const {
+    data: profile,
+    isLoading: isProfileLoading,
+    error: profileError,
+    refetch: refetchProfile,
+  } = useQuery({
+    queryKey: ['datasetProfile', id],
+    queryFn: () => datasetsApi.profile(id),
+    enabled: !!id,
+    retry: 1,
+    staleTime: 10000,
+  })
+
+  const handleReprofile = async () => {
+    setIsReprofiling(true)
+    try {
+      await datasetsApi.reprofile(id)
+      toast?.show('Dataset profile recomputed successfully', 'success')
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['dataset', id] }),
+        queryClient.invalidateQueries({ queryKey: ['datasetProfile', id] }),
+      ])
+    } catch (err) {
+      const msg = err.userMessage || err.detail || err.response?.data?.detail || err.message || 'Failed to reprofile dataset'
+      toast?.show(msg, 'error')
+    } finally {
+      setIsReprofiling(false)
+    }
+  }
 
   const handleDelete = async () => {
     if (!confirm('Are you sure you want to delete this dataset?')) return
@@ -134,6 +165,16 @@ export default function DatasetDetail() {
 
         <div className="flex items-center gap-3 flex-shrink-0">
           <Button
+            variant="secondary"
+            size="sm"
+            disabled={isReprofiling}
+            onClick={handleReprofile}
+          >
+            <RefreshCw size={13} className={clsx(isReprofiling && 'animate-spin')} />
+            <span>{isReprofiling ? 'Profiling…' : 'Reprofile'}</span>
+          </Button>
+
+          <Button
             variant="primary"
             size="sm"
             onClick={() => navigate('/investigations/new')}
@@ -159,14 +200,14 @@ export default function DatasetDetail() {
         <div className="p-4 border border-white/[0.08] bg-[#0c0c0c]">
           <span className="text-[#f2f2ef]/40 uppercase text-[10px] block mb-1">Total Records</span>
           <span className="text-[#f2f2ef] font-bold text-lg">
-            {dataset.row_count != null ? dataset.row_count.toLocaleString() : '—'}
+            {dataset.row_count != null ? dataset.row_count.toLocaleString() : (profile?.quality_report?.total_rows?.toLocaleString() ?? '—')}
           </span>
         </div>
 
         <div className="p-4 border border-white/[0.08] bg-[#0c0c0c]">
           <span className="text-[#f2f2ef]/40 uppercase text-[10px] block mb-1">Column Attributes</span>
           <span className="text-[#f2f2ef] font-bold text-lg">
-            {dataset.column_count != null ? dataset.column_count : '—'}
+            {dataset.column_count != null ? dataset.column_count : (profile?.quality_report?.total_columns ?? profile?.column_profiles?.length ?? '—')}
           </span>
         </div>
 
@@ -213,7 +254,14 @@ export default function DatasetDetail() {
 
       {/* Tab Panels */}
       {activeTab === 'profile' ? (
-        <ProfileView dataset={dataset} />
+        <ProfileView
+          profile={profile}
+          dataset={dataset}
+          isLoading={isProfileLoading}
+          error={profileError}
+          onReprofile={handleReprofile}
+          isReprofiling={isReprofiling}
+        />
       ) : (
         <DataExplorer datasetId={dataset.id} />
       )}

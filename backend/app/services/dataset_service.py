@@ -122,22 +122,21 @@ async def save_dataset_file(
     initial_row_count = None
     initial_col_count = None
 
+    parsed_df = None
     try:
         import pandas as pd
         if ext == ".csv":
             raw_data_str = content.decode("utf-8", errors="replace")
             try:
-                sample_df = pd.read_csv(io.StringIO(raw_data_str))
-                # Ensure column names are strings
-                sample_df.columns = [str(c).strip() for c in sample_df.columns]
-                initial_row_count = len(sample_df)
-                initial_col_count = len(sample_df.columns)
+                parsed_df = pd.read_csv(io.StringIO(raw_data_str))
+                parsed_df.columns = [str(c).strip() if pd.notna(c) else f"Column_{i+1}" for i, c in enumerate(parsed_df.columns)]
+                initial_row_count = len(parsed_df)
+                initial_col_count = len(parsed_df.columns)
             except Exception as csv_err:
                 logger.warning(f"Could not compute initial CSV metadata for {sanitized}: {csv_err}")
         elif ext in [".xlsx", ".xls"]:
             try:
                 engine = "openpyxl" if ext == ".xlsx" else None
-                # Read all sheets or first active sheet safely
                 xl_file = pd.ExcelFile(io.BytesIO(content), engine=engine)
                 sheet_names = xl_file.sheet_names
                 if not sheet_names:
@@ -146,16 +145,13 @@ async def save_dataset_file(
                         detail=f"Excel workbook '{original_name}' contains no worksheets."
                     )
                 target_sheet = sheet_names[0]
+                parsed_df = xl_file.parse(sheet_name=target_sheet)
+                parsed_df.columns = [str(c).strip() if pd.notna(c) else f"Column_{i+1}" for i, c in enumerate(parsed_df.columns)]
+                initial_row_count = len(parsed_df)
+                initial_col_count = len(parsed_df.columns)
                 
-                excel_df = xl_file.parse(sheet_name=target_sheet)
-                # Clean column headers
-                excel_df.columns = [str(c).strip() if pd.notna(c) else f"Column_{i+1}" for i, c in enumerate(excel_df.columns)]
-                initial_row_count = len(excel_df)
-                initial_col_count = len(excel_df.columns)
-                
-                # Persist CSV representation into raw_data for serverless resilience
                 if size <= 25 * 1024 * 1024:
-                    raw_data_str = excel_df.to_csv(index=False)
+                    raw_data_str = parsed_df.to_csv(index=False)
             except HTTPException:
                 raise
             except Exception as xl_err:
@@ -167,10 +163,10 @@ async def save_dataset_file(
         elif ext == ".json":
             raw_data_str = content.decode("utf-8", errors="replace")
             try:
-                json_df = pd.read_json(io.StringIO(raw_data_str))
-                json_df.columns = [str(c).strip() for c in json_df.columns]
-                initial_row_count = len(json_df)
-                initial_col_count = len(json_df.columns)
+                parsed_df = pd.read_json(io.StringIO(raw_data_str))
+                parsed_df.columns = [str(c).strip() if pd.notna(c) else f"Column_{i+1}" for i, c in enumerate(parsed_df.columns)]
+                initial_row_count = len(parsed_df)
+                initial_col_count = len(parsed_df.columns)
             except Exception as json_err:
                 logger.warning(f"Could not compute initial JSON metadata for {sanitized}: {json_err}")
     except HTTPException:
@@ -178,10 +174,9 @@ async def save_dataset_file(
     except Exception as parse_err:
         logger.warning(f"Non-fatal error during upload inspection for {sanitized}: {parse_err}")
 
-    # Create DB record first to get an ID
+    # Create DB record
     dataset_id = str(uuid.uuid4())
-    dataset_name = Path(sanitized).stem  # name without extension
-
+    dataset_name = Path(sanitized).stem
     file_path = _get_upload_path(workspace_id, dataset_id, sanitized)
 
     dataset = Dataset(
@@ -200,6 +195,23 @@ async def save_dataset_file(
         status=DatasetStatus.PROFILED.value if (initial_row_count is not None) else DatasetStatus.UPLOADED.value,
     )
     db.add(dataset)
+
+    # Immediately generate and persist DatasetProfile if DataFrame was parsed successfully
+    if parsed_df is not None:
+        try:
+            from app.services.profiling_service import profile_dataframe
+            profile_data = profile_dataframe(parsed_df, dataset_name)
+            dp = DatasetProfile(
+                dataset_id=dataset_id,
+                schema_info=profile_data["schema_info"],
+                column_profiles=profile_data["column_profiles"],
+                quality_report=profile_data["quality_report"],
+                sample_rows=profile_data["sample_rows"],
+            )
+            db.add(dp)
+        except Exception as prof_err:
+            logger.warning(f"Could not synchronously generate DatasetProfile on upload for {dataset_id}: {prof_err}")
+
     await db.commit()
 
     # Write file to disk after DB record is committed
