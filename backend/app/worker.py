@@ -1658,6 +1658,19 @@ class InvestigationWorker:
 
                 logger.info(f"[REPORT_PERSISTED] execution_id={exec_id} target_status={final_status}")
 
+                conf_breakdown_dict = conf_breakdown.model_dump()
+                if exec_context.analytics:
+                    if "structured_analysis" in exec_context.analytics:
+                        conf_breakdown_dict["structured_analysis"] = exec_context.analytics["structured_analysis"]
+                    if "data_quality" in exec_context.analytics:
+                        conf_breakdown_dict["data_quality"] = exec_context.analytics["data_quality"]
+                    conf_breakdown_dict["analysis_type"] = exec_context.analytics.get("analysis_type")
+                    conf_breakdown_dict["is_deterministic"] = len(all_hypotheses) == 0 or exec_context.analytics.get("analysis_type") in [
+                        "COUNT_FILTER_ANALYSIS", "METRIC_AGGREGATION", "FILTER_LIST_ANALYSIS",
+                        "RANKING_BY_METRIC", "GROUPED_AGGREGATION", "DATASET_VOLUME_ANALYSIS",
+                        "MISSING_VALUES_ANALYSIS", "TOTAL_PENDING_QUANTITY"
+                    ]
+
                 stmt = (
                     update(Investigation)
                     .where(
@@ -1670,7 +1683,7 @@ class InvestigationWorker:
                         summary=report_md,
                         confidence_score=calibrated_score,
                         root_causes=root_causes_snapshot,
-                        confidence_breakdown=conf_breakdown.model_dump(),
+                        confidence_breakdown=conf_breakdown_dict,
                         evidence_ledger=evidence_ledger_snapshot,
                         last_completed_stage="COMPLETED",
                         locked_by=None,
@@ -1690,7 +1703,7 @@ class InvestigationWorker:
                             summary=report_md,
                             confidence_score=calibrated_score,
                             root_causes=root_causes_snapshot,
-                            confidence_breakdown=conf_breakdown.model_dump(),
+                            confidence_breakdown=conf_breakdown_dict,
                             evidence_ledger=evidence_ledger_snapshot,
                             last_completed_stage="COMPLETED",
                             locked_by=None,

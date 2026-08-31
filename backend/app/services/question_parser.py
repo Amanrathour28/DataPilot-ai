@@ -286,45 +286,55 @@ def resolve_target_column(
     # Normalized column lookup table
     norm_map = {col: re.sub(r"[^a-z0-9]", "", col.lower()) for col in candidate_pool}
 
-    # ── 1. Specific Disambiguation Rules ──
-
-    # Case A: "required quantity" / "required" / "demanded"
-    if (concept == "required_quantity") or ("required" in q_lower and "order" not in q_lower):
-        # Look for required / demanded columns with highest priority
+    # ── 0. Exact / Direct Concept Match ──
+    if concept:
+        concept_norm = re.sub(r"[^a-z0-9]", "", concept.lower())
         for col in candidate_pool:
             c_norm = norm_map[col]
-            if "req" in c_norm or "demand" in c_norm or "need" in c_norm:
-                if "order" not in c_norm and "rec" not in c_norm:
+            if concept_norm == c_norm or concept_norm in c_norm or c_norm in concept_norm:
+                return col
+        for col in candidate_pool:
+            if concept.lower() in col.lower() or col.lower() in concept.lower():
+                return col
+
+    # ── 1. Specific Disambiguation Rules for Numeric Metrics ──
+    if prefer_numeric:
+        # Case A: "required quantity" / "required" / "demanded"
+        if (concept == "required_quantity") or ("required" in q_lower and "order" not in q_lower):
+            for col in candidate_pool:
+                c_norm = norm_map[col]
+                if "req" in c_norm or "demand" in c_norm or "need" in c_norm:
+                    if "order" not in c_norm and "rec" not in c_norm:
+                        return col
+            for col in candidate_pool:
+                c_lower = col.lower()
+                if "required" in c_lower or "demand" in c_lower:
                     return col
-        for col in candidate_pool:
-            c_lower = col.lower()
-            if "required" in c_lower or "demand" in c_lower:
-                return col
 
-    # Case B: "to be order" / "ordered quantity" / "order qty"
-    if (concept == "ordered_quantity") or ("to be order" in q_lower or "qty to be order" in q_lower or "order quantity" in q_lower or "ordered" in q_lower):
-        for col in candidate_pool:
-            c_norm = norm_map[col]
-            if "tobeorder" in c_norm or "orderqty" in c_norm or "ordered" in c_norm or "poqty" in c_norm:
-                return col
-        for col in candidate_pool:
-            c_lower = col.lower()
-            if "order" in c_lower:
-                return col
+        # Case B: "to be order" / "ordered quantity" / "order qty"
+        if (concept == "ordered_quantity") or ("to be order" in q_lower or "qty to be order" in q_lower or "order quantity" in q_lower or "ordered" in q_lower):
+            for col in candidate_pool:
+                c_norm = norm_map[col]
+                if "tobeorder" in c_norm or "orderqty" in c_norm or "ordered" in c_norm or "poqty" in c_norm:
+                    return col
+            for col in candidate_pool:
+                c_lower = col.lower()
+                if "order" in c_lower:
+                    return col
 
-    # Case C: "outstanding" / "pending"
-    if concept == "outstanding_quantity" or "outstanding" in q_lower or "pending" in q_lower:
-        for col in candidate_pool:
-            c_norm = norm_map[col]
-            if "outstanding" in c_norm or "pending" in c_norm or "balance" in c_norm:
-                return col
+        # Case C: "outstanding" / "pending"
+        if concept == "outstanding_quantity" or "outstanding" in q_lower or "pending" in q_lower:
+            for col in candidate_pool:
+                c_norm = norm_map[col]
+                if "outstanding" in c_norm or "pending" in c_norm or "balance" in c_norm:
+                    return col
 
-    # Case D: "price" / "cost" / "unit price"
-    if concept in ("unit_price", "unit_cost") or "price" in q_lower or "cost" in q_lower:
-        for col in candidate_pool:
-            c_lower = col.lower()
-            if "price" in c_lower or "cost" in c_lower or "rate" in c_lower:
-                return col
+        # Case D: "price" / "cost" / "unit price"
+        if concept in ("unit_price", "unit_cost") or "price" in q_lower or "cost" in q_lower:
+            for col in candidate_pool:
+                c_lower = col.lower()
+                if "price" in c_lower or "cost" in c_lower or "rate" in c_lower:
+                    return col
 
     # ── 2. General Scored Token & Substring Matcher ──
     q_words = set(re.findall(r"[a-z0-9]+", q_lower))

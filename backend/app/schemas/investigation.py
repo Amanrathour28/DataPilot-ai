@@ -99,6 +99,9 @@ class InvestigationResponse(BaseModel):
     evidence_ledger: Optional[List[Dict[str, Any]]] = None
     root_causes: Optional[List[Dict[str, Any]]] = None
     confidence_breakdown: Optional[Dict[str, Any]] = None
+    structured_analysis: Optional[Dict[str, Any]] = None
+    data_quality: Optional[Dict[str, Any]] = None
+    is_deterministic: Optional[bool] = False
     applied_memories: Optional[List[Dict[str, Any]]] = None
     critic_reviews: Optional[List[Dict[str, Any]]] = None
     agent_activity: Optional[List[Dict[str, Any]]] = None

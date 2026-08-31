@@ -481,16 +481,36 @@ async def get_investigation(
         for m, name, email, avatar_url in im_rows
     ]
 
-    # Resolve names
-    created_by_name = None
-    if investigation.created_by:
-        c_res = await db.execute(select(User.name).where(User.id == investigation.created_by))
-        created_by_name = c_res.scalar_one_or_none()
+    # Resolve structured analysis and data quality for deterministic & empirical queries
+    structured_analysis = None
+    data_quality = None
+    is_deterministic = False
 
-    assigned_to_name = None
-    if investigation.assigned_to:
-        a_res = await db.execute(select(User.name).where(User.id == investigation.assigned_to))
-        assigned_to_name = a_res.scalar_one_or_none()
+    if investigation.confidence_breakdown and isinstance(investigation.confidence_breakdown, dict):
+        structured_analysis = investigation.confidence_breakdown.get("structured_analysis")
+        data_quality = investigation.confidence_breakdown.get("data_quality")
+        is_deterministic = investigation.confidence_breakdown.get("is_deterministic", False)
+
+    if not structured_analysis and evidence_ledger:
+        for item in evidence_ledger:
+            sd = item.get("supporting_data") or item.get("statistical_metrics") or {}
+            if isinstance(sd, dict):
+                if "structured_analysis" in sd and sd["structured_analysis"]:
+                    structured_analysis = sd["structured_analysis"]
+                if "data_quality" in sd and sd["data_quality"]:
+                    data_quality = sd["data_quality"]
+            if structured_analysis:
+                break
+
+    task_list = tasks.scalars().all()
+    run_list = runs.scalars().all()
+    finding_list = findings.scalars().all()
+    hyp_list = hypotheses.scalars().all()
+
+    if not is_deterministic:
+        is_deterministic = len(hyp_list) == 0 or (structured_analysis and structured_analysis.get("intent") in [
+            "COUNT", "SUM", "AVERAGE", "MIN", "MAX", "MEDIAN", "LIST", "TOP_N", "BOTTOM_N", "GROUP_BY"
+        ])
 
     return InvestigationDetailResponse(
         id=investigation.id,
@@ -510,6 +530,9 @@ async def get_investigation(
         evidence_ledger=evidence_ledger,
         root_causes=investigation.root_causes,
         confidence_breakdown=investigation.confidence_breakdown,
+        structured_analysis=structured_analysis,
+        data_quality=data_quality,
+        is_deterministic=is_deterministic,
         applied_memories=investigation.applied_memories,
         critic_reviews=critic_reviews,
         agent_activity=agent_activity,
@@ -521,10 +544,10 @@ async def get_investigation(
         attempt_number=investigation.attempt_number,
         created_at=investigation.created_at,
         updated_at=investigation.updated_at,
-        tasks=tasks.scalars().all(),
-        runs=runs.scalars().all(),
-        findings=findings.scalars().all(),
-        hypotheses=hypotheses.scalars().all(),
+        tasks=task_list,
+        runs=run_list,
+        findings=finding_list,
+        hypotheses=hyp_list,
         collaborators=collaborators,
     )
 
