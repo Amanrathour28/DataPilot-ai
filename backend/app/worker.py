@@ -993,7 +993,36 @@ class InvestigationWorker:
         # ── 5. Findings Bullet List ──
         findings_bullets = "\n".join([f"- **Finding**: {f.statement} *(Confidence: {round((f.confidence or 0.95)*100)}%)*" for f in findings])
 
-        # ── 6. Executive Answer ──
+        # ── 6. Conversational Intelligence Synthesis & Executive Answer ──
+        from app.services.conversational_analyst_service import ConversationalAnalystService, ResponseMode
+        mode_info = ConversationalAnalystService.classify_response_mode(
+            inv.objective,
+            has_dataset=bool(ds_name != "workspace" and total_rows > 0),
+            schema_cols=cols
+        )
+        entity_ctx = None
+        if inv.parent_id:
+            parent_res = await db.execute(select(Investigation).where(Investigation.id == inv.parent_id))
+            parent_inv = parent_res.scalar_one_or_none()
+            if parent_inv:
+                entity_ctx = {
+                    "entity": (parent_inv.confidence_breakdown or {}).get("top_group") or "the selected item",
+                    "dimension": (parent_inv.confidence_breakdown or {}).get("dimension_column") or "category",
+                    "metric": (parent_inv.confidence_breakdown or {}).get("metric_column") or "revenue",
+                }
+
+        synth_res = ConversationalAnalystService.synthesize_expansive_response(
+            query=inv.objective,
+            mode_info=mode_info,
+            analytics=analytics,
+            ctx=ctx,
+            entity_context=entity_ctx,
+        )
+
+        analytics["response_mode"] = synth_res.get("mode")
+        analytics["suggested_follow_ups"] = synth_res.get("suggested_follow_ups", [])
+        analytics["direct_answer"] = synth_res.get("direct_answer")
+
         analysis_type = analytics.get("analysis_type", "")
         if analysis_type == "COUNT_FILTER_ANALYSIS":
             match_cnt = agg.get("matched_records", agg.get("result", 0))
@@ -1098,15 +1127,24 @@ class InvestigationWorker:
             top_g = agg.get("top_group", "N/A")
             top_t = agg.get("top_group_total", 0.0)
             top_p = agg.get("top_group_pct", 0.0)
+            currency_prefix = "₹" if any(k in m_col.lower() for k in ["revenue", "sales", "price", "amount"]) else ""
             primary_finding = (
-                f"**Total `{m_col}`** across all **{v_cnt:,}** valid records in `{ds_name}` is **{g_tot:,.2f}**.\n\n"
-                f"### Breakdown by `{d_col}`:\n"
-                f"- **{top_g}** generated the highest `{m_col}`: **{top_t:,.2f}** (**{top_p:.1f}%** of total).\n"
+                f"**{top_g}** generated the highest `{m_col}` at **{currency_prefix}{top_t:,.2f}**.\n\n"
+                f"It represents approximately **{top_p:.1f}%** of total `{m_col}` ({currency_prefix}{g_tot:,.2f} across all {v_cnt:,} records in `{ds_name}`), "
+                f"making it the largest single `{d_col}` contributor in the dataset.\n\n"
+                f"A few useful things we can investigate next are:\n"
+                f"• whether {top_g}'s performance is driven by unusually high volume or price\n"
+                f"• which regions contribute most to its revenue\n"
+                f"• which customers purchase it most\n"
+                f"• whether its performance is improving or declining over time\n\n"
+                f"If you're evaluating growth opportunities, I would next compare {top_g}'s revenue trend and regional/customer concentration."
             )
             if findings and len(findings) > 2:
-                primary_finding += "\n" + "\n".join([f"{f.statement}" for f in findings[2:8]])
+                primary_finding += "\n\n### Additional Cohort Observations:\n" + "\n".join([f"{f.statement}" for f in findings[2:8]])
+        elif analysis_type in ("DATASET_EXPLORATION", "PREMISE_CHALLENGE", "UNMAPPABLE_QUESTION_CONCEPT"):
+            primary_finding = synth_res.get("direct_answer", analytics.get("direct_answer", ""))
         elif analysis_type == "UNMAPPABLE_QUESTION_CONCEPT":
-            unmapped_str = ", ".join(ctx.unmappable_concepts)
+            unmapped_str = ", ".join(ctx.unmappable_concepts if ctx else ["requested concepts"])
             primary_finding = (
                 f"⚠ **Cannot Answer from Uploaded Dataset**: The question requested concept(s) (`{unmapped_str}`) "
                 f"that do NOT exist as columns in dataset `{ds_name}`.\n\n"
@@ -1330,24 +1368,49 @@ class InvestigationWorker:
                             ).order_by(Dataset.updated_at.desc())
                         )
                     datasets = datasets_res.scalars().all()
+                    from app.services.conversational_analyst_service import ConversationalAnalystService, ResponseMode
+                    mode_info = ConversationalAnalystService.classify_response_mode(inv.objective, has_dataset=bool(datasets))
+
                     if not datasets:
-                        inv.status = "FAILED"
-                        inv.failure_reason = "[Planning Agent] FAILED: No datasets found in workspace. Please upload a tabular dataset (CSV/XLSX) to begin analysis."
-                        inv.last_completed_stage = "PLANNING"
-                        inv.locked_by = None
-                        inv.lock_expires_at = None
-                        await db.commit()
-                        await self.record_event(
-                            db, investigation_id, "Supervisor Agent", "FAILED",
-                            "[Planning Agent] FAILED: No datasets found in workspace. Upload a CSV/XLSX dataset first.",
-                            {
-                                "stage": "PLANNING",
-                                "agent": "Planning Agent",
-                                "error": "No datasets found in workspace.",
-                                "execution_id": exec_id
-                            }
-                        )
-                        return False
+                        if not mode_info.get("requires_data", True) or mode_info["mode"] in (ResponseMode.EXPLANATION, ResponseMode.BRAINSTORMING, ResponseMode.PLANNING):
+                            # Conceptual inquiry without datasets (e.g. "What is customer segmentation?")
+                            tasks_list = [
+                                {
+                                    "id": f"task_{uuid.uuid4().hex[:8]}",
+                                    "name": "Synthesize Conceptual & Strategic Analysis",
+                                    "agent": "report_agent",
+                                    "stage": "REPORTING",
+                                    "status": "PENDING",
+                                    "details": {"mode": mode_info["mode"].value, "is_conceptual": True}
+                                }
+                            ]
+                            inv.plan = tasks_list
+                            inv.last_completed_stage = "PLANNING"
+                            inv.status = "REPORTING"
+                            await db.commit()
+                            await self.record_event(
+                                db, investigation_id, "Planning Agent", "COMPLETED",
+                                f"Formulated conceptual synthesis plan for mode '{mode_info['mode'].value}'.",
+                                {"plan": inv.plan}
+                            )
+                        else:
+                            inv.status = "FAILED"
+                            inv.failure_reason = "[Planning Agent] FAILED: No datasets found in workspace. Please upload a tabular dataset (CSV/XLSX) to begin analysis."
+                            inv.last_completed_stage = "PLANNING"
+                            inv.locked_by = None
+                            inv.lock_expires_at = None
+                            await db.commit()
+                            await self.record_event(
+                                db, investigation_id, "Supervisor Agent", "FAILED",
+                                "[Planning Agent] FAILED: No datasets found in workspace. Upload a CSV/XLSX dataset first.",
+                                {
+                                    "stage": "PLANNING",
+                                    "agent": "Planning Agent",
+                                    "error": "No datasets found in workspace.",
+                                    "execution_id": exec_id
+                                }
+                            )
+                            return False
 
                     # On-demand profile if any dataset is unprofiled
                     for ds in datasets:
@@ -1705,14 +1768,29 @@ class InvestigationWorker:
                         sa = dict(exec_context.analytics["structured_analysis"])
                         sa["dataset_id"] = sa.get("dataset_id") or inv.dataset_id
                         sa["workspace_id"] = sa.get("workspace_id") or inv.workspace_id
+                        sa["response_mode"] = exec_context.analytics.get("response_mode")
+                        sa["suggested_follow_ups"] = exec_context.analytics.get("suggested_follow_ups")
+                        sa["direct_answer"] = exec_context.analytics.get("direct_answer")
                         conf_breakdown_dict["structured_analysis"] = sa
+                    else:
+                        conf_breakdown_dict["structured_analysis"] = {
+                            "dataset_id": inv.dataset_id,
+                            "workspace_id": inv.workspace_id,
+                            "response_mode": exec_context.analytics.get("response_mode"),
+                            "suggested_follow_ups": exec_context.analytics.get("suggested_follow_ups"),
+                            "direct_answer": exec_context.analytics.get("direct_answer"),
+                        }
+                    conf_breakdown_dict["response_mode"] = exec_context.analytics.get("response_mode")
+                    conf_breakdown_dict["suggested_follow_ups"] = exec_context.analytics.get("suggested_follow_ups")
+                    conf_breakdown_dict["direct_answer"] = exec_context.analytics.get("direct_answer")
                     if "data_quality" in exec_context.analytics:
                         conf_breakdown_dict["data_quality"] = exec_context.analytics["data_quality"]
                     conf_breakdown_dict["analysis_type"] = exec_context.analytics.get("analysis_type")
                     conf_breakdown_dict["is_deterministic"] = len(all_hypotheses) == 0 or exec_context.analytics.get("analysis_type") in [
                         "COUNT_FILTER_ANALYSIS", "METRIC_AGGREGATION", "FILTER_LIST_ANALYSIS",
                         "RANKING_BY_METRIC", "GROUPED_AGGREGATION", "DATASET_VOLUME_ANALYSIS",
-                        "MISSING_VALUES_ANALYSIS", "TOTAL_PENDING_QUANTITY"
+                        "MISSING_VALUES_ANALYSIS", "TOTAL_PENDING_QUANTITY", "DATASET_EXPLORATION",
+                        "PREMISE_CHALLENGE", "UNMAPPABLE_QUESTION_CONCEPT"
                     ]
 
                 stmt = (

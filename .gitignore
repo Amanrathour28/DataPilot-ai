@@ -37,6 +37,7 @@ scratch/
 qa_*.py
 test_*.py
 !backend/tests/**
+backend/tests/__pycache__/
 backend/execute_exact_schema.py
 backend/fix_neon_schema.py
 backend/test_live_endpoint.py

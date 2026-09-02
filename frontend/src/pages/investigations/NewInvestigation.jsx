@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, ArrowRight, Play, Sparkles, Database, FileText, Loader2, AlertCircle } from 'lucide-react'
 import { Button, IconButton } from '../../components/ui/Button'
@@ -29,9 +29,11 @@ const SUGGESTED_PROMPTS = [
 
 export default function NewInvestigation() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const toast = useToast()
   const { activeWorkspace } = useWorkspaceStore()
-  const [objective, setObjective] = useState('')
+  const [objective, setObjective] = useState(searchParams.get('prompt') || '')
+  const parentId = searchParams.get('parent_id') || null
   const [selectedDatasetId, setSelectedDatasetId] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -48,9 +50,9 @@ export default function NewInvestigation() {
     e.preventDefault()
     if (loading) return
     if (!objective.trim()) return
-    if (profiledDatasets.length === 0) {
-      toast?.show('Please upload and profile a dataset first.', 'error')
-      return
+    const isGeneralQuery = /what is|how should i|explain|give me.*ideas|brainstorm|difference between/i.test(objective)
+    if (profiledDatasets.length === 0 && !isGeneralQuery && !selectedDatasetId) {
+      toast?.show('Tip: Upload a dataset for empirical calculations, or ask general conceptual/strategic questions.', 'info')
     }
 
     if (!activeWorkspace?.id) {
@@ -63,6 +65,9 @@ export default function NewInvestigation() {
       const payload = {
         objective: objective.trim(),
         workspace_id: activeWorkspace.id,
+      }
+      if (parentId) {
+        payload.parent_id = parentId
       }
       if (selectedDatasetId) {
         payload.dataset_id = selectedDatasetId

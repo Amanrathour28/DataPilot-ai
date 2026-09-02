@@ -7,6 +7,7 @@ class InvestigationCreate(BaseModel):
     objective: str
     workspace_id: Optional[str] = None
     organization_id: Optional[str] = None
+    parent_id: Optional[str] = None
     visibility: Optional[str] = "WORKSPACE"
     assigned_to: Optional[str] = None
     dataset_ids: Optional[List[str]] = None
@@ -104,6 +105,8 @@ class InvestigationResponse(BaseModel):
     structured_analysis: Optional[Dict[str, Any]] = None
     data_quality: Optional[Dict[str, Any]] = None
     is_deterministic: Optional[bool] = False
+    response_mode: Optional[str] = None
+    suggested_follow_ups: Optional[List[str]] = None
     applied_memories: Optional[List[Dict[str, Any]]] = None
     critic_reviews: Optional[List[Dict[str, Any]]] = None
     agent_activity: Optional[List[Dict[str, Any]]] = None

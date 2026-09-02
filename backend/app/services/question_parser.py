@@ -185,7 +185,7 @@ def parse_analytical_question(question: str) -> StructuredAnalysisPlan:
 
     # SUM
     is_sum = bool(re.search(
-        r"\b(?:what is the total|total of|sum of|how much total|sum|aggregate|grand total|overall total)\b",
+        r"\b(?:what is (?:the )?total|total of|sum of|how much total|sum|aggregate|grand total|overall total)\b",
         q_lower
     )) and not is_count
 

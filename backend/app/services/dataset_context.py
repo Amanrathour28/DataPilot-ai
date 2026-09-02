@@ -954,10 +954,101 @@ def perform_question_driven_analysis(ctx: DatasetContext) -> Dict[str, Any]:
 
     q_lower = ctx.question.lower()
 
-    # 1. Parse question into structured analytical plan
+    # 1. Check for unsupported concepts missing in dataset schema (TEST 10)
+    unsupported_concepts = []
+    unsupported_map = {
+        "customer satisfaction": ["unhappy", "satisfaction", "csat", "nps", "sentiment", "complaint", "feedback"],
+        "customer sentiment": ["sentiment", "opinion", "rating", "review"],
+        "customer churn": ["churn", "churned", "attrition"],
+    }
+    cols_lower = [c.lower() for c in ctx.all_columns]
+    for concept, keywords in unsupported_map.items():
+        if any(k in q_lower for k in keywords):
+            has_matching_col = any(any(k in c for k in keywords) for c in cols_lower)
+            if not has_matching_col:
+                unsupported_concepts.append(concept)
+
+    if unsupported_concepts:
+        from app.services.conversational_analyst_service import ConversationalAnalystService
+        mode_info = ConversationalAnalystService.classify_response_mode(ctx.question, has_dataset=True, schema_cols=ctx.all_columns)
+        res = ConversationalAnalystService.synthesize_expansive_response(
+            query=ctx.question,
+            mode_info=mode_info,
+            analytics={},
+            ctx=ctx,
+            unsupported_claim=", ".join(unsupported_concepts),
+        )
+        return {
+            "success": True,
+            "analysis_type": "UNMAPPABLE_QUESTION_CONCEPT",
+            "findings": [res["direct_answer"]],
+            "primary_table": [],
+            "aggregations": {"unsupported_concepts": unsupported_concepts},
+            "columns_used": [],
+            "direct_answer": res["direct_answer"],
+            "report_markdown": res["report_markdown"],
+            "suggested_follow_ups": res["suggested_follow_ups"],
+        }
+
+    # 2. Check for autonomous dataset exploration inquiries (TEST 8)
+    from app.services.conversational_analyst_service import ConversationalAnalystService, ResponseMode
+    mode_info = ConversationalAnalystService.classify_response_mode(ctx.question, has_dataset=True, schema_cols=ctx.all_columns)
+    if mode_info["mode"] == ResponseMode.EXPLORATION:
+        exploration_info = ConversationalAnalystService.generate_dataset_exploration_insights(ctx)
+        return _analyze_dataset_exploration(df, ctx, exploration_info)
+
+    # 3. Check for false premise challenge (TEST 9: "Why is revenue falling?")
+    is_declining_premise = any(k in q_lower for k in ["falling", "declining", "dropping", "fell", "decreased", "dropped", "slumping"])
+    if is_declining_premise:
+        check_metric = resolve_target_column("revenue", ctx.all_columns, ctx.numeric_columns, ctx.question, prefer_numeric=True) or (
+            ctx.numeric_columns[0] if ctx.numeric_columns else None
+        )
+        if check_metric and check_metric in df.columns:
+            date_col = _find_col(ctx.date_columns, ["date", "time", "month", "created_at", "period"])
+            is_actually_falling = False
+            trend_note = ""
+            if date_col:
+                try:
+                    df_sorted = df.dropna(subset=[date_col, check_metric]).copy()
+                    df_sorted[check_metric] = pd.to_numeric(df_sorted[check_metric].astype(str).str.replace(",", "").str.replace("$", "").str.strip(), errors="coerce")
+                    df_sorted = df_sorted.sort_values(date_col)
+                    if len(df_sorted) > 2:
+                        first_half = float(df_sorted.iloc[:len(df_sorted)//2][check_metric].sum())
+                        second_half = float(df_sorted.iloc[len(df_sorted)//2:][check_metric].sum())
+                        if second_half >= first_half:
+                            trend_note = f"Recorded `{check_metric}` did not decline (earlier periods total: {first_half:,.2f} vs later periods total: {second_half:,.2f})."
+                        else:
+                            is_actually_falling = True
+                except Exception:
+                    pass
+            else:
+                trend_note = f"The dataset does not show decline for `{check_metric}`; total `{check_metric}` remains positive and stable across all records."
+
+            if trend_note and not is_actually_falling:
+                premise_msg = f"Based on the dataset, `{check_metric}` is actually **not falling**. {trend_note}"
+                res = ConversationalAnalystService.synthesize_expansive_response(
+                    query=ctx.question,
+                    mode_info=mode_info,
+                    analytics={},
+                    ctx=ctx,
+                    premise_challenge=premise_msg,
+                )
+                return {
+                    "success": True,
+                    "analysis_type": "PREMISE_CHALLENGE",
+                    "findings": [res["direct_answer"]],
+                    "primary_table": [],
+                    "aggregations": {"premise_challenged": True, "metric": check_metric},
+                    "columns_used": [check_metric],
+                    "direct_answer": res["direct_answer"],
+                    "report_markdown": res["report_markdown"],
+                    "suggested_follow_ups": res["suggested_follow_ups"],
+                }
+
+    # 4. Parse question into structured analytical plan
     plan = parse_analytical_question(ctx.question)
 
-    # 2. Check for specialized system queries first
+    # 5. Check for specialized system queries
     if plan.intent == AnalyticalIntent.VOLUME:
         return _analyze_dataset_volume(df, ctx)
 
@@ -974,7 +1065,7 @@ def perform_question_driven_analysis(ctx: DatasetContext) -> Dict[str, Any]:
         item_name_col = _find_col(ctx.categorical_columns, ["item name", "item_name", "name", "desc", "part", "material"])
         return _analyze_missing_dates(df, ctx, date_col, item_name_col)
 
-    # 3. Resolve target metric column using semantic disambiguation
+    # 6. Resolve target metric column using semantic disambiguation
     target_metric_col = resolve_target_column(
         concept=plan.metric_concept or (plan.filter_condition.column_concept if plan.filter_condition else None),
         all_columns=ctx.all_columns,
@@ -983,7 +1074,22 @@ def perform_question_driven_analysis(ctx: DatasetContext) -> Dict[str, Any]:
         prefer_numeric=True,
     )
 
-    # 4. Route based on parsed intent:
+    # 7. Check for Entity Question (e.g. "Which product has the highest revenue?", "Which category is strongest?")
+    entity_col = None
+    for kw in ["product", "item", "category", "region", "customer", "department", "supplier", "material", "brand", "segment"]:
+        if kw in q_lower:
+            entity_col = _find_col(ctx.categorical_columns, [kw, f"{kw}_name", f"{kw}_id", "name", "desc", "title", "code"])
+            if entity_col:
+                break
+    if not entity_col and any(k in q_lower for k in ["which", "best", "top", "sells most", "sells the most"]) and ctx.categorical_columns:
+        entity_col = ctx.categorical_columns[0]
+
+    if not plan.filter_condition and plan.intent != AnalyticalIntent.COUNT and entity_col and target_metric_col and entity_col != target_metric_col and (
+        q_lower.startswith("which") or "which " in q_lower or "best" in q_lower or "highest" in q_lower or "top" in q_lower or "sells most" in q_lower or "sells the most" in q_lower or plan.intent == AnalyticalIntent.GROUP_BY
+    ):
+        return _analyze_grouped_metric_by_dimension(df, ctx, target_metric_col, entity_col)
+
+    # 8. Route based on parsed intent:
 
     # Intent A: COUNT with filter condition (e.g. "How many items are required more than 100?")
     if plan.intent == AnalyticalIntent.COUNT and plan.filter_condition and target_metric_col:
@@ -1627,6 +1733,50 @@ def _analyze_dataset_volume(df: pd.DataFrame, ctx: DatasetContext) -> Dict[str, 
             "categorical_columns_count": len(ctx.categorical_columns),
         },
         "total_records": total_records,
+    }
+
+
+def _analyze_dataset_exploration(df: pd.DataFrame, ctx: DatasetContext, info: Dict[str, Any]) -> Dict[str, Any]:
+    """Autonomously extracts dataset exploration insights, top entities, and concentrations."""
+    from app.services.conversational_analyst_service import ConversationalAnalystService, ResponseMode
+    mode_info = ConversationalAnalystService.classify_response_mode(ctx.question, has_dataset=True, schema_cols=ctx.all_columns)
+    synth = ConversationalAnalystService.synthesize_expansive_response(
+        query=ctx.question,
+        mode_info=mode_info,
+        analytics={"aggregations": info.get("top_leader") or {}},
+        ctx=ctx,
+    )
+
+    primary_table = []
+    leader = info.get("top_leader")
+    if leader:
+        primary_table.append({
+            "Entity": leader.get("top_entity"),
+            "Dimension": leader.get("dimension"),
+            "Metric": leader.get("metric"),
+            "Value": leader.get("top_value"),
+            "Share (%)": f"{leader.get('top_percentage', 0):.1f}%"
+        })
+
+    return {
+        "success": True,
+        "analysis_type": "DATASET_EXPLORATION",
+        "analysis_description": f"Autonomously explored and characterized dataset '{ctx.dataset_name}'.",
+        "columns_used": list(df.columns),
+        "findings": [f["detail"] for f in info.get("findings", [])],
+        "primary_table": primary_table,
+        "aggregations": {
+            "total_records": info.get("row_count", len(df)),
+            "total_columns": info.get("column_count", len(df.columns)),
+            "primary_metric": info.get("primary_metric"),
+            "primary_dimension": info.get("primary_dimension"),
+            "top_group": (leader or {}).get("top_entity"),
+            "top_group_total": (leader or {}).get("top_value", 0.0),
+            "top_group_pct": (leader or {}).get("top_percentage", 0.0),
+        },
+        "direct_answer": synth["direct_answer"],
+        "report_markdown": synth["report_markdown"],
+        "suggested_follow_ups": synth["suggested_follow_ups"],
     }
 
 

@@ -180,9 +180,36 @@ async def create_investigation(
 
     org_id = payload.organization_id or workspace.organization_id
 
+    # Resolve parent investigation & entity memory if parent_id provided
+    final_objective = payload.objective
+    parent_target_dataset_id = None
+    parent_target_dataset_ids = None
+
+    if payload.parent_id:
+        parent_res = await db.execute(
+            select(Investigation).where(
+                Investigation.id == payload.parent_id,
+                Investigation.workspace_id == target_workspace_id,
+                Investigation.is_deleted == False,
+            )
+        )
+        parent_inv = parent_res.scalar_one_or_none()
+        if parent_inv:
+            parent_target_dataset_id = parent_inv.dataset_id
+            parent_target_dataset_ids = parent_inv.dataset_ids
+            from app.services.conversational_analyst_service import ConversationalAnalystService
+            parent_dict = {
+                "objective": parent_inv.objective,
+                "structured_analysis": (parent_inv.confidence_breakdown or {}).get("structured_analysis", {}),
+                "summary": parent_inv.summary,
+            }
+            resolved_obj, _ = ConversationalAnalystService.resolve_entity_memory(payload.objective, parent_dict)
+            final_objective = resolved_obj
+            logger.info(f"ENTITY_MEMORY_RESOLVED: '{payload.objective}' -> '{final_objective}' (parent={parent_inv.id})")
+
     # Resolve and validate target dataset
-    target_dataset_id = payload.dataset_id or (payload.dataset_ids[0] if payload.dataset_ids else None)
-    target_dataset_ids = list(payload.dataset_ids) if payload.dataset_ids else ([target_dataset_id] if target_dataset_id else [])
+    target_dataset_id = payload.dataset_id or (payload.dataset_ids[0] if payload.dataset_ids else None) or parent_target_dataset_id
+    target_dataset_ids = list(payload.dataset_ids) if payload.dataset_ids else ([target_dataset_id] if target_dataset_id else (parent_target_dataset_ids or []))
 
     from app.db.models.dataset import Dataset
     if target_dataset_id:
@@ -215,18 +242,19 @@ async def create_investigation(
     investigation = Investigation(
         organization_id=org_id,
         workspace_id=target_workspace_id,
+        parent_id=payload.parent_id,
         dataset_id=target_dataset_id,
         dataset_ids=target_dataset_ids,
         created_by=current_user.id,
         assigned_to=payload.assigned_to,
         visibility=payload.visibility or "WORKSPACE",
-        objective=payload.objective,
+        objective=final_objective,
         status="QUEUED",
     )
     db.add(investigation)
     await db.flush()
 
-    logger.info(f"CREATE: investigation_id = {investigation.id}, workspace_id = {target_workspace_id}, dataset_id = {target_dataset_id}")
+    logger.info(f"CREATE: investigation_id = {investigation.id}, workspace_id = {target_workspace_id}, dataset_id = {target_dataset_id}, parent_id = {payload.parent_id}")
     logger.info(f"DB INSERT: investigation_id = {investigation.id}")
 
     # Add creator as OWNER in investigation_members
@@ -585,6 +613,8 @@ async def get_investigation(
         structured_analysis=structured_analysis,
         data_quality=data_quality,
         is_deterministic=is_deterministic,
+        response_mode=(structured_analysis or {}).get("response_mode") or (investigation.confidence_breakdown or {}).get("response_mode"),
+        suggested_follow_ups=(structured_analysis or {}).get("suggested_follow_ups") or (investigation.confidence_breakdown or {}).get("suggested_follow_ups"),
         applied_memories=investigation.applied_memories,
         critic_reviews=critic_reviews,
         agent_activity=agent_activity,

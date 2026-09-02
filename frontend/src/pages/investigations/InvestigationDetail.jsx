@@ -851,6 +851,28 @@ export default function InvestigationDetail() {
                 )}
               </div>
 
+              {/* Suggested Follow-up Questions from AI Analyst */}
+              {((detail?.suggested_follow_ups && detail.suggested_follow_ups.length > 0) || (structuredAnalysis?.suggested_follow_ups && structuredAnalysis.suggested_follow_ups.length > 0)) && (
+                <div className="pt-3 border-t border-white/[0.08] space-y-2">
+                  <span className="font-mono text-[10px] text-[#c8ff00] uppercase tracking-wider block font-bold">
+                    Suggested Next Investigations & Follow-Up Questions:
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    {(detail?.suggested_follow_ups || structuredAnalysis?.suggested_follow_ups || []).map((q, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          navigate(`/investigations/new?parent_id=${id}&prompt=${encodeURIComponent(q)}`)
+                        }}
+                        className="px-3 py-1.5 bg-[#141414] hover:bg-[#c8ff00]/10 border border-white/[0.12] hover:border-[#c8ff00]/50 text-xs font-mono text-[#f2f2ef] hover:text-[#c8ff00] transition-colors cursor-pointer text-left rounded-sm"
+                      >
+                        • {q}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {realityCheckNote && (
                 <div className="p-4 border border-amber-400/20 bg-amber-400/5 font-mono text-xs text-amber-300 leading-relaxed">
                   <strong>Reality Check:</strong> {realityCheckNote}
