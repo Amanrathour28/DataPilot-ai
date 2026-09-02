@@ -28,6 +28,10 @@ class Investigation(Base):
     parent_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("investigations.id", ondelete="SET NULL"), nullable=True
     )  # Tracks replay source
+    dataset_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("datasets.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    dataset_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
     created_by: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

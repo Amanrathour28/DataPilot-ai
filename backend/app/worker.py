@@ -133,7 +133,10 @@ class InvestigationWorker:
         self, db: AsyncSession, investigation_id: str
     ) -> Tuple[bool, Optional[str], Optional[Investigation]]:
         """Atomically acquires an exclusive lease on an investigation."""
-        exec_id = generate_execution_id()
+        inv_check = await db.execute(select(Investigation.execution_id).where(Investigation.id == investigation_id))
+        existing_exec_id = inv_check.scalar_one_or_none()
+        exec_id = existing_exec_id or generate_execution_id()
+
         now = utcnow()
         lease_expires = now + timedelta(seconds=LEASE_DURATION_SECONDS)
 
@@ -843,6 +846,7 @@ class InvestigationWorker:
             })
 
         # ── Check 7: Semantic Question vs Result Alignment ──
+        analytics = exec_context.analytics or {}
         q_plan = analytics.get("plan", {})
         q_intent = q_plan.get("intent")
         res_op = analytics.get("aggregations", {}).get("operation") or analytics.get("aggregations", {}).get("intent")
@@ -1279,6 +1283,7 @@ class InvestigationWorker:
             if not acquired or not inv or not exec_id:
                 return False
 
+            target_ds_ids = list(inv.dataset_ids) if inv.dataset_ids else ([inv.dataset_id] if inv.dataset_id else [])
             exec_context = InvestigationExecutionContext(
                 investigation_id=investigation_id,
                 workspace_id=inv.workspace_id,
@@ -1286,13 +1291,14 @@ class InvestigationWorker:
                 objective=inv.objective,
                 execution_id=exec_id,
                 attempt_number=inv.attempt_number,
+                dataset_ids=target_ds_ids,
             )
 
             try:
                 await self.record_event(
                     db, investigation_id, "Supervisor Agent", "STARTED",
                     f"Workflow claimed by {self.worker_id} (exec_id={exec_id})",
-                    {"execution_id": exec_id, "worker_id": self.worker_id}
+                    {"execution_id": exec_id, "worker_id": self.worker_id, "dataset_ids": target_ds_ids}
                 )
 
                 # ── STAGE 1: PLANNING ────────────────────────────────────────────────
@@ -1306,14 +1312,23 @@ class InvestigationWorker:
                         "Analyzing workspace datasets and formulating investigation plan..."
                     )
 
-                    # Gather datasets schema context
-                    datasets_res = await db.execute(
-                        select(Dataset).where(
-                            Dataset.workspace_id == inv.workspace_id,
-                            Dataset.status.in_(["PROFILED", "UPLOADED"]),
-                            Dataset.is_deleted == False,
+                    # Gather datasets schema context respecting target dataset selection
+                    if exec_context.dataset_ids:
+                        datasets_res = await db.execute(
+                            select(Dataset).where(
+                                Dataset.id.in_(exec_context.dataset_ids),
+                                Dataset.workspace_id == inv.workspace_id,
+                                Dataset.is_deleted == False,
+                            )
                         )
-                    )
+                    else:
+                        datasets_res = await db.execute(
+                            select(Dataset).where(
+                                Dataset.workspace_id == inv.workspace_id,
+                                Dataset.status.in_(["PROFILED", "UPLOADED"]),
+                                Dataset.is_deleted == False,
+                            ).order_by(Dataset.updated_at.desc())
+                        )
                     datasets = datasets_res.scalars().all()
                     if not datasets:
                         inv.status = "FAILED"
@@ -1343,14 +1358,40 @@ class InvestigationWorker:
                             except Exception:
                                 pass
 
-                    tasks_list = [
-                        {"step_number": 1, "task_id": "step_1", "name": "Question-Driven Dataset Analysis", "agent": "data_analyst", "objective": "Profile dataset and execute targeted analysis on relevant columns"},
-                        {"step_number": 2, "task_id": "step_2", "name": "Schema-Grounded Hypothesis Formulation", "agent": "hypothesis_agent", "objective": "Formulate testable causal hypotheses grounded in dataset schema"},
-                        {"step_number": 3, "task_id": "step_3", "name": "Deterministic Statistical Verification", "agent": "hypothesis_tester", "objective": "Execute statistical significance tests on dataset variables"},
-                        {"step_number": 4, "task_id": "step_4", "name": "Domain Document Strategy RAG", "agent": "rag_agent", "objective": "Cross-reference internal policy and memo documents"},
-                        {"step_number": 5, "task_id": "step_5", "name": "Strict Verification & Audit", "agent": "critic", "objective": "Audit evidence ledger and validate mathematical consistency"},
-                        {"step_number": 6, "task_id": "step_6", "name": "Executive Investigation Synthesis", "agent": "report_agent", "objective": "Synthesize findings into dynamic evidence-based report"}
+                    from app.services.question_parser import parse_analytical_question, AnalyticalIntent
+                    parsed_plan = parse_analytical_question(inv.objective)
+                    deterministic_intents = [
+                        AnalyticalIntent.COUNT,
+                        AnalyticalIntent.SUM,
+                        AnalyticalIntent.AVERAGE,
+                        AnalyticalIntent.MIN,
+                        AnalyticalIntent.MAX,
+                        AnalyticalIntent.MEDIAN,
+                        AnalyticalIntent.TOP_N,
+                        AnalyticalIntent.BOTTOM_N,
+                        AnalyticalIntent.LIST,
+                        AnalyticalIntent.GROUP_BY,
+                        AnalyticalIntent.PERCENTAGE,
+                        AnalyticalIntent.VOLUME,
+                        AnalyticalIntent.MISSING_VALUES,
+                        AnalyticalIntent.SCHEMA_CHECK,
                     ]
+                    is_deterministic_q = parsed_plan.intent in deterministic_intents
+
+                    if is_deterministic_q:
+                        tasks_list = [
+                            {"step_number": 1, "task_id": "step_1", "name": "Question-Driven Dataset Analysis", "agent": "data_analyst", "objective": f"Execute verified {parsed_plan.intent.value} query with dual-engine verification"},
+                            {"step_number": 2, "task_id": "step_2", "name": "Executive Investigation Synthesis", "agent": "report_agent", "objective": "Synthesize verified analytical findings into executive report"}
+                        ]
+                    else:
+                        tasks_list = [
+                            {"step_number": 1, "task_id": "step_1", "name": "Question-Driven Dataset Analysis", "agent": "data_analyst", "objective": "Profile dataset and execute targeted analysis on relevant columns"},
+                            {"step_number": 2, "task_id": "step_2", "name": "Schema-Grounded Hypothesis Formulation", "agent": "hypothesis_agent", "objective": "Formulate testable causal hypotheses grounded in dataset schema"},
+                            {"step_number": 3, "task_id": "step_3", "name": "Deterministic Statistical Verification", "agent": "hypothesis_tester", "objective": "Execute statistical significance tests on dataset variables"},
+                            {"step_number": 4, "task_id": "step_4", "name": "Domain Document Strategy RAG", "agent": "rag_agent", "objective": "Cross-reference internal policy and memo documents"},
+                            {"step_number": 5, "task_id": "step_5", "name": "Strict Verification & Audit", "agent": "critic", "objective": "Audit evidence ledger and validate mathematical consistency"},
+                            {"step_number": 6, "task_id": "step_6", "name": "Executive Investigation Synthesis", "agent": "report_agent", "objective": "Synthesize findings into dynamic evidence-based report"}
+                        ]
 
                     inv.plan = tasks_list
                     inv.last_completed_stage = "PLANNING"
@@ -1661,7 +1702,10 @@ class InvestigationWorker:
                 conf_breakdown_dict = conf_breakdown.model_dump()
                 if exec_context.analytics:
                     if "structured_analysis" in exec_context.analytics:
-                        conf_breakdown_dict["structured_analysis"] = exec_context.analytics["structured_analysis"]
+                        sa = dict(exec_context.analytics["structured_analysis"])
+                        sa["dataset_id"] = sa.get("dataset_id") or inv.dataset_id
+                        sa["workspace_id"] = sa.get("workspace_id") or inv.workspace_id
+                        conf_breakdown_dict["structured_analysis"] = sa
                     if "data_quality" in exec_context.analytics:
                         conf_breakdown_dict["data_quality"] = exec_context.analytics["data_quality"]
                     conf_breakdown_dict["analysis_type"] = exec_context.analytics.get("analysis_type")

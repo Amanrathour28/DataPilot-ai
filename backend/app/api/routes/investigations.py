@@ -180,9 +180,43 @@ async def create_investigation(
 
     org_id = payload.organization_id or workspace.organization_id
 
+    # Resolve and validate target dataset
+    target_dataset_id = payload.dataset_id or (payload.dataset_ids[0] if payload.dataset_ids else None)
+    target_dataset_ids = list(payload.dataset_ids) if payload.dataset_ids else ([target_dataset_id] if target_dataset_id else [])
+
+    from app.db.models.dataset import Dataset
+    if target_dataset_id:
+        ds_res = await db.execute(
+            select(Dataset).where(
+                Dataset.id == target_dataset_id,
+                Dataset.workspace_id == target_workspace_id,
+                Dataset.is_deleted == False,
+            )
+        )
+        ds = ds_res.scalar_one_or_none()
+        if not ds:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Selected dataset '{target_dataset_id}' does not exist or does not belong to workspace '{target_workspace_id}'."
+            )
+    else:
+        # If not explicitly provided, associate with workspace dataset if available
+        ds_res = await db.execute(
+            select(Dataset.id).where(
+                Dataset.workspace_id == target_workspace_id,
+                Dataset.is_deleted == False,
+            ).order_by(Dataset.updated_at.desc())
+        )
+        available_ids = ds_res.scalars().all()
+        if available_ids:
+            target_dataset_id = available_ids[0]
+            target_dataset_ids = [target_dataset_id]
+
     investigation = Investigation(
         organization_id=org_id,
         workspace_id=target_workspace_id,
+        dataset_id=target_dataset_id,
+        dataset_ids=target_dataset_ids,
         created_by=current_user.id,
         assigned_to=payload.assigned_to,
         visibility=payload.visibility or "WORKSPACE",
@@ -191,6 +225,9 @@ async def create_investigation(
     )
     db.add(investigation)
     await db.flush()
+
+    logger.info(f"CREATE: investigation_id = {investigation.id}, workspace_id = {target_workspace_id}, dataset_id = {target_dataset_id}")
+    logger.info(f"DB INSERT: investigation_id = {investigation.id}")
 
     # Add creator as OWNER in investigation_members
     creator_member = InvestigationMember(
@@ -230,7 +267,7 @@ async def create_investigation(
             action="investigation.created",
             resource_type="investigation",
             resource_id=investigation.id,
-            metadata_json={"objective": payload.objective, "workspace_id": target_workspace_id},
+            metadata_json={"objective": payload.objective, "workspace_id": target_workspace_id, "dataset_id": target_dataset_id},
             workspace_id=target_workspace_id,
         )
 
@@ -240,6 +277,7 @@ async def create_investigation(
     inv_id = investigation.id
     resp = InvestigationResponse.model_validate(investigation)
     resp.created_by_name = current_user.name
+    logger.info(f"API RESPONSE: investigation_id = {resp.id}")
 
     # Persist initial QUEUED event
     worker = InvestigationWorker(worker_id="system_init")
@@ -249,7 +287,7 @@ async def create_investigation(
         agent="Supervisor Agent",
         event_type="STARTED",
         message="Investigation initialized and queued for worker execution.",
-        details={"status": "QUEUED"},
+        details={"status": "QUEUED", "dataset_id": target_dataset_id},
     )
 
     logger.info(f"Investigation created & queued: {inv_id}")
@@ -512,11 +550,25 @@ async def get_investigation(
             "COUNT", "SUM", "AVERAGE", "MIN", "MAX", "MEDIAN", "LIST", "TOP_N", "BOTTOM_N", "GROUP_BY"
         ])
 
+    # Resolve creator and assignee names
+    user_ids = {uid for uid in (investigation.created_by, investigation.assigned_to) if uid}
+    user_map = {}
+    if user_ids:
+        u_res = await db.execute(select(User.id, User.name).where(User.id.in_(user_ids)))
+        user_map = dict(u_res.all())
+    created_by_name = user_map.get(investigation.created_by)
+    assigned_to_name = user_map.get(investigation.assigned_to)
+
+    logger.info(f"DETAIL API REQUEST: investigation_id = {investigation_id}")
+    logger.info(f"DB LOOKUP: investigation_id = {investigation_id} -> FOUND (status={investigation.status})")
+
     return InvestigationDetailResponse(
         id=investigation.id,
         organization_id=investigation.organization_id,
         workspace_id=investigation.workspace_id,
         parent_id=investigation.parent_id,
+        dataset_id=investigation.dataset_id,
+        dataset_ids=investigation.dataset_ids,
         created_by=investigation.created_by,
         created_by_name=created_by_name,
         assigned_to=investigation.assigned_to,
@@ -730,35 +782,31 @@ async def debug_investigation(
     }
 
 
-@router.post("/{investigation_id}/replay", response_model=InvestigationResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/{investigation_id}/replay", response_model=InvestigationResponse, status_code=status.HTTP_200_OK)
 async def replay_investigation(
     investigation_id: str,
     background_tasks: BackgroundTasks = BackgroundTasks(),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Replay an investigation using the original question and current dataset state."""
+    """Replay an investigation preserving original ID, workspace, question, and dataset while issuing a new execution ID."""
     original = await assert_investigation_access(investigation_id, current_user, db, min_role="MEMBER")
 
-    replayed = Investigation(
-        organization_id=original.organization_id,
-        workspace_id=original.workspace_id,
-        created_by=current_user.id,
-        objective=original.objective,
-        parent_id=original.id,
-        status="QUEUED",
-    )
-    db.add(replayed)
-    await db.flush()
+    from app.worker import generate_execution_id
+    new_exec_id = generate_execution_id()
+    prev_exec_id = original.execution_id
 
-    # Add creator as OWNER in investigation_members
-    creator_member = InvestigationMember(
-        id=str(uuid.uuid4()),
-        investigation_id=replayed.id,
-        user_id=current_user.id,
-        role="OWNER",
-    )
-    db.add(creator_member)
+    # Reset investigation state for fresh execution run
+    original.status = "QUEUED"
+    original.execution_id = new_exec_id
+    original.attempt_number = (original.attempt_number or 1) + 1
+    original.reinvestigation_count = (original.reinvestigation_count or 0) + 1
+    original.last_completed_stage = None
+    original.failure_reason = None
+    original.locked_by = None
+    original.lock_expires_at = None
+    original.plan = None
+    original.updated_at = utcnow()
 
     if original.organization_id:
         await log_audit_event(
@@ -767,26 +815,30 @@ async def replay_investigation(
             user=current_user,
             action="investigation.replayed",
             resource_type="investigation",
-            resource_id=replayed.id,
-            metadata_json={"parent_id": original.id},
+            resource_id=original.id,
+            metadata_json={"previous_execution_id": prev_exec_id, "new_execution_id": new_exec_id},
             workspace_id=original.workspace_id,
         )
 
     await db.commit()
-    await db.refresh(replayed)
+    await db.refresh(original)
 
     worker = InvestigationWorker(worker_id="replay_init")
     await worker.record_event(
         db,
-        replayed.id,
+        original.id,
         agent="Supervisor Agent",
         event_type="STARTED",
-        message=f"Replay execution spawned from parent investigation {original.id[:8]}...",
-        details={"parent_id": original.id, "status": "QUEUED"},
+        message=f"Replay execution {new_exec_id} initialized (replaces execution {prev_exec_id or 'none'}).",
+        details={"status": "QUEUED", "execution_id": new_exec_id, "previous_execution_id": prev_exec_id},
     )
 
-    background_tasks.add_task(_run_worker_async, replayed.id)
-    return replayed
+    logger.info(f"Investigation {original.id} replayed: new execution_id={new_exec_id} (prev={prev_exec_id})")
+    ensure_worker_running(original.id)
+
+    resp = InvestigationResponse.model_validate(original)
+    resp.created_by_name = current_user.name
+    return resp
 
 
 @router.post("/{investigation_id}/pause")

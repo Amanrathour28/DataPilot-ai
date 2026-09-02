@@ -86,6 +86,8 @@ class InvestigationResponse(BaseModel):
     organization_id: Optional[str] = None
     workspace_id: str
     parent_id: Optional[str] = None
+    dataset_id: Optional[str] = None
+    dataset_ids: Optional[List[str]] = None
     created_by: Optional[str] = None
     created_by_name: Optional[str] = None
     assigned_to: Optional[str] = None

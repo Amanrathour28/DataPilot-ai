@@ -130,15 +130,15 @@ def _load_dataframe(dataset: Dataset, profile: Optional[DatasetProfile]) -> Opti
 
     # 1. Try disk file first
     if dataset.file_path and os.path.exists(dataset.file_path):
-        ext = (dataset.file_extension or "").lower()
+        ext = (dataset.file_extension or "").lower().lstrip(".")
         try:
-            if ext == ".csv":
+            if ext == "csv":
                 df = pd.read_csv(dataset.file_path)
-            elif ext in (".xlsx", ".xls"):
+            elif ext in ("xlsx", "xls"):
                 df = pd.read_excel(dataset.file_path)
-            elif ext == ".json":
+            elif ext == "json":
                 df = pd.read_json(dataset.file_path)
-            elif ext == ".parquet":
+            elif ext == "parquet":
                 df = pd.read_parquet(dataset.file_path)
             if df is not None:
                 logger.info(f"[DatasetContext] Loaded {len(df)} rows from disk: {dataset.file_path}")
@@ -148,13 +148,14 @@ def _load_dataframe(dataset: Dataset, profile: Optional[DatasetProfile]) -> Opti
 
     # 2. Try persisted raw_data from database (production serverless safe)
     if df is None and getattr(dataset, "raw_data", None):
-        ext = (dataset.file_extension or "").lower()
+        ext = (dataset.file_extension or "").lower().lstrip(".")
         try:
             import io
-            if ext == ".json":
-                df = pd.read_json(io.StringIO(dataset.raw_data))
+            raw_str = dataset.raw_data.strip()
+            if ext == "json" or raw_str.startswith(("[", "{")):
+                df = pd.read_json(io.StringIO(raw_str))
             else:
-                df = pd.read_csv(io.StringIO(dataset.raw_data))
+                df = pd.read_csv(io.StringIO(raw_str))
             if df is not None:
                 logger.info(f"[DatasetContext] Loaded {len(df)} rows from dataset.raw_data for {dataset.id}")
                 return df

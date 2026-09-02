@@ -80,6 +80,8 @@ async def ensure_schema_initialized():
             "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS error_message TEXT;",
             "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS raw_data TEXT;",
             "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS parent_id VARCHAR(36);",
+            "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS dataset_id VARCHAR(36);",
+            "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS dataset_ids JSON;",
             "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS reinvestigation_count INTEGER DEFAULT 0;",
             "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS confidence_breakdown JSON;",
             "ALTER TABLE investigations ADD COLUMN IF NOT EXISTS applied_memories JSON;",
@@ -132,6 +134,24 @@ async def ensure_schema_initialized():
                     await conn.execute(text(stmt))
             except Exception:
                 pass
+    else:
+        sqlite_migrations = [
+            ("investigations", "dataset_id", "ALTER TABLE investigations ADD COLUMN dataset_id VARCHAR(36);"),
+            ("investigations", "dataset_ids", "ALTER TABLE investigations ADD COLUMN dataset_ids JSON;"),
+            ("investigations", "parent_id", "ALTER TABLE investigations ADD COLUMN parent_id VARCHAR(36);"),
+        ]
+        try:
+            async with engine.begin() as conn:
+                for table, col, stmt in sqlite_migrations:
+                    try:
+                        res = await conn.execute(text(f"PRAGMA table_info({table});"))
+                        existing_cols = [row[1] for row in res.fetchall()]
+                        if col not in existing_cols:
+                            await conn.execute(text(stmt))
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
     _schema_initialized = True
 

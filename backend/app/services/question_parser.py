@@ -195,13 +195,19 @@ def parse_analytical_question(question: str) -> StructuredAnalysisPlan:
         q_lower
     )) and not is_count
 
+    # CAUSAL / PATTERN / EXPLANATORY QUESTION
+    is_causal = bool(re.search(
+        r"\b(?:why|explain|patterns?|drivers?|root cause|correlat(?:ion|e)|caus(?:ation|al)|analyz(?:e|is)|investigat(?:e|ion)|reasons?|influenc(?:e|ing))\b",
+        q_lower
+    ))
+
     # MIN / MAX
-    is_max = bool(re.search(
-        r"\b(?:what is the highest|highest|maximum|max|greatest|largest|peak|most)\b",
+    is_max = (not is_causal) and bool(re.search(
+        r"\b(?:what is the highest|highest|maximum|max|greatest|largest|peak)\b",
         q_lower
     )) and not (limit_n is not None and limit_n > 1) and not is_count
 
-    is_min = bool(re.search(
+    is_min = (not is_causal) and bool(re.search(
         r"\b(?:what is the lowest|lowest|minimum|min|smallest|least)\b",
         q_lower
     )) and not (limit_n is not None and limit_n > 1) and not is_count
@@ -213,7 +219,7 @@ def parse_analytical_question(question: str) -> StructuredAnalysisPlan:
     ))
 
     # LIST / FILTER
-    is_list = bool(re.search(
+    is_list = (not is_causal) and bool(re.search(
         r"\b(?:which items|which records|list all|list of|show items|show all|which parts|which products|give me the items|find all)\b",
         q_lower
     )) and not is_count and not (limit_n is not None and limit_n > 1)
@@ -245,7 +251,7 @@ def parse_analytical_question(question: str) -> StructuredAnalysisPlan:
         intent = AnalyticalIntent.MIN
     elif is_list:
         intent = AnalyticalIntent.LIST
-    elif dim_concept is not None:
+    elif dim_concept is not None and not is_causal:
         intent = AnalyticalIntent.GROUP_BY
     else:
         intent = AnalyticalIntent.GENERAL

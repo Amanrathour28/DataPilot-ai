@@ -6,7 +6,7 @@ import {
   Terminal, ShieldCheck, Database, Zap, FileText, CheckSquare,
   Award, Sparkles, Scale, Info, AlertCircle, ChevronRight, ChevronLeft,
   TrendingUp, BarChart3, Check, ShieldAlert, Users, UserPlus,
-  MessageSquare, UserCheck, CheckCircle, Copy, Search, Filter, Layers, Table
+  MessageSquare, UserCheck, CheckCircle, Copy, Search, Filter, Layers, Table, Loader2
 } from 'lucide-react'
 import { Button, IconButton } from '../../components/ui/Button'
 import { StatusBadge, Badge } from '../../components/ui/Badge'
@@ -81,8 +81,10 @@ export default function InvestigationDetail() {
   const lastEventIdRef = useRef(0)
   const seenEventIdsRef = useRef(new Set())
 
+  const isValidId = Boolean(id && id !== 'undefined' && id !== 'null' && id.trim() !== '')
+
   const loadCollaborationData = async () => {
-    if (!id) return
+    if (!isValidId) return
     try {
       const [collabs, revs] = await Promise.all([
         collaborationApi.getMembers(id).catch(() => []),
@@ -95,8 +97,31 @@ export default function InvestigationDetail() {
     }
   }
 
+  // Reset all streaming & local event state on navigation between investigations
   useEffect(() => {
-    loadCollaborationData()
+    setStreamStatus(null)
+    setStreamStage(null)
+    setStreamTasks([])
+    setStreamFindings([])
+    setStreamHypotheses([])
+    setStreamEvidence([])
+    setStreamActivities([])
+    setStreamSummary(null)
+    setStreamConfidence(null)
+    setStreamConfBreakdown(null)
+    setStreamRootCauses([])
+    setStreamPlan([])
+    setStreamCriticReviews([])
+    setStreamAppliedMemories([])
+    setStreamFailureReason(null)
+    setStreamExecutionId(null)
+    setConnectionStatus('connecting')
+    lastEventIdRef.current = 0
+    seenEventIdsRef.current = new Set()
+
+    if (isValidId) {
+      loadCollaborationData()
+    }
   }, [id])
 
   const openAddCollabModal = async () => {
@@ -148,11 +173,16 @@ export default function InvestigationDetail() {
   }
 
   // Initial Fetch & Regular Polling Fallback
-  const { data: detail, isLoading, refetch } = useQuery({
+  const { data: detail, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['investigation-detail', id],
     queryFn: () => investigationsApi.get(id),
-    enabled: !!id,
+    enabled: isValidId,
     staleTime: 3000,
+    retry: (failureCount, err) => {
+      const s = err?.response?.status
+      if (s === 404 || s === 403 || s === 401) return false
+      return failureCount < 2
+    },
     refetchInterval: (query) => {
       const status = query.state.data?.status
       if (['COMPLETED', 'COMPLETED_WITH_LIMITATIONS', 'INSUFFICIENT_DATA', 'FAILED', 'CANCELLED'].includes(status)) {
@@ -162,7 +192,6 @@ export default function InvestigationDetail() {
     },
   })
 
-  // Hydrate state from DB payload when detail query resolves
   // Hydrate state from DB payload when detail query resolves
   useEffect(() => {
     if (!detail) return
@@ -193,7 +222,7 @@ export default function InvestigationDetail() {
 
   // Setup Server-Sent Events (SSE) Stream
   useEffect(() => {
-    if (!id) return
+    if (!isValidId) return
 
     const terminalStatuses = ['COMPLETED', 'COMPLETED_WITH_LIMITATIONS', 'INSUFFICIENT_DATA', 'INSUFFICIENT_EVIDENCE', 'FAILED', 'CANCELLED']
     if (detail?.status && terminalStatuses.includes(detail.status)) {
@@ -248,7 +277,7 @@ export default function InvestigationDetail() {
         } else if (data.type === 'agent_activity' && data.activity) {
           setStreamActivities(prev => {
             if (prev.some(a => a.id === data.activity.id)) return prev
-            return [...prev, data.activity]
+            return [data.activity, ...prev]
           })
 
           // Check if this activity is a terminal event from Supervisor
@@ -320,11 +349,12 @@ export default function InvestigationDetail() {
   // Action Controls
   const handleReplay = async () => {
     try {
-      const newInv = await investigationsApi.replay(id)
+      await investigationsApi.replay(id)
       toast?.show('Replay execution launched', 'success')
-      navigate(`/investigations/${newInv.id}`)
+      queryClient.invalidateQueries(['investigation-detail', id])
+      await refetch()
     } catch (err) {
-      toast?.show('Failed to replay investigation', 'error')
+      toast?.show(err.response?.data?.detail || 'Failed to replay investigation', 'error')
     }
   }
 
@@ -355,9 +385,24 @@ export default function InvestigationDetail() {
     }
   }
 
+  if (!isValidId) {
+    return (
+      <PageShell className="text-center font-mono text-xs text-[#f2f2ef]/50 py-20 space-y-4">
+        <AlertCircle className="w-8 h-8 text-amber-400 mx-auto" />
+        <p className="text-base font-sans font-medium text-[#f2f2ef]">Invalid Investigation ID</p>
+        <p className="text-xs text-[#f2f2ef]/40">No valid investigation identifier was specified in the route.</p>
+        <Button variant="secondary" onClick={() => navigate('/investigations')}>Back to Investigations</Button>
+      </PageShell>
+    )
+  }
+
   if (isLoading) {
     return (
       <PageShell className="space-y-6">
+        <div className="flex items-center gap-3 py-3 text-xs font-mono text-[#d4ff58]">
+          <Loader2 className="w-4 h-4 animate-spin text-[#d4ff58]" />
+          <span>Loading investigation details...</span>
+        </div>
         <Skeleton className="h-8 w-48" />
         <Skeleton className="h-20 w-full" />
         <Skeleton className="h-96 w-full" />
@@ -365,10 +410,60 @@ export default function InvestigationDetail() {
     )
   }
 
-  if (!detail) {
+  if (isError || !detail) {
+    const errStatus = error?.response?.status
+    const errorDetail = error?.response?.data?.detail || error?.message
+
+    if (errStatus === 404) {
+      return (
+        <PageShell className="text-center font-mono text-xs text-[#f2f2ef]/60 py-20 space-y-4">
+          <AlertCircle className="w-8 h-8 text-amber-400 mx-auto" />
+          <p className="text-base font-sans font-medium text-[#f2f2ef]">Investigation record not found.</p>
+          <p className="text-xs text-[#f2f2ef]/40 max-w-md mx-auto">
+            The requested investigation does not exist, was deleted, or belongs to another workspace.
+          </p>
+          <Button variant="secondary" onClick={() => navigate('/investigations')}>Back to Investigations</Button>
+        </PageShell>
+      )
+    }
+
+    if (errStatus === 403) {
+      return (
+        <PageShell className="text-center font-mono text-xs text-[#f2f2ef]/60 py-20 space-y-4">
+          <ShieldAlert className="w-8 h-8 text-red-400 mx-auto" />
+          <p className="text-base font-sans font-medium text-[#f2f2ef]">Access Denied</p>
+          <p className="text-xs text-[#f2f2ef]/40 max-w-md mx-auto">
+            You do not have permission to access this investigation.
+          </p>
+          <Button variant="secondary" onClick={() => navigate('/investigations')}>Back to Investigations</Button>
+        </PageShell>
+      )
+    }
+
+    if (errStatus === 401) {
+      return (
+        <PageShell className="text-center font-mono text-xs text-[#f2f2ef]/60 py-20 space-y-4">
+          <AlertCircle className="w-8 h-8 text-amber-400 mx-auto" />
+          <p className="text-base font-sans font-medium text-[#f2f2ef]">Authentication Required</p>
+          <p className="text-xs text-[#f2f2ef]/40 max-w-md mx-auto">
+            Your session has expired. Please log in again to view this investigation.
+          </p>
+          <Button variant="primary" onClick={() => navigate('/login')}>Log In</Button>
+        </PageShell>
+      )
+    }
+
     return (
-      <PageShell className="text-center font-mono text-xs text-[#f2f2ef]/40 py-20">
-        Investigation record not found.
+      <PageShell className="text-center font-mono text-xs text-[#f2f2ef]/60 py-20 space-y-4">
+        <AlertCircle className="w-8 h-8 text-red-400 mx-auto" />
+        <p className="text-base font-sans font-medium text-[#f2f2ef]">Failed to load investigation</p>
+        <p className="text-xs text-[#f2f2ef]/40 max-w-md mx-auto">
+          {typeof errorDetail === 'string' ? errorDetail : 'An internal server error occurred while retrieving investigation records.'}
+        </p>
+        <div className="flex justify-center gap-3 pt-2">
+          <Button variant="secondary" onClick={() => refetch()}>Retry</Button>
+          <Button variant="ghost" onClick={() => navigate('/investigations')}>Back to Investigations</Button>
+        </div>
       </PageShell>
     )
   }
